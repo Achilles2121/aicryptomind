@@ -1,0 +1,3651 @@
+// Copyright (c) 2025 Vision AI Mind. All rights reserved.
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import PropTypes from "prop-types";
+import {
+  Activity,
+  AlertTriangle,
+  Bell,
+  Gauge,
+  LineChart as LineChartIcon,
+  PlugZap,
+  RefreshCw,
+  Shield,
+  Signal,
+  TrendingUp,
+  WifiOff,
+} from "lucide-react";
+import {
+  Area,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Customized,
+  Legend,
+  Line,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { auth, db } from "./firebase";
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const POLL_INTERVAL = 30 * 1000; // 30 seconds
+const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
+const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
+
+const ASSETS = [
+  { id: "bitcoin", label: "BTC / USD", binance: "btcusdt", kraken: "XXBTZUSD", cc: "BTC" },
+  { id: "ethereum", label: "ETH / USD", binance: "ethusdt", kraken: "XETHZUSD", cc: "ETH" },
+  { id: "solana", label: "SOL / USD", binance: "solusdt", kraken: "SOLUSD", cc: "SOL" },
+  { id: "ripple", label: "XRP / USD", binance: "xrpusdt", kraken: "XRPUSD", cc: "XRP" },
+  { id: "cardano", label: "ADA / USD", binance: "adausdt", kraken: "ADAUSD", cc: "ADA" },
+  { id: "litecoin", label: "LTC / USD", binance: "ltcusdt", kraken: "XLTCZUSD", cc: "LTC" },
+  { id: "dogecoin", label: "DOGE / USD", binance: "dogeusdt", kraken: "XDGUSD", cc: "DOGE" },
+  { id: "binancecoin", label: "BNB / USD", binance: "bnbusdt", kraken: "BNBUSD", cc: "BNB" },
+  { id: "avalanche-2", label: "AVAX / USD", binance: "avaxusdt", kraken: "AVAXUSD", cc: "AVAX" },
+  { id: "polkadot", label: "DOT / USD", binance: "dotusdt", kraken: "DOTUSD", cc: "DOT" },
+];
+
+const API_SOURCES_OLD = [
+  {
+    name: "DeFiLlama",
+    desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.",
+    limit: "Unlimited free",
+  },
+  {
+    name: "Santiment",
+    desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).",
+    limit: "100 Calls/Monat free",
+  },
+  {
+    name: "HuggingFace",
+    desc: "AI-Predictions (Inference für Price-Forecast).",
+    limit: "Free Inference",
+  },
+  {
+    name: "Alpha Vantage",
+    desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).",
+    limit: "25 Calls/Tag free",
+  },
+  {
+    name: "FMP",
+    desc: "Cross-Asset Data (Stocks/Crypto Corr).",
+    limit: "250 Calls/Tag free",
+  },
+];
+
+const API_SOURCES = [
+  { name: "DeFiLlama", desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.", limit: "Unlimited free" },
+  { name: "Santiment", desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: "100 Calls/Monat free" },
+  { name: "HuggingFace", desc: "AI-Predictions (Inference für Price-Forecast).", limit: "Free Inference" },
+  { name: "Alpha Vantage", desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
+  { name: "FMP", desc: "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
+];
+
+const TIER_ORDER = ["basic", "pro", "elite"];
+
+const Paywall = ({ minTier = "basic", userTier = "basic", lockText = "Pro erforderlich", children }) => {
+  const locked = TIER_ORDER.indexOf(userTier) < TIER_ORDER.indexOf(minTier);
+  if (!locked) return children;
+  return (
+    <div className="relative">
+      <div className="pointer-events-none absolute inset-0 rounded-xl bg-slate-950/70 backdrop-blur-[1px]" />
+      <div className="pointer-events-none absolute inset-0 rounded-xl border border-amber-500/30" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-slate-950/60" />
+      <div className="relative">{children}</div>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="rounded-lg border border-amber-400/60 bg-slate-900/95 px-4 py-3 text-center text-sm text-amber-200 shadow-lg">
+          {lockText}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+Paywall.propTypes = {
+  minTier: PropTypes.string,
+  userTier: PropTypes.string,
+  lockText: PropTypes.string,
+  children: PropTypes.node.isRequired,
+};
+
+const formatUSD = (value) =>
+  value !== null && value !== undefined
+    ? new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2,
+      }).format(value)
+    : "-";
+
+const formatPercent = (value) =>
+  value !== null && value !== undefined
+    ? `${value > 0 ? "+" : ""}${value.toFixed(2)}%`
+    : "-";
+
+const clampNumber = (value, fallback = null) => (Number.isFinite(value) ? value : fallback);
+
+const calculateEMA = (values, period) => {
+  if (!values.length) return [];
+  const k = 2 / (period + 1);
+  const ema = [values[0]];
+  for (let i = 1; i < values.length; i += 1) {
+    ema.push(values[i] * k + ema[i - 1] * (1 - k));
+  }
+  return ema;
+};
+
+const calculateRSISeries = (values, period = 14) => {
+  if (values.length < period + 1) return [];
+  const deltas = [];
+  for (let i = 1; i < values.length; i += 1) deltas.push(values[i] - values[i - 1]);
+  let gains = 0;
+  let losses = 0;
+  for (let i = 0; i < period; i += 1) {
+    if (deltas[i] >= 0) gains += deltas[i];
+    else losses -= deltas[i];
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  const rsi = [];
+  for (let i = period; i < deltas.length; i += 1) {
+    const delta = deltas[i];
+    if (delta >= 0) {
+      avgGain = (avgGain * (period - 1) + delta) / period;
+      avgLoss = (avgLoss * (period - 1)) / period;
+    } else {
+      avgGain = (avgGain * (period - 1)) / period;
+      avgLoss = (avgLoss * (period - 1) - delta) / period;
+    }
+    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    rsi.push(100 - 100 / (1 + rs));
+  }
+  return Array(period).fill(null).concat(rsi);
+};
+
+const calculateMACDSeries = (values, fast = 12, slow = 26, signal = 9) => {
+  if (values.length < slow) return { macd: [], signal: [], histogram: [] };
+  const emaFast = calculateEMA(values, fast);
+  const emaSlow = calculateEMA(values, slow);
+  const macd = emaFast.map((v, idx) => v - (emaSlow[idx] ?? v));
+  const signalLine = calculateEMA(macd.slice(slow - 1), signal);
+  const paddedSignal = Array(slow - 1).fill(null).concat(signalLine);
+  const histogram = macd.map((m, idx) =>
+    paddedSignal[idx] !== null && paddedSignal[idx] !== undefined ? m - paddedSignal[idx] : null
+  );
+  return { macd, signal: paddedSignal, histogram };
+};
+
+const calculateBollingerBands = (values, period = 20, multiplier = 2) => {
+  const upper = [];
+  const lower = [];
+  const basis = [];
+  for (let i = 0; i < values.length; i += 1) {
+    if (i + 1 < period) {
+      upper.push(null);
+      lower.push(null);
+      basis.push(null);
+      continue;
+    }
+    const slice = values.slice(i + 1 - period, i + 1);
+    const mean = slice.reduce((a, b) => a + b, 0) / period;
+    const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / slice.length;
+    const std = Math.sqrt(variance);
+    basis.push(mean);
+    upper.push(mean + multiplier * std);
+    lower.push(mean - multiplier * std);
+  }
+  return { upper, lower, basis };
+};
+
+const calculateStochRSI = (values, period = 14, smoothK = 3, smoothD = 3) => {
+  if (values.length < period + smoothK) return { k: [], d: [] };
+  const rsi = calculateRSISeries(values, period);
+  const k = [];
+  for (let i = 0; i < rsi.length; i += 1) {
+    if (i + 1 < smoothK) {
+      k.push(null);
+      continue;
+    }
+    const slice = rsi.slice(i + 1 - smoothK, i + 1).filter((v) => Number.isFinite(v));
+    if (!slice.length) {
+      k.push(null);
+      continue;
+    }
+    const min = Math.min(...slice);
+    const max = Math.max(...slice);
+    const current = rsi[i];
+    const value = max === min ? 0 : ((current - min) / (max - min)) * 100;
+    k.push(value);
+  }
+  const d = [];
+  for (let i = 0; i < k.length; i += 1) {
+    if (i + 1 < smoothD) {
+      d.push(null);
+      continue;
+    }
+    const slice = k.slice(i + 1 - smoothD, i + 1).filter((v) => Number.isFinite(v));
+    if (!slice.length) {
+      d.push(null);
+      continue;
+    }
+    d.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+  }
+  return { k, d };
+};
+
+const calculateATR = (rows, period = 14) => {
+  if (!rows.length) return [];
+  const atr = [];
+  let prevClose = rows[0].close;
+  for (let i = 0; i < rows.length; i += 1) {
+    const { high, low, close } = rows[i];
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    if (i === 0) {
+      atr.push(tr);
+    } else if (i < period) {
+      atr.push(((atr[i - 1] * i) + tr) / (i + 1));
+    } else {
+      atr.push(((atr[i - 1] * (period - 1)) + tr) / period);
+    }
+    prevClose = close;
+  }
+  return atr;
+};
+
+const calculateADX = (rows, period = 14) => {
+  if (rows.length < period + 1) return [];
+  const tr = [];
+  const plusDM = [];
+  const minusDM = [];
+  for (let i = 1; i < rows.length; i += 1) {
+    const up = rows[i].high - rows[i - 1].high;
+    const down = rows[i - 1].low - rows[i].low;
+    plusDM.push(up > down && up > 0 ? up : 0);
+    minusDM.push(down > up && down > 0 ? down : 0);
+    tr.push(Math.max(rows[i].high - rows[i].low, Math.abs(rows[i].high - rows[i - 1].close), Math.abs(rows[i].low - rows[i - 1].close)));
+  }
+  let tr14 = tr.slice(0, period).reduce((a, b) => a + b, 0);
+  let plus14 = plusDM.slice(0, period).reduce((a, b) => a + b, 0);
+  let minus14 = minusDM.slice(0, period).reduce((a, b) => a + b, 0);
+  const adx = Array(rows.length).fill(null);
+  const dxVals = [];
+  const calcDI = () => {
+    const plusDI = tr14 ? (plus14 / tr14) * 100 : 0;
+    const minusDI = tr14 ? (minus14 / tr14) * 100 : 0;
+    const dx = plusDI + minusDI === 0 ? 0 : (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100;
+    return { plusDI, minusDI, dx };
+  };
+  const first = calcDI();
+  dxVals.push(first.dx);
+  for (let i = period; i < tr.length; i += 1) {
+    tr14 = tr14 - tr14 / period + tr[i];
+    plus14 = plus14 - plus14 / period + plusDM[i];
+    minus14 = minus14 - minus14 / period + minusDM[i];
+    const { dx } = calcDI();
+    dxVals.push(dx);
+    if (dxVals.length === period) {
+      adx[i + 1] = dxVals.reduce((a, b) => a + b, 0) / dxVals.length;
+    } else if (dxVals.length > period) {
+      adx[i + 1] = ((adx[i] || dx) * (period - 1) + dx) / period;
+    }
+  }
+  return adx;
+};
+
+const calculateDonchian = (rows, period = 20) => {
+  const upper = [];
+  const lower = [];
+  const mid = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    if (i + 1 < period) {
+      upper.push(null);
+      lower.push(null);
+      mid.push(null);
+      continue;
+    }
+    const slice = rows.slice(i + 1 - period, i + 1);
+    const highs = slice.map((r) => r.high);
+    const lows = slice.map((r) => r.low);
+    const hi = Math.max(...highs);
+    const lo = Math.min(...lows);
+    upper.push(hi);
+    lower.push(lo);
+    mid.push((hi + lo) / 2);
+  }
+  return { upper, lower, mid };
+};
+
+const calculateVWAP = (rows) => {
+  const out = [];
+  let cumPV = 0;
+  let cumVol = 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const { high, low, close, volume } = rows[i];
+    const typical = (high + low + close) / 3;
+    cumPV += typical * volume;
+    cumVol += volume;
+    out.push(cumVol ? cumPV / cumVol : null);
+  }
+  return out;
+};
+
+const calculateOBV = (rows) => {
+  const out = [];
+  let obv = 0;
+  let prevClose = rows[0]?.close ?? 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const { close, volume } = rows[i];
+    if (close > prevClose) obv += volume;
+    else if (close < prevClose) obv -= volume;
+    out.push(obv);
+    prevClose = close;
+  }
+  return out;
+};
+
+const calculateStochOsc = (rows, period = 14, smoothK = 3, smoothD = 3) => {
+  if (!rows.length) return { k: [], d: [] };
+  const kRaw = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    if (i + 1 < period) {
+      kRaw.push(null);
+      continue;
+    }
+    const slice = rows.slice(i + 1 - period, i + 1);
+    const highs = slice.map((r) => r.high);
+    const lows = slice.map((r) => r.low);
+    const hi = Math.max(...highs);
+    const lo = Math.min(...lows);
+    const close = rows[i].close;
+    const value = hi === lo ? 50 : ((close - lo) / (hi - lo)) * 100;
+    kRaw.push(value);
+  }
+  const smooth = (arr, len) => arr.map((_, idx) => {
+    if (idx + 1 < len) return null;
+    const seg = arr.slice(idx + 1 - len, idx + 1).filter((v) => Number.isFinite(v));
+    if (!seg.length) return null;
+    return seg.reduce((a, b) => a + b, 0) / seg.length;
+  });
+  const k = smooth(kRaw, smoothK);
+  const d = smooth(k, smoothD);
+  return { k, d };
+};
+
+const calculateCCI = (rows, period = 20) => {
+  if (!rows.length) return [];
+  const cci = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    if (i + 1 < period) {
+      cci.push(null);
+      continue;
+    }
+    const slice = rows.slice(i + 1 - period, i + 1);
+    const tp = slice.map((r) => (r.high + r.low + r.close) / 3);
+    const sma = tp.reduce((a, b) => a + b, 0) / period;
+    const dev = tp.reduce((a, b) => a + Math.abs(b - sma), 0) / period;
+    const currentTp = tp[tp.length - 1];
+    cci.push(dev ? (currentTp - sma) / (0.015 * dev) : null);
+  }
+  return cci;
+};
+
+const calculatePearson = (a = [], b = []) => {
+  if (!a.length || a.length !== b.length) return null;
+  const n = a.length;
+  const ma = a.reduce((x, y) => x + y, 0) / n;
+  const mb = b.reduce((x, y) => x + y, 0) / n;
+  let num = 0;
+  let da = 0;
+  let db = 0;
+  for (let i = 0; i < n; i += 1) {
+    const xa = a[i] - ma;
+    const xb = b[i] - mb;
+    num += xa * xb;
+    da += xa * xa;
+    db += xb * xb;
+  }
+  const den = Math.sqrt(da * db);
+  return den ? num / den : null;
+};
+
+const cryptoDataService = {
+  async fetchOnChainMetrics() {
+    try {
+      const res = await fetch("https://api.glassnode.com/v1/metrics/addresses/active_count?a=BTC&i=24h");
+      if (!res.ok) throw new Error("glassnode failed");
+      const data = await res.json();
+      const last = Array.isArray(data) ? data.at(-1) : null;
+      return {
+        active: last?.v ?? null,
+        supplyWhales: 0.62,
+        supplyRetail: 0.38,
+        updatedAt: last?.t ? Number(last.t) * 1000 : Date.now(),
+      };
+    } catch (err) {
+      console.error("on-chain fallback", err);
+      return { active: 125000, supplyWhales: 0.6, supplyRetail: 0.4, updatedAt: Date.now() };
+    }
+  },
+  async fetchSentiment() {
+    try {
+      const res = await fetch("https://min-api.cryptocompare.com/data/social/coin/latest?fsym=BTC");
+      if (!res.ok) throw new Error("sentiment failed");
+      const data = await res.json();
+      const score = data?.Data?.General?.SocialScore ?? null;
+      return { score, label: "Social Score", updatedAt: Date.now() };
+    } catch (err) {
+      console.error("sentiment fallback", err);
+      return { score: 68, label: "Social Score", updatedAt: Date.now() };
+    }
+  },
+  async fetchCorrelation(ids = ["bitcoin", "ethereum", "solana", "ripple"]) {
+    try {
+      const series = await Promise.all(
+        ids.map(async (id) => {
+          const res = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=3&interval=hourly`);
+          if (!res.ok) throw new Error("coingecko failed");
+          const data = await res.json();
+          const prices = data?.prices?.map((p) => p[1]) ?? [];
+          return { id, prices };
+        })
+      );
+      const matrix = [];
+      for (let i = 0; i < series.length; i += 1) {
+        for (let j = i; j < series.length; j += 1) {
+          const corr = calculatePearson(series[i].prices, series[j].prices);
+          matrix.push({ pair: `${series[i].id}-${series[j].id}`, value: corr });
+        }
+      }
+      return matrix;
+    } catch (err) {
+      console.error("correlation fallback", err);
+      return [
+        { pair: "bitcoin-bitcoin", value: 1 },
+        { pair: "bitcoin-ethereum", value: 0.76 },
+        { pair: "bitcoin-solana", value: 0.58 },
+        { pair: "bitcoin-ripple", value: 0.42 },
+        { pair: "ethereum-ethereum", value: 1 },
+        { pair: "ethereum-solana", value: 0.61 },
+        { pair: "ethereum-ripple", value: 0.47 },
+        { pair: "solana-solana", value: 1 },
+        { pair: "solana-ripple", value: 0.35 },
+        { pair: "ripple-ripple", value: 1 },
+      ];
+    }
+  },
+  async fetchFundingRates(symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]) {
+    try {
+      const res = await Promise.all(
+        symbols.map(async (sym) => {
+          const r = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym}`);
+          if (!r.ok) throw new Error("funding failed");
+          const d = await r.json();
+          return { symbol: sym, rate: Number(d.lastFundingRate), mark: Number(d.markPrice) };
+        })
+      );
+      return res;
+    } catch (err) {
+      console.error("funding fallback", err);
+      return [
+        { symbol: "BTCUSDT", rate: 0.00021, mark: priceState.value || null },
+        { symbol: "ETHUSDT", rate: 0.00015, mark: null },
+        { symbol: "SOLUSDT", rate: -0.0004, mark: null },
+      ];
+    }
+  },
+};
+
+const formatClock = (ts) => {
+  if (!ts) return "--:--";
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch (err) {
+    return "--:--";
+  }
+};
+
+const TRANSLATIONS = {
+  de: {
+    action: "Aktion",
+    reasonLabel: "Begruendung",
+    confidence: "Konfidenz",
+    tp: "TP",
+    sl: "SL",
+    tradesLookahead: "Trades (Lookahead 5)",
+    winRate: "Win Rate",
+    winsLosses: "Wins / Losses",
+    avgRR: "Ø RR",
+    status: "Status",
+    loading: "Lade Daten...",
+    livePrice: "Live Price",
+    fearGreed: "Fear & Greed",
+    indicators: "Indicators",
+    reliability: "Reliability",
+    liveMarket: "Live Market Analysis",
+    fibMap: "Fib Map & Trade Levels",
+    cryptoBubbles: "Crypto Bubbles",
+    signals: "Signals",
+    systemStatus: "System Status",
+    manualControls: "Manual Controls",
+    tpSl: "TP / SL Rechner (AI Assist)",
+    aiSignal: "AI Signal (Heuristik, Open-Source Stil)",
+    proSignals: "Pro Signals",
+    backtest: "Backtest Snapshot",
+    rsiChart: "RSI Verlauf",
+    macdChart: "MACD Momentum",
+    flowsCard: "Live Flows (Trades & Volumen)",
+    dataIntegrity: "Data Integrity",
+    apiPlaybook: "API Playbook",
+    etfCard: "ETF Flows & News",
+    trendStoch: "Trend Strength (Stoch)",
+    cciCard: "CCI (20)",
+    volatilityCard: "Volatility Regime",
+    diary: "Trading Emotion Diary",
+    refresh: "Refresh",
+    langToggle: "DE / EN",
+    tierBasic: "Basic (Free)",
+    tierPro: "Pro ($9/Monat)",
+    tierElite: "Elite ($29/Monat)",
+    billing: "Billing",
+    login: "Login",
+    logout: "Logout",
+    liveCheck: "Live-Check",
+    liveLabel: "Live",
+    keyNeeded: "Key nötig",
+    errorLabel: "Fehler",
+    liveData: "Live Data",
+    reachable: "Erreichbar",
+    unavailable: "Unavailable",
+    proRequired: "Pro erforderlich",
+    eliteRequired: "Elite erforderlich",
+    apiKeyNeeded: "API Key nötig",
+    demoUser: "trader@demo.app",
+    guestUser: "guest@demo.app",
+    aiTags: "AI-Tags",
+    heroSubtitle: "Live Daten mit Multi-Source Fallback, Indikatoren & WebSocket Autoreconnect.",
+    reliability1: "Multi-Source Fallback",
+    reliability2: "5-Min Cache",
+    reliability3: "Polling Backup 30s",
+    reliability4: "WS Auto-Reconnect x5",
+    manualPrice: "Preis neu laden",
+    manualKraken: "Kraken neu laden",
+    manualFG: "Fear & Greed",
+    systemWs: "WebSocket",
+    systemCache: "Cache TTL",
+    systemPoll: "Polling Backup",
+    systemError: "Last Error",
+    systemNone: "keine",
+    signalsLive: "Live Checks",
+    signalsOversold: "RSI < 30 -> Oversold Alert",
+    signalsOverbought: "RSI > 70 -> Overbought Alert",
+    signalsFallback: "Fallback aktiv bei Primaerfehler",
+    loadingCandles: "Candles werden geladen...",
+    loadingFib: "Fib Map wird geladen...",
+    noBubbles: "Keine Bubbles verfügbar.",
+    loadingRSI: "RSI wird geladen...",
+    loadingMACD: "MACD wird geladen...",
+    loadingFlows: "Volumen wird gesammelt...",
+    waitingTrades: "Warte auf Trades...",
+    loadingStoch: "Lade Daten...",
+    loadingCCI: "Lade Daten...",
+    loadingATR: "Lade Daten...",
+    loadingETFNews: "Lade ETF News...",
+    noETFNews: "Keine ETF News gefunden.",
+    noETFLinks: "Keine ETF Flows gefunden.",
+    apiLiveData: "Live Data",
+    apiReachable: "Erreichbar",
+    apiUnavailable: "Unavailable",
+    marketRegimeDesc: "Basierend auf EMA200, ADX & Bollinger Band Width.",
+    liquidityDesc: "Orderbuch-Stärke – Bids vs. Asks (letzte 1h).",
+    onchainDesc: "Active Addresses & Supply Split.",
+    sentimentDesc: "Social Score (CryptoCompare).",
+    correlationDesc: "Coin-Korrelationen (CoinGecko).",
+    fundingDesc: "Binance Premium Index.",
+    dataIntegrity1: "CoinGecko to CryptoCompare, Polling Backup 30s, Cache 5m.",
+    dataIntegrity2: "WebSocket Auto-Reconnect bis 5x, Volume & Candles von Kraken.",
+    dataIntegrity3: "RSI (14), MACD (12/26/9), Bollinger (20, 2 std) live berechnet.",
+    backtestNote: "Heuristik: Donchian Break + MACD Diff, TP/SL aus ATR%.",
+    netFlowsLabel: "Net Flows",
+    newsLabel: "News",
+    smartAccum: "Smart Money: Accumulation Phase",
+    smartDistr: "Smart Money: Distribution Detected",
+    smartDirBuy: "Outflows (Bullish)",
+    smartDirSell: "Inflows (Bearish)",
+    smartNet: "Net Richtung",
+    smartTrades: "Trades (3h)",
+    smartBuys: "Buys",
+    smartSells: "Sells",
+    liquidityBid: "Bid Liquidity",
+    liquidityAsk: "Ask Liquidity",
+    liquidityImb: "Imbalance",
+    liquidityHint: "Bullish, wenn Bids dominant",
+    diFallback: "Fallback Pipeline",
+    diResilience: "Resilience",
+    diIndicators: "Indicators",
+    backtestTrades: "Trades (Lookahead 5)",
+    backtestWinRate: "Win Rate",
+    backtestWinsLosses: "Wins / Losses",
+    backtestAvgRR: "Ø RR",
+    cardMarketRegime: "Market Regime Detector",
+    cardSmartMoney: "Smart Money Flow",
+    cardLiquidity: "Liquidity Heatmap",
+    cardManualControls: "Manual Controls",
+    cardDataIntegrity: "Data Integrity",
+    fibGolden: "Golden Zone, TP/SL",
+    liveMarketMeta: "Kraken OHLC · TF",
+    tpEntryLabel: "Entry Price",
+    tpQtyLabel: "Menge",
+    tpTpLabel: "Take Profit %",
+    tpSlLabel: "Stop Loss %",
+    tpPrice: "TP Preis",
+    slPrice: "SL Preis",
+    profitAtTp: "Gewinn @TP",
+    lossAtSl: "Verlust @SL",
+    rrLabel: "Risk/Reward",
+    aiHint: "Hinweis: Heuristik basiert auf RSI/MACD/Bollinger. Keine Garantie; Maerkte sind volatil.",
+    fibTp: "TP",
+    fibSl: "SL",
+    fibNow: "Now",
+    bubblesTop: "Top 10 Extrem RSI",
+    tpAlarm: "TP Alarm",
+    slAlarm: "SL Alarm",
+    noEntries: "Noch keine Einträge.",
+    diarySave: "Speichern",
+    diaryAutosave: "Autosave (local) · max 50 Einträge",
+    loadingTrades: "Warte auf Trades...",
+    fetchFailPricePrimary: "Primaere Quelle ausgefallen - Fallback aktiv (CryptoCompare).",
+    fetchFailPrice: "Preisquellen derzeit nicht erreichbar.",
+    fetchFailFearGreed: "Fear & Greed Quelle nicht erreichbar.",
+    fetchFailOHLC: "Kraken OHLCV konnte nicht geladen werden.",
+    fetchFailETF: "ETF News derzeit nicht verfügbar.",
+    fetchFailETFFlows: "ETF Flows derzeit nicht verfügbar.",
+    tpSlTitle: "TP / SL Rechner (AI Assist)",
+    aiSignalTitle: "AI Signal (Heuristik, Open-Source Stil)",
+    proSignalsTitle: "Pro Signals",
+    backtestTitle: "Backtest Snapshot",
+    dataIntegrityTitle: "Data Integrity",
+    buyLabel: "Buy",
+    sellLabel: "Sell",
+    loginEmail: "E-Mail",
+    loginPassword: "Passwort",
+    signin: "Login",
+    signup: "Signup",
+    startTrial: "7 Tage Elite-Test",
+    trialActive: "Elite Trial aktiv",
+    madeBy: "Made by Ömer Alpay",
+    consentText: "Wir verwenden optionale GeoIP-Tags für Meta/AI. Zustimmen?",
+    consentAllow: "Erlauben",
+    consentDeny: "Ablehnen",
+    consentRevoke: "Opt-out",
+    tierSaved: "Tier gespeichert",
+    setupType: "Setup",
+    regime: "Regime",
+    checks: "Checks",
+    checkTrend: "Trend",
+    checkMomentum: "Momentum",
+    checkFlow: "Flow",
+    checkVol: "Volatilität",
+    rrTarget: "Ziel-RR",
+    setupTrend: "Trendfolge",
+    setupBreakout: "Breakout",
+    setupReversion: "Mean Reversion",
+    setupWait: "Warten",
+  },
+  en: {
+    action: "Action",
+    reasonLabel: "Reason",
+    confidence: "Confidence",
+    tp: "TP",
+    sl: "SL",
+    tradesLookahead: "Trades (Lookahead 5)",
+    winRate: "Win Rate",
+    winsLosses: "Wins / Losses",
+    avgRR: "Avg RR",
+    status: "Status",
+    loading: "Loading...",
+    livePrice: "Live Price",
+    fearGreed: "Fear & Greed",
+    indicators: "Indicators",
+    reliability: "Reliability",
+    liveMarket: "Live Market Analysis",
+    fibMap: "Fib Map & Trade Levels",
+    cryptoBubbles: "Crypto Bubbles",
+    signals: "Signals",
+    systemStatus: "System Status",
+    manualControls: "Manual Controls",
+    tpSl: "TP / SL Calculator (AI Assist)",
+    aiSignal: "AI Signal (Heuristic, Open-Source Style)",
+    proSignals: "Pro Signals",
+    backtest: "Backtest Snapshot",
+    rsiChart: "RSI History",
+    macdChart: "MACD Momentum",
+    flowsCard: "Live Flows (Trades & Volume)",
+    dataIntegrity: "Data Integrity",
+    apiPlaybook: "API Playbook",
+    etfCard: "ETF Flows & News",
+    trendStoch: "Trend Strength (Stoch)",
+    cciCard: "CCI (20)",
+    volatilityCard: "Volatility Regime",
+    diary: "Trading Emotion Diary",
+    refresh: "Refresh",
+    langToggle: "DE / EN",
+    tierBasic: "Basic (Free)",
+    tierPro: "Pro ($9/mo)",
+    tierElite: "Elite ($29/mo)",
+    billing: "Billing",
+    login: "Login",
+    logout: "Logout",
+    liveCheck: "Live Check",
+    liveLabel: "Live",
+    keyNeeded: "Key required",
+    errorLabel: "Error",
+    liveData: "Live Data",
+    reachable: "Reachable",
+    unavailable: "Unavailable",
+    proRequired: "Pro required",
+    eliteRequired: "Elite required",
+    apiKeyNeeded: "API Key required",
+    demoUser: "trader@demo.app",
+    guestUser: "guest@demo.app",
+    aiTags: "AI-Tags",
+    heroSubtitle: "Live data with multi-source fallback, indicators & WebSocket auto-reconnect.",
+    reliability1: "Multi-source fallback",
+    reliability2: "5-min cache",
+    reliability3: "Polling backup 30s",
+    reliability4: "WS auto-reconnect x5",
+    manualPrice: "Reload price",
+    manualKraken: "Reload Kraken",
+    manualFG: "Fear & Greed",
+    systemWs: "WebSocket",
+    systemCache: "Cache TTL",
+    systemPoll: "Polling Backup",
+    systemError: "Last Error",
+    systemNone: "none",
+    signalsLive: "Live Checks",
+    signalsOversold: "RSI < 30 -> Oversold Alert",
+    signalsOverbought: "RSI > 70 -> Overbought Alert",
+    signalsFallback: "Fallback active on primary failure",
+    loadingCandles: "Loading candles...",
+    loadingFib: "Loading Fib Map...",
+    noBubbles: "No bubbles available.",
+    loadingRSI: "Loading RSI...",
+    loadingMACD: "Loading MACD...",
+    loadingFlows: "Collecting volume...",
+    waitingTrades: "Waiting for trades...",
+    loadingStoch: "Loading data...",
+    loadingCCI: "Loading data...",
+    loadingATR: "Loading data...",
+    loadingETFNews: "Loading ETF News...",
+    noETFNews: "No ETF news found.",
+    noETFLinks: "No ETF flows found.",
+    apiLiveData: "Live Data",
+    apiReachable: "Reachable",
+    apiUnavailable: "Unavailable",
+    marketRegimeDesc: "Based on EMA200, ADX & Bollinger Band Width.",
+    liquidityDesc: "Orderbook strength – bids vs. asks (last 1h).",
+    onchainDesc: "Active addresses & supply split.",
+    sentimentDesc: "Social Score (CryptoCompare).",
+    correlationDesc: "Coin correlations (CoinGecko).",
+    fundingDesc: "Binance Premium Index.",
+    dataIntegrity1: "CoinGecko to CryptoCompare, polling backup 30s, cache 5m.",
+    dataIntegrity2: "WebSocket auto-reconnect up to 5x, volume & candles from Kraken.",
+    dataIntegrity3: "RSI (14), MACD (12/26/9), Bollinger (20, 2 std) computed live.",
+    backtestNote: "Heuristic: Donchian Break + MACD diff, TP/SL from ATR%.",
+    netFlowsLabel: "Net Flows",
+    newsLabel: "News",
+    smartAccum: "Smart Money: Accumulation Phase",
+    smartDistr: "Smart Money: Distribution Detected",
+    smartDirBuy: "Outflows (Bullish)",
+    smartDirSell: "Inflows (Bearish)",
+    smartNet: "Net Direction",
+    smartTrades: "Trades (3h)",
+    smartBuys: "Buys",
+    smartSells: "Sells",
+    liquidityBid: "Bid Liquidity",
+    liquidityAsk: "Ask Liquidity",
+    liquidityImb: "Imbalance",
+    liquidityHint: "Bullish when bids dominate",
+    diFallback: "Fallback Pipeline",
+    diResilience: "Resilience",
+    diIndicators: "Indicators",
+    backtestTrades: "Trades (Lookahead 5)",
+    backtestWinRate: "Win Rate",
+    backtestWinsLosses: "Wins / Losses",
+    backtestAvgRR: "Avg RR",
+    cardMarketRegime: "Market Regime Detector",
+    cardSmartMoney: "Smart Money Flow",
+    cardLiquidity: "Liquidity Heatmap",
+    cardManualControls: "Manual Controls",
+    cardDataIntegrity: "Data Integrity",
+    fibGolden: "Golden Zone, TP/SL",
+    liveMarketMeta: "Kraken OHLC · TF",
+    tpEntryLabel: "Entry Price",
+    tpQtyLabel: "Quantity",
+    tpTpLabel: "Take Profit %",
+    tpSlLabel: "Stop Loss %",
+    tpPrice: "TP Price",
+    slPrice: "SL Price",
+    profitAtTp: "Profit @TP",
+    lossAtSl: "Loss @SL",
+    rrLabel: "Risk/Reward",
+    aiHint: "Note: Heuristic based on RSI/MACD/Bollinger. No guarantee; markets are volatile.",
+    fibTp: "TP",
+    fibSl: "SL",
+    fibNow: "Now",
+    bubblesTop: "Top 10 Extreme RSI",
+    tpAlarm: "TP Alarm",
+    slAlarm: "SL Alarm",
+    noEntries: "No entries yet.",
+    diarySave: "Save",
+    diaryAutosave: "Autosave (local) · max 50 entries",
+    loadingTrades: "Waiting for trades...",
+    fetchFailPricePrimary: "Primary source failed - fallback active (CryptoCompare).",
+    fetchFailPrice: "Price sources not reachable.",
+    fetchFailFearGreed: "Fear & Greed source not reachable.",
+    fetchFailOHLC: "Kraken OHLCV could not be loaded.",
+    fetchFailETF: "ETF News currently not available.",
+    fetchFailETFFlows: "ETF Flows currently not available.",
+    tpSlTitle: "TP / SL Calculator (AI Assist)",
+    aiSignalTitle: "AI Signal (Heuristic, Open-Source Style)",
+    proSignalsTitle: "Pro Signals",
+    backtestTitle: "Backtest Snapshot",
+    dataIntegrityTitle: "Data Integrity",
+    buyLabel: "Buy",
+    sellLabel: "Sell",
+    loginEmail: "Email",
+    loginPassword: "Password",
+    signin: "Login",
+    signup: "Signup",
+    startTrial: "7-day Elite Trial",
+    trialActive: "Elite trial active",
+    madeBy: "Made by Ömer Alpay",
+    consentText: "We use optional GeoIP tags for Meta/AI. Allow?",
+    consentAllow: "Allow",
+    consentDeny: "Deny",
+    consentRevoke: "Opt-out",
+    tierSaved: "Tier saved",
+    setupType: "Setup",
+    regime: "Regime",
+    checks: "Checks",
+    checkTrend: "Trend",
+    checkMomentum: "Momentum",
+    checkFlow: "Flow",
+    checkVol: "Volatility",
+    rrTarget: "Target RR",
+    setupTrend: "Trend Follow",
+    setupBreakout: "Breakout",
+    setupReversion: "Mean Reversion",
+    setupWait: "Wait",
+  },
+};
+
+const CandleLayer = ({ xAxisMap = {}, yAxisMap = {}, data = [], xAxisId = "x", yAxisId = "y" }) => {
+  const xAxis = xAxisMap[xAxisId] || Object.values(xAxisMap)[0];
+  const yAxis = yAxisMap[yAxisId] || Object.values(yAxisMap)[0];
+  if (!xAxis || !yAxis || !data.length || typeof xAxis.scale !== "function") return null;
+  const band = ((xAxis.bandSize || 10) ?? 10) * 0.7;
+  return (
+    <g>
+      {data.map((d, idx) => {
+        const x = xAxis.scale(d.label) - band / 2;
+        const openY = yAxis.scale(d.open);
+        const closeY = yAxis.scale(d.close);
+        const highY = yAxis.scale(d.high);
+        const lowY = yAxis.scale(d.low);
+        const isUp = d.close >= d.open;
+        const color = isUp ? "#22c55e" : "#ef4444";
+        const top = Math.min(openY, closeY);
+        const height = Math.max(Math.abs(closeY - openY), 1.5);
+        return (
+          <g key={`candle-${idx}`}>
+            <line x1={x + band / 2} x2={x + band / 2} y1={highY} y2={lowY} stroke={color} strokeWidth={2} strokeLinecap="round" />
+            <rect x={x} y={top} width={band} height={height} rx={2} fill={color} stroke={color} opacity={0.9} />
+          </g>
+        );
+      })}
+    </g>
+  );
+};
+
+CandleLayer.propTypes = {
+  xAxisMap: PropTypes.object,
+  yAxisMap: PropTypes.object,
+  data: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      open: PropTypes.number,
+      high: PropTypes.number,
+      low: PropTypes.number,
+      close: PropTypes.number,
+    })
+  ),
+  xAxisId: PropTypes.string,
+  yAxisId: PropTypes.string,
+};
+const IndicatorBadge = ({ label, value, intent }) => (
+  <div
+    className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
+      intent === "warn"
+        ? "bg-red-500/10 text-red-200"
+        : intent === "ok"
+        ? "bg-emerald-500/10 text-emerald-200"
+        : "bg-slate-800 text-slate-200"
+    }`}
+  >
+    <Signal className="h-4 w-4" />
+    <span className="font-semibold">{label}</span>
+    <span className="text-slate-300">{value}</span>
+  </div>
+);
+
+IndicatorBadge.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  intent: PropTypes.oneOf(["warn", "ok", "neutral"]).isRequired,
+};
+
+const Card = ({ title, icon: Icon, children, actions, tooltip }) => (
+  <div
+    className="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4 shadow-lg shadow-black/30 backdrop-blur"
+    title={tooltip || title}
+  >
+    <div className="mb-3 flex items-center justify-between">
+      <div className="flex items-center gap-2 text-slate-200">
+        {Icon ? <Icon className="h-5 w-5 text-emerald-400" /> : null}
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">{title}</h3>
+      </div>
+      {actions}
+    </div>
+    {children}
+  </div>
+);
+
+Card.propTypes = {
+  title: PropTypes.string.isRequired,
+  icon: PropTypes.elementType,
+  children: PropTypes.node.isRequired,
+  actions: PropTypes.node,
+  tooltip: PropTypes.string,
+};
+
+const renderLastDot = (count, color = "#22c55e") => (props) => {
+  if (props.index !== count - 1) return null;
+  return <circle cx={props.cx} cy={props.cy} r={4} fill={color} className="pulse-soft" />;
+};
+function App() {
+  const [asset, setAsset] = useState(ASSETS[0]);
+  const [priceState, setPriceState] = useState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
+  const [fearGreed, setFearGreed] = useState(null);
+  const [ohlcv, setOhlcv] = useState([]);
+  const [indicators, setIndicators] = useState({ rsi: null, macd: null, signal: null, histogram: null });
+  const [wsStatus, setWsStatus] = useState("connecting");
+  const [wsAttempts, setWsAttempts] = useState(0);
+  const [livePrice, setLivePrice] = useState(null);
+  const [trades, setTrades] = useState([]);
+  const [lastError, setLastError] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [tpForm, setTpForm] = useState({ entry: null, quantity: 1, tpPct: 4, slPct: 3 });
+  const [aiNote, setAiNote] = useState("");
+  const [timeFrame, setTimeFrame] = useState("60");
+  const [etfNews, setEtfNews] = useState([]);
+  const [etfLoading, setEtfLoading] = useState(false);
+  const [etfError, setEtfError] = useState("");
+  const [etfFlows, setEtfFlows] = useState([]);
+  const [etfFlowsError, setEtfFlowsError] = useState("");
+  const [journalEntries, setJournalEntries] = useState([]);
+  const [journalForm, setJournalForm] = useState({ date: "", mood: "Neutral", note: "" });
+  const [lang, setLang] = useState("de");
+  const [apiStatuses, setApiStatuses] = useState({});
+  const [userTier, setUserTier] = useState("basic");
+  const [userEmail, setUserEmail] = useState("guest@demo.app");
+  const [geoInfo, setGeoInfo] = useState(null);
+  const [authForm, setAuthForm] = useState({ email: "", password: "" });
+  const [authError, setAuthError] = useState("");
+  const [consentGeo, setConsentGeo] = useState(() => localStorage.getItem("consent:geo") === "true");
+  const [saveTierMessage, setSaveTierMessage] = useState("");
+  const [isBeginner, setIsBeginner] = useState(() => localStorage.getItem("mode:beginner") !== "false");
+  const [showTutorial, setShowTutorial] = useState(() => localStorage.getItem("tutorial:shown") !== "true");
+  const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
+  const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
+  const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
+  const [blink, setBlink] = useState(true);
+  const tierLabels = useMemo(
+    () => ({
+      basic: t("tierBasic"),
+      pro: t("tierPro"),
+      elite: t("tierElite"),
+    }),
+    [lang]
+  );
+
+  const cacheRef = useRef(new Map());
+  const wsRef = useRef(null);
+  const assetIdRef = useRef(ASSETS[0].id);
+  const reconnectTimer = useRef(null);
+  const pollTimer = useRef(null);
+  const fallbackTimer = useRef(null);
+  const pollingReconnectTimer = useRef(null);
+  const newsTimer = useRef(null);
+  const flowsTimer = useRef(null);
+
+  const displayPrice = livePrice ?? priceState.value;
+
+  useEffect(() => {
+    assetIdRef.current = asset.id;
+    setOhlcv([]);
+    setIndicators({ rsi: null, macd: null, signal: null, histogram: null });
+    setLivePrice(null);
+    setPriceState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
+    setTrades([]);
+    setLastError("");
+    setWsStatus("connecting");
+    setWsAttempts(0);
+    setTpForm({ entry: null, quantity: 1, tpPct: 4, slPct: 3 });
+    clearTimeout(reconnectTimer.current);
+    clearInterval(fallbackTimer.current);
+    fallbackTimer.current = null;
+    clearInterval(pollingReconnectTimer.current);
+    pollingReconnectTimer.current = null;
+    // Close existing socket immediately to prevent stale streams after asset switch
+    wsRef.current?.close();
+    wsRef.current = null;
+  }, [asset]);
+
+  const fetchWithCache = async (key, fetcher) => {
+    const cached = cacheRef.current.get(key);
+    if (cached && Date.now() - cached.time < CACHE_TTL) return cached.value;
+    const value = await fetcher();
+    cacheRef.current.set(key, { value, time: Date.now() });
+    return value;
+  };
+
+  const fetchCoinGeckoPrice = async (assetId) => {
+    try {
+      const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${assetId}&vs_currencies=usd&include_24hr_change=true`);
+      if (!res.ok) throw new Error("CoinGecko failed");
+      const data = await res.json();
+      const price = data?.[assetId]?.usd;
+      const change = data?.[assetId]?.usd_24h_change;
+      if (price === undefined) throw new Error("CoinGecko malformed");
+      return { price, change, source: "CoinGecko" };
+    } catch (err) {
+      console.warn("CoinGecko fallback", err);
+      return { price: priceState.value ?? null, change: priceState.change24h ?? null, source: "CoinGecko-fallback" };
+    }
+  };
+
+  const fetchCryptoComparePrice = async (fsym) => {
+    try {
+      const res = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=${fsym}&tsyms=USD`);
+      if (!res.ok) throw new Error("CryptoCompare failed");
+      const data = await res.json();
+      if (!data?.USD) throw new Error("CryptoCompare malformed");
+      return { price: data.USD, change: null, source: "CryptoCompare" };
+    } catch (err) {
+      console.warn("CryptoCompare fallback", err);
+      return { price: priceState.value ?? null, change: null, source: "CryptoCompare-fallback" };
+    }
+  };
+
+  const fetchFearGreed = async () => {
+    try {
+      const res = await fetch("https://api.alternative.me/fng/?limit=1");
+      if (!res.ok) throw new Error("Fear & Greed failed");
+      const data = await res.json();
+      const item = data?.data?.[0];
+      if (!item) throw new Error("Fear & Greed malformed");
+      return { value: Number(item.value), classification: item.value_classification, updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now() };
+    } catch (err) {
+      console.warn("Fear & Greed fallback", err);
+      return { value: fearGreed?.value ?? 50, classification: fearGreed?.classification ?? "Neutral", updatedAt: Date.now() };
+    }
+  };
+
+  const fetchKrakenOHLCV = async (pair, interval = 60) => {
+    const res = await fetch(`https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${interval}`);
+    if (!res.ok) throw new Error("Kraken OHLC failed");
+    const data = await res.json();
+    const key = Object.keys(data?.result || {}).find((k) => k !== "last");
+    const series = data?.result?.[key] || [];
+    return series.slice(-60).map((row) => {
+      const [ts, open, high, low, close, , volume] = row;
+      const date = new Date(Number(ts) * 1000);
+      return {
+        time: Number(ts),
+        label: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        open: Number(open),
+        high: Number(high),
+        low: Number(low),
+        close: Number(close),
+        volume: Number(volume),
+      };
+    });
+  };
+
+  const loadPrice = async () => {
+    try {
+      const primary = await fetchWithCache(`price:coingecko:${asset.id}`, () => fetchCoinGeckoPrice(asset.id));
+      setPriceState({ value: primary.price, change24h: primary.change, source: primary.source, updatedAt: Date.now() });
+      setLastError("");
+    } catch (err) {
+      console.error("Price primary failed", err);
+      try {
+        const fallback = await fetchWithCache(`price:cryptocompare:${asset.cc}`, () => fetchCryptoComparePrice(asset.cc));
+        setPriceState({ value: fallback.price, change24h: fallback.change, source: fallback.source, updatedAt: Date.now() });
+        setLastError(t("fetchFailPricePrimary"));
+      } catch (err2) {
+        console.error("Price fallback failed", err2);
+        setLastError(t("fetchFailPrice"));
+        setPriceState({ value: null, change24h: null, source: priceState.source, updatedAt: null });
+      }
+    }
+  };
+
+  const refreshAll = async () => {
+    setIsRefreshing(true);
+    await Promise.allSettled([loadPrice(), loadFearGreed(), loadOHLC()]);
+    setIsRefreshing(false);
+  };
+
+  const loadFearGreed = async () => {
+    try {
+      const fg = await fetchWithCache("fng", fetchFearGreed);
+      setFearGreed(fg);
+    } catch (err) {
+      console.error("Fear & Greed failed", err);
+      setLastError((prev) => prev || t("fetchFailFearGreed"));
+    }
+  };
+
+  const loadOHLC = async () => {
+    try {
+      const candles = await fetchWithCache(`ohlc:kraken:${asset.kraken}:${timeFrame}`, () => fetchKrakenOHLCV(asset.kraken, Number(timeFrame)));
+      setOhlcv(candles);
+    } catch (err) {
+      console.error("Kraken OHLC failed", err);
+      setLastError((prev) => prev || t("fetchFailOHLC"));
+    }
+  };
+
+  const fetchEtfNews = async () => {
+    const res = await fetch("https://api.coinstats.app/public/v1/news?skip=0&limit=15");
+    if (!res.ok) throw new Error("ETF News failed");
+    const data = await res.json();
+    const raw = data?.news || data?.result || [];
+    const normalized = raw
+      .map((n) => ({
+        title: n.title || "Untitled",
+        source: n.source || "News",
+        url: n.link || n.url,
+        publishedAt: n.feedDate || n.publishedAt || n.createdAt,
+        description: n.description || "",
+      }))
+      .filter((n) => /etf/i.test(n.title) || /etf/i.test(n.description));
+    const list = (normalized.length ? normalized : raw.slice(0, 10).map((n) => ({
+      title: n.title || "Untitled",
+      source: n.source || "News",
+      url: n.link || n.url,
+      publishedAt: n.feedDate || n.publishedAt || n.createdAt,
+      description: n.description || "",
+    }))).filter((n) => n.url);
+    if (!list.length) throw new Error("ETF News empty");
+    return list.slice(0, 8);
+  };
+
+  const loadEtfNews = async () => {
+    setEtfLoading(true);
+    try {
+      const items =
+        (await fetchWithCache("news:etf:coinstats", fetchEtfNews).catch(() => null)) ||
+        (await fetchWithCache("news:etf:fmp", fetchFmpNews).catch(() => null)) ||
+        [];
+      setEtfNews(Array.isArray(items) ? items : []);
+      setEtfError("");
+    } catch (err) {
+      console.error("ETF news failed", err);
+      setEtfError(t("fetchFailETF"));
+    } finally {
+      setEtfLoading(false);
+    }
+  };
+
+  const fetchFmpNews = async () => {
+    const res = await fetch("https://financialmodelingprep.com/api/v3/stock_news?limit=50&apikey=demo");
+    if (!res.ok) throw new Error("FMP News failed");
+    const data = await res.json();
+    const list = (data || [])
+      .map((n) => ({
+        title: n.title || "Untitled",
+        source: n.site || n.symbol || "News",
+        url: n.url,
+        publishedAt: n.publishedDate,
+        description: n.text || "",
+      }))
+      .filter((n) => n.url && (/etf/i.test(n.title) || /etf/i.test(n.description)));
+    if (!list.length) throw new Error("FMP ETF News empty");
+    return list.slice(0, 8);
+  };
+
+  const fetchEtfFlows = async () => {
+    const res = await fetch("https://sosovalue.com/api/v1/etf/flow");
+    if (!res.ok) throw new Error("ETF Flows failed");
+    const data = await res.json();
+    const rows = data?.data || data?.result || data?.list || [];
+    const normalized = rows
+      .map((r) => ({
+        name: r.name || r.symbol || r.ticker || "ETF",
+        date: r.date || r.updateDate || r.time || "",
+        inflow: Number(r.net_inflow || r.inflow || r.net || 0),
+      }))
+      .filter((r) => r.name);
+    if (!normalized.length) throw new Error("ETF Flows empty");
+    return normalized.slice(0, 6);
+  };
+
+  const loadEtfFlows = async () => {
+    try {
+      const rows = await fetchWithCache("flows:etf", fetchEtfFlows);
+      setEtfFlows(rows);
+      setEtfFlowsError("");
+    } catch (err) {
+      console.error("ETF flows failed", err);
+      setEtfFlows([]);
+      setEtfFlowsError(t("fetchFailETFFlows"));
+    }
+  };
+
+  const apiCheckers = [
+    {
+      key: "defillama",
+      name: "DeFiLlama",
+      run: async () => {
+        const res = await fetch("https://api.llama.fi/protocols");
+        if (!res.ok) throw new Error("defillama failed");
+        const data = await res.json();
+        const totalTvl = data?.slice(0, 200)?.reduce((acc, p) => acc + (p.tvl || 0), 0);
+        return {
+          status: "ok",
+          detail: `${data.length} Protokolle`,
+          data: totalTvl ? `TVL Top200: $${Math.round(totalTvl).toLocaleString()}` : "Protokolle geladen",
+        };
+      },
+    },
+    {
+      key: "santiment",
+      name: "Santiment",
+      run: async () => {
+        const res = await fetch("https://api.santiment.net/graphql", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: "{ projectBySlug(slug:\"bitcoin\"){slug} }" }),
+        });
+        if (res.status === 401) throw new Error("API Key benötigt (401)");
+        if (!res.ok) throw new Error("santiment failed");
+        const data = await res.json();
+        const slug = data?.data?.projectBySlug?.slug || "ok";
+        return { status: "ok", detail: "BTC slug ok", data: slug };
+      },
+    },
+    {
+      key: "huggingface",
+      name: "HuggingFace",
+      run: async () => {
+        const res = await fetch("https://huggingface.co/api/models/facebook/prophet-net");
+        if (res.status === 401) throw new Error("HF Token benötigt (401)");
+        if (!res.ok) throw new Error("huggingface failed");
+        const data = await res.json();
+        const downloads = data?.downloads ?? null;
+        return {
+          status: "ok",
+          detail: downloads ? `${downloads.toLocaleString()} DL` : "Model erreichbar",
+          data: data?.pipeline_tag ? `Pipeline: ${data.pipeline_tag}` : "Model Info ok",
+        };
+      },
+    },
+    {
+      key: "alpha",
+      name: "Alpha Vantage",
+      run: async () => {
+        const res = await fetch("https://www.alphavantage.co/query?function=ATR&symbol=IBM&interval=daily&time_period=14&apikey=demo");
+        if (res.status === 503) throw new Error("Limit erreicht (503)");
+        if (!res.ok) throw new Error("alphavantage failed");
+        const data = await res.json();
+        const values = data?.TechnicalAnalysis?.ATR || data?.TechnicalAnalysisATR || data?.TechnicalAnalysisATR || {};
+        const first = Object.values(values)[0];
+        return { status: "ok", detail: first?.ATR ? `ATR ${Number(first.ATR).toFixed(2)}` : "Demo ok", data: "IBM Daily" };
+      },
+    },
+    {
+      key: "fmp",
+      name: "FMP",
+      run: async () => {
+        const res = await fetch("https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=demo");
+        if (res.status === 403) throw new Error("FMP Key benötigt");
+        if (!res.ok) throw new Error("fmp failed");
+        const data = await res.json();
+        return { status: "ok", detail: `${data.length || 0} Ticker`, data: data?.[0]?.symbol ? `Top: ${data[0].symbol}` : "Aktive geladen" };
+      },
+    },
+  ];
+
+  const loadApiPlaybook = async () => {
+    setApiStatuses((prev) =>
+      API_SOURCES.reduce((acc, cur) => {
+        acc[cur.name] = prev[cur.name] || { state: "idle", note: "" };
+        return acc;
+      }, {})
+    );
+    const results = await Promise.all(
+      apiCheckers.map(async (c) => {
+        try {
+          const value = await fetchWithCache(`apicheck:${c.key}`, c.run);
+          return { name: c.name, state: "ok", note: value?.detail || t("reachable"), data: value?.data || "" };
+        } catch (err) {
+          const msg = err?.message || "Fehler";
+          const auth = /key|token|401|403/i.test(msg);
+          return {
+            name: c.name,
+            state: auth ? "auth" : "fail",
+            note: auth ? t("apiKeyNeeded") : msg || t("unavailable"),
+            data: "",
+          };
+        }
+      })
+    );
+    const mapped = results.reduce((acc, r) => {
+      acc[r.name] = { state: r.state, note: r.note, data: r.data || "" };
+    return acc;
+  }, {});
+  setApiStatuses((prev) => ({ ...prev, ...mapped }));
+};
+
+  useEffect(() => {
+    refreshAll();
+    pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
+    return () => clearInterval(pollTimer.current);
+  }, [asset]);
+
+  useEffect(() => {
+    loadEtfNews();
+    newsTimer.current = setInterval(loadEtfNews, NEWS_REFRESH);
+    return () => clearInterval(newsTimer.current);
+  }, []);
+
+  useEffect(() => {
+    loadEtfFlows();
+    flowsTimer.current = setInterval(loadEtfFlows, FLOWS_REFRESH);
+    return () => clearInterval(flowsTimer.current);
+  }, []);
+
+  useEffect(() => {
+    loadApiPlaybook();
+  }, []);
+
+  const STRIPE_LINKS = {
+    pro_month: "https://billing.stripe.com/p/test_pro_month",
+    pro_year: "https://billing.stripe.com/p/test_pro_year",
+    elite_month: "https://billing.stripe.com/p/test_elite_month",
+    elite_year: "https://billing.stripe.com/p/test_elite_year",
+    customer_portal: "https://billing.stripe.com/p/test_portal",
+  };
+
+  const openStripe = (link) => {
+    if (!link) return;
+    window.open(link, "_blank", "noopener,noreferrer");
+  };
+
+  useEffect(() => {
+    const setMeta = (name, content) => {
+      if (!name || !content) return;
+      let tag = document.querySelector(`meta[name='${name}']`);
+      if (!tag) {
+        tag = document.createElement("meta");
+        tag.setAttribute("name", name);
+        document.head.appendChild(tag);
+      }
+      tag.setAttribute("content", content);
+    };
+    setMeta("keywords", "crypto dashboard elite 2025, ai trading, risk manager, bitcoin analytics");
+    setMeta("description", "Vision AI Mind Crypto Risk Manager mit AI-Predictor, Backtesting und Live-Daten.");
+    setMeta("ai-tags", "#CryptoElite #AITrading #RiskManager");
+
+    const ld = {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "Vision AI Mind Crypto Dashboard",
+      applicationCategory: "FinanceApplication",
+      description: "AI-gestütztes Crypto Dashboard mit Backtests, Live OHLC und Risiko-Signalen.",
+      operatingSystem: "Web",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      featureList: ["AI Predictor", "Backtesting", "Risk Score", "GeoIP Meta", "Beginner Mode", "Live OHLC"],
+    };
+    let script = document.getElementById("jsonld-features");
+    if (!script) {
+      script = document.createElement("script");
+      script.id = "jsonld-features";
+      script.type = "application/ld+json";
+      document.head.appendChild(script);
+    }
+    script.textContent = JSON.stringify(ld);
+  }, [asset.label, userTier, timeFrame]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1800);
+    if (consentGeo) {
+      fetch("https://ipapi.co/json/", { signal: controller.signal })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data) return;
+          setGeoInfo({ country: data.country_name, city: data.city, ip: data.ip });
+          const setMeta = (name, content) => {
+            if (!name || !content) return;
+            let tag = document.querySelector(`meta[name='${name}']`);
+            if (!tag) {
+              tag = document.createElement("meta");
+              tag.setAttribute("name", name);
+              document.head.appendChild(tag);
+            }
+            tag.setAttribute("content", content);
+          };
+          setMeta("geoip.country", data.country_name || "");
+          setMeta("geoip.city", data.city || "");
+          setMeta("geoip.ip", data.ip || "");
+          setMeta("ai-tags", "#CryptoElite #AITrading #RiskManager");
+        })
+        .catch(() => {})
+        .finally(() => clearTimeout(timer));
+    } else {
+      clearTimeout(timer);
+    }
+    return () => clearTimeout(timer);
+  }, [consentGeo]);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserEmail(user.email || t("demoUser"));
+        const trial = localStorage.getItem(`trial:${user.uid}`);
+        if (trial && Number(trial) > Date.now()) setUserTier("elite");
+        else {
+          try {
+            const snap = await getDoc(doc(db, "userTiers", user.uid));
+            if (snap.exists()) setUserTier(snap.data().tier || "basic");
+            else setUserTier(localStorage.getItem(`tier:${user.uid}`) || "basic");
+          } catch {
+            setUserTier(localStorage.getItem(`tier:${user.uid}`) || "basic");
+          }
+        }
+      } else {
+        setUserEmail(t("guestUser"));
+        setUserTier("basic");
+      }
+    });
+    return () => unsub();
+  }, [lang]);
+
+  const handleSignin = async () => {
+    setAuthError("");
+    try {
+      await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+    } catch (err) {
+      setAuthError(err?.message || "Login failed");
+    }
+  };
+
+  const handleSignup = async () => {
+    setAuthError("");
+    try {
+      await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
+    } catch (err) {
+      setAuthError(err?.message || "Signup failed");
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuthError("");
+    try {
+      await signOut(auth);
+    } catch (err) {
+      setAuthError(err?.message || "Logout failed");
+    }
+  };
+
+  const grantTrial = () => {
+    if (!auth.currentUser) return;
+    const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(`trial:${auth.currentUser.uid}`, String(expiry));
+    setUserTier("elite");
+  };
+
+  const persistTier = async (tier) => {
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, "userTiers", auth.currentUser.uid), { tier }, { merge: true });
+        localStorage.setItem(`tier:${auth.currentUser.uid}`, tier);
+        setSaveTierMessage(t("tierSaved"));
+        setTimeout(() => setSaveTierMessage(""), 1200);
+      } catch (err) {
+        console.error("save tier failed", err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    loadOHLC();
+  }, [timeFrame]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("journalEntries");
+      if (raw) setJournalEntries(JSON.parse(raw));
+    } catch (err) {
+      console.error("Journal load failed", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("journalEntries", JSON.stringify(journalEntries.slice(0, 50)));
+    } catch (err) {
+      console.error("Journal save failed", err);
+    }
+  }, [journalEntries]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setBlink((p) => !p), 900);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let attempts = 0;
+    if (!asset.binance) {
+      setWsStatus("unavailable");
+      setLivePrice(null);
+      clearInterval(fallbackTimer.current);
+      fallbackTimer.current = null;
+      clearInterval(pollingReconnectTimer.current);
+      pollingReconnectTimer.current = null;
+      return undefined;
+    }
+    const connect = () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSED) wsRef.current = null;
+      if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) return;
+      const symbol = (asset.binance || "").toLowerCase();
+      if (!symbol) return;
+      const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol}@trade`);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setWsStatus("live");
+        setWsAttempts(0);
+        attempts = 0;
+        clearInterval(fallbackTimer.current);
+        fallbackTimer.current = null;
+        clearInterval(pollingReconnectTimer.current);
+        pollingReconnectTimer.current = null;
+      };
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (assetIdRef.current !== asset.id) return;
+          if (payload?.p) {
+            const px = Number(payload.p);
+            const qty = Number(payload.q || 0);
+            const side = payload.m ? "sell" : "buy";
+            setLivePrice(px);
+            setTrades((prev) => [{ price: px, qty, usd: px * qty, side, ts: payload.T || Date.now() }, ...prev].slice(0, 50));
+          }
+        } catch (err) {
+          console.error("WS parse error", err);
+        }
+      };
+      ws.onclose = () => {
+        wsRef.current = null;
+        setWsStatus("reconnecting");
+        attempts += 1;
+        setWsAttempts(attempts);
+        if (attempts <= 5) reconnectTimer.current = setTimeout(connect, 1500);
+        else {
+          setWsStatus("polling");
+          clearInterval(fallbackTimer.current);
+          fallbackTimer.current = setInterval(loadPrice, 10000);
+          if (!pollingReconnectTimer.current) {
+            pollingReconnectTimer.current = setInterval(() => {
+              attempts = 0;
+              connect();
+            }, 30000);
+          }
+        }
+      };
+      ws.onerror = () => ws.close();
+    };
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+      clearInterval(fallbackTimer.current);
+      fallbackTimer.current = null;
+      clearInterval(pollingReconnectTimer.current);
+      pollingReconnectTimer.current = null;
+    };
+  }, [asset]);
+  const indicatorSeries = useMemo(() => {
+    if (!ohlcv.length) return [];
+    const closes = ohlcv.map((c) => c.close);
+    const rsi = calculateRSISeries(closes, 14);
+    const macd = calculateMACDSeries(closes, 12, 26, 9);
+    const boll = calculateBollingerBands(closes, 20, 2);
+    const stochRsi = calculateStochRSI(closes, 14, 3, 3);
+    const stochPrice = calculateStochOsc(ohlcv, 14, 3, 3);
+    const cci = calculateCCI(ohlcv, 20);
+    const ema20 = calculateEMA(closes, 20);
+    const ema50 = calculateEMA(closes, 50);
+    const ema200 = calculateEMA(closes, 200);
+    const atr = calculateATR(ohlcv, 14);
+    const donchian = calculateDonchian(ohlcv, 20);
+    const vwap = calculateVWAP(ohlcv);
+    const obv = calculateOBV(ohlcv);
+    const maxVol = Math.max(...ohlcv.map((c) => c.volume || 0), 1);
+    const adx = calculateADX(ohlcv, 14);
+    return ohlcv.map((row, idx) => ({
+      ...row,
+      rsi: rsi[idx],
+      macd: macd.macd[idx],
+      macdSignal: macd.signal[idx],
+      macdHist: macd.histogram[idx],
+      bollUpper: boll.upper[idx],
+      bollLower: boll.lower[idx],
+      bollBasis: boll.basis[idx],
+      stochK: stochRsi.k[idx],
+      stochD: stochRsi.d[idx],
+      stochPriceK: stochPrice.k[idx],
+      stochPriceD: stochPrice.d[idx],
+      cci: cci[idx],
+      ema20: ema20[idx],
+      ema50: ema50[idx],
+      ema200: ema200[idx],
+      atr: atr[idx],
+      atrPct: row.close ? (atr[idx] / row.close) * 100 : null,
+      adx: adx[idx],
+      donchianHigh: donchian.upper[idx],
+      donchianLow: donchian.lower[idx],
+      donchianMid: donchian.mid[idx],
+      vwap: vwap[idx],
+      obv: obv[idx],
+      volumeSpike: row.volume ? row.volume / maxVol : null,
+      volumeUp: row.close >= row.open ? row.volume : 0,
+      volumeDown: row.close < row.open ? row.volume : 0,
+    }));
+  }, [ohlcv]);
+
+  useEffect(() => {
+    if (!indicatorSeries.length) return;
+    const last = indicatorSeries[indicatorSeries.length - 1];
+    setIndicators({
+      rsi: Number.isFinite(last?.rsi) ? last.rsi : null,
+      macd: Number.isFinite(last?.macd) ? last.macd : null,
+      signal: Number.isFinite(last?.macdSignal) ? last.macdSignal : null,
+      histogram: Number.isFinite(last?.macdHist) ? last.macdHist : null,
+    });
+  }, [indicatorSeries]);
+
+  useEffect(() => {
+    if (!indicatorSeries.length) return;
+    const closes = indicatorSeries.map((c) => c.close).filter((v) => Number.isFinite(v));
+    if (!closes.length) return;
+    const lastClose = closes[closes.length - 1];
+    const base = closes[Math.max(0, closes.length - 12)];
+    const drift = lastClose - base;
+    const forecastPct = drift >= 0 ? 5 : -4;
+    const confidence = Math.min(95, Math.max(65, Math.abs((drift / (base || lastClose || 1)) * 4800)));
+    setAiPredict({
+      forecast: lastClose ? lastClose * (1 + forecastPct / 100) : null,
+      confidence: Math.round(confidence),
+      trend: drift >= 0 ? "bullish" : "bearish",
+      refreshedAt: Date.now(),
+    });
+
+    let wins = 0;
+    let trades = 0;
+    let rrSum = 0;
+    for (let i = 3; i < closes.length; i += 1) {
+      const entry = closes[i - 3];
+      const exit = closes[i];
+      if (!Number.isFinite(entry) || !Number.isFinite(exit)) continue;
+      const change = (exit - entry) / entry;
+      const rr = change >= 0 ? change / 0.03 : change / 0.03;
+      if (change > 0.01) wins += 1;
+      trades += 1;
+      rrSum += rr;
+    }
+    const losses = trades - wins;
+    const avgRr = trades ? rrSum / trades : null;
+    setBacktestStats({
+      trades,
+      wins,
+      losses,
+      winRate: trades ? (wins / trades) * 100 : null,
+      avgRr,
+      avgRR: avgRr,
+    });
+  }, [indicatorSeries]);
+
+  const suggestRisk = () => {
+    if (!priceState.value) return;
+    const rsi = indicators.rsi;
+    let tpPct = 4;
+    let slPct = 3;
+    let note = "Neutral Trend: TP 4%, SL 3%.";
+    if (rsi && rsi < 30) {
+      tpPct = 6;
+      slPct = 2.5;
+      note = "Oversold (RSI<30): TP 6%, SL 2.5%.";
+    } else if (rsi && rsi > 70) {
+      tpPct = 3;
+      slPct = 4;
+      note = "Overbought (RSI>70): TP 3%, SL 4%.";
+    } else if (indicators.macd && indicators.signal && indicators.macd > indicators.signal) {
+      tpPct = 5;
+      slPct = 3;
+      note = "MACD Bullish: TP 5%, SL 3%.";
+    }
+    setTpForm((prev) => ({ ...prev, entry: prev.entry ?? displayPrice, tpPct, slPct }));
+    setAiNote(note);
+  };
+
+  const signalBadges = [
+    { label: "RSI", value: indicators.rsi ? indicators.rsi.toFixed(1) : "-", intent: indicators.rsi && (indicators.rsi < 30 || indicators.rsi > 70) ? "warn" : "ok" },
+    {
+      label: "MACD",
+      value:
+        indicators.macd && indicators.signal
+          ? indicators.macd - indicators.signal >= 0
+            ? "Bullish"
+            : "Bearish"
+          : "-",
+      intent:
+        indicators.macd && indicators.signal
+          ? indicators.macd - indicators.signal >= 0
+            ? "ok"
+            : "warn"
+          : "neutral",
+    },
+    { label: "Bollinger", value: "20 / 2 std", intent: "neutral" },
+  ];
+
+  const tpEntry = clampNumber(tpForm.entry ?? displayPrice, null);
+  const tpPct = clampNumber(tpForm.tpPct, null);
+  const slPct = clampNumber(tpForm.slPct, null);
+  const qty = clampNumber(tpForm.quantity, 0) ?? 0;
+  const takeProfitPrice = tpEntry !== null && tpPct !== null ? tpEntry * (1 + tpPct / 100) : null;
+  const stopLossPrice = tpEntry !== null && slPct !== null ? tpEntry * (1 - slPct / 100) : null;
+  const profit = takeProfitPrice !== null && tpEntry !== null ? (takeProfitPrice - tpEntry) * qty : null;
+  const loss = stopLossPrice !== null && tpEntry !== null ? (tpEntry - stopLossPrice) * qty : null;
+  const rr = profit !== null && loss !== null && loss !== 0 ? profit / loss : null;
+
+  useEffect(() => {
+    if (displayPrice && tpForm.entry === null) setTpForm((prev) => ({ ...prev, entry: displayPrice }));
+  }, [displayPrice, tpForm.entry]);
+
+  const lastPoint = useMemo(() => (indicatorSeries.length ? indicatorSeries[indicatorSeries.length - 1] : null), [indicatorSeries]);
+  const lastClose = lastPoint?.close ?? null;
+  const tpZone = useMemo(() => {
+    if (!takeProfitPrice) return null;
+    const pad = takeProfitPrice * 0.0025;
+    return { y1: takeProfitPrice - pad, y2: takeProfitPrice + pad };
+  }, [takeProfitPrice]);
+  const slZone = useMemo(() => {
+    if (!stopLossPrice) return null;
+    const pad = stopLossPrice * 0.0025;
+    return { y1: stopLossPrice - pad, y2: stopLossPrice + pad };
+  }, [stopLossPrice]);
+  const nearTp = takeProfitPrice && lastClose ? Math.abs(lastClose - takeProfitPrice) / takeProfitPrice <= 0.006 : false;
+  const nearSl = stopLossPrice && lastClose ? Math.abs(lastClose - stopLossPrice) / stopLossPrice <= 0.006 : false;
+
+  const marketRegime = useMemo(() => {
+    if (!lastPoint) return { label: "Neutral", color: "text-slate-200", intent: "neutral", confidence: 0.5, detail: "Keine Daten" };
+    const emaBias = lastPoint.ema200 && lastPoint.close ? (lastPoint.close - lastPoint.ema200) / lastPoint.ema200 : null;
+    const bbWidth =
+      Number.isFinite(lastPoint.bollUpper) && Number.isFinite(lastPoint.bollLower) && Number.isFinite(lastPoint.bollBasis) && lastPoint.bollBasis
+        ? ((lastPoint.bollUpper - lastPoint.bollLower) / lastPoint.bollBasis) * 100
+        : null;
+    const adxVal = Number.isFinite(lastPoint.adx) ? lastPoint.adx : null;
+    const strongTrend = adxVal !== null ? adxVal > 25 : false;
+    let label = "Choppy";
+    let color = "text-slate-200";
+    let intent = "neutral";
+    if (emaBias !== null && strongTrend && bbWidth !== null && bbWidth > 5) {
+      if (emaBias > 0) {
+        label = "Bull";
+        color = "text-emerald-300";
+        intent = "ok";
+      } else {
+        label = "Bear";
+        color = "text-red-300";
+        intent = "warn";
+      }
+    } else if (bbWidth !== null && bbWidth < 3) {
+      label = "Crab";
+      color = "text-amber-300";
+    }
+    const confidenceParts = [
+      adxVal !== null ? Math.min(1, adxVal / 40) : 0.4,
+      emaBias !== null ? Math.min(1, Math.abs(emaBias)) : 0.3,
+      bbWidth !== null ? Math.min(1, bbWidth / 10) : 0.3,
+    ];
+    const confidence = Number(((confidenceParts.reduce((a, b) => a + b, 0) / confidenceParts.length) * 0.9 + 0.1).toFixed(2));
+    return {
+      label,
+      color,
+      intent,
+      confidence,
+      detail: `EMA200 ${emaBias !== null ? (emaBias * 100).toFixed(2) + "%" : "-"} · ADX ${adxVal ? adxVal.toFixed(1) : "-"} · BBW ${
+        bbWidth ? bbWidth.toFixed(2) + "%" : "-"
+      }`,
+    };
+  }, [lastPoint]);
+
+  const smartMoney = useMemo(() => {
+    const horizon = Date.now() - 3 * 60 * 60 * 1000;
+    const filtered = trades.filter((t) => t.ts >= horizon);
+    const big = filtered.filter((t) => t.usd >= 100000);
+    const bucket = big.length ? big : filtered;
+    const buys = bucket.filter((t) => t.side === "buy").reduce((a, b) => a + b.usd, 0);
+    const sells = bucket.filter((t) => t.side === "sell").reduce((a, b) => a + b.usd, 0);
+    const net = buys - sells;
+    const abs = buys + sells || 1;
+    const pct = Math.round(Math.min(99, Math.max(-99, (net / abs) * 100)));
+    const title = net >= 0 ? t("smartAccum") : t("smartDistr");
+    const direction = net >= 0 ? t("smartDirBuy") : t("smartDirSell");
+    return { title, net, pct, direction, buys, sells, count: bucket.length };
+  }, [trades, lang]);
+
+  const liquidity = useMemo(() => {
+    const horizon = Date.now() - 60 * 60 * 1000;
+    const recent = trades.filter((t) => t.ts >= horizon);
+    const bids = recent.filter((t) => t.side === "buy").reduce((a, b) => a + b.usd, 0);
+    const asks = recent.filter((t) => t.side === "sell").reduce((a, b) => a + b.usd, 0);
+    const total = bids + asks || 1;
+    const dominance = (bids / total) * 100;
+    let tone = "text-slate-200";
+    if (dominance >= 55) tone = "text-emerald-300";
+    else if (dominance <= 45) tone = "text-red-300";
+    return {
+      bids,
+      asks,
+      dominance: dominance.toFixed(0),
+      imbalance: Math.abs(50 - dominance).toFixed(0),
+      tone,
+    };
+  }, [trades]);
+
+  const [onChainMetrics, setOnChainMetrics] = useState({ active: null, supplyWhales: null, supplyRetail: null, updatedAt: null });
+  const [sentimentMetrics, setSentimentMetrics] = useState({ score: null, label: "Social Score", updatedAt: null });
+  const [correlations, setCorrelations] = useState([]);
+  const [fundingRates, setFundingRates] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const [onchain, sentiment, corr, funding] = await Promise.all([
+        cryptoDataService.fetchOnChainMetrics(),
+        cryptoDataService.fetchSentiment(),
+        cryptoDataService.fetchCorrelation(["bitcoin", "ethereum", "solana", "ripple"]),
+        cryptoDataService.fetchFundingRates(["BTCUSDT", "ETHUSDT", "SOLUSDT"]),
+      ]);
+      if (!mounted) return;
+      setOnChainMetrics(onchain);
+      setSentimentMetrics(sentiment);
+      setCorrelations(corr);
+      setFundingRates(funding);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const aiSignal = useMemo(() => {
+    if (!indicatorSeries.length || !displayPrice) {
+      return { action: "Warten", reason: "Zu wenige Daten", confidence: 0.5, tp: null, sl: null };
+    }
+    const rsi = indicators.rsi;
+    const macdDiff = Number.isFinite(indicators.macd) && Number.isFinite(indicators.signal) ? indicators.macd - indicators.signal : null;
+    const last = indicatorSeries[indicatorSeries.length - 1];
+    const close = last?.close;
+    const upper = last?.bollUpper;
+    const lower = last?.bollLower;
+    let action = "Warten";
+    let reason = "Neutral";
+    let confidence = 0.55;
+    let tp = takeProfitPrice;
+    let sl = stopLossPrice;
+    if (rsi !== null && rsi < 30 && macdDiff !== null && macdDiff > 0) {
+      action = "Kaufen";
+      reason = "RSI < 30 und MACD bullisch";
+      confidence = 0.68;
+      tp = tp || close * 1.05;
+      sl = sl || close * 0.975;
+    } else if (rsi !== null && rsi > 70 && macdDiff !== null && macdDiff < 0) {
+      action = "Verkaufen";
+      reason = "RSI > 70 und MACD baerisch";
+      confidence = 0.66;
+      tp = tp || close * 0.97;
+      sl = sl || close * 1.03;
+    } else if (upper && close && close >= upper) {
+      action = "Take Profit";
+      reason = "Preis am oberen Band";
+      confidence = 0.6;
+      tp = tp || close;
+      sl = sl || close * 0.985;
+    } else if (lower && close && close <= lower) {
+      action = "Stop Loss pruefen";
+      reason = "Preis am unteren Band";
+      confidence = 0.6;
+      tp = tp || close * 1.015;
+      sl = sl || close;
+    }
+    return { action, reason, confidence, tp, sl };
+  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice]);
+
+  const fibView = useMemo(() => {
+    if (!indicatorSeries.length) {
+      return { levels: [], goldenLow: null, goldenHigh: null, current: displayPrice, tp: takeProfitPrice, sl: stopLossPrice, yMin: null, yMax: null };
+    }
+    const highs = indicatorSeries.map((r) => r.high);
+    const lows = indicatorSeries.map((r) => r.low);
+    const maxHigh = Math.max(...highs);
+    const minLow = Math.min(...lows);
+    const range = maxHigh - minLow || 1;
+    const retracements = [
+      { label: "0%", value: maxHigh },
+      { label: "23.6%", value: maxHigh - range * 0.236 },
+      { label: "38.2%", value: maxHigh - range * 0.382 },
+      { label: "50%", value: maxHigh - range * 0.5 },
+      { label: "61.8%", value: maxHigh - range * 0.618 },
+      { label: "78.6%", value: maxHigh - range * 0.786 },
+      { label: "100%", value: minLow },
+    ];
+    const goldenHigh = maxHigh - range * 0.618;
+    const goldenLow = maxHigh - range * 0.786;
+    const pad = range * 0.02;
+    return {
+      levels: retracements,
+      goldenLow,
+      goldenHigh,
+      current: displayPrice,
+      tp: takeProfitPrice,
+      sl: stopLossPrice,
+      yMin: minLow - pad,
+      yMax: maxHigh + pad,
+    };
+  }, [indicatorSeries, displayPrice, takeProfitPrice, stopLossPrice]);
+
+  const bubbleData = useMemo(() => {
+    if (!indicatorSeries.length) return [];
+    const mapped = indicatorSeries.map((row, idx) => {
+      const rsiVal = row.rsi;
+      if (!Number.isFinite(rsiVal)) return null;
+      const bias = rsiVal < 40 ? "buy" : rsiVal > 60 ? "sell" : "neutral";
+      if (bias === "neutral") return null;
+      const magnitude = Math.min(96, Math.max(52, Math.abs(rsiVal - 50) * 1.8));
+      return {
+        id: `${row.label}-${idx}`,
+        label: `${asset.cc} ${row.label}`,
+        bias,
+        rsi: rsiVal,
+        size: magnitude,
+      };
+    }).filter(Boolean);
+    return mapped.sort((a, b) => Math.abs(b.rsi - 50) - Math.abs(a.rsi - 50)).slice(0, 10);
+  }, [indicatorSeries, asset.cc]);
+
+  const proSignal = useMemo(() => {
+    if (!indicatorSeries.length) {
+      return { action: "wait", reason: "no data", confidence: 0.5, tp: null, sl: null, meta: {} };
+    }
+    const last = indicatorSeries[indicatorSeries.length - 1];
+    const atrPct = Number.isFinite(last.atrPct) ? last.atrPct : null;
+    const vwap = last.vwap;
+    const donHigh = last.donchianHigh;
+    const donLow = last.donchianLow;
+    const volSpike = last.volumeSpike && last.volumeSpike >= 1.3;
+    const macdDiff = Number.isFinite(indicators.macd) && Number.isFinite(indicators.signal) ? indicators.macd - indicators.signal : null;
+    const rsi = Number.isFinite(indicators.rsi) ? indicators.rsi : null;
+    const close = last.close;
+    const bollUpper = last.bollUpper;
+    const bollLower = last.bollLower;
+    const trendUp = last.ema200 && close ? close > last.ema200 : false;
+    const trendBias = trendUp ? 1 : close && last.ema200 ? (close > last.ema200 * 0.995 ? 0.5 : -0.5) : 0;
+    const flowBias = smartMoney.net >= 0 ? 0.5 : -0.5;
+    const volQuality = atrPct ? (atrPct >= 0.5 && atrPct <= 2.5 ? 0.5 : 0.1) : 0.2;
+    const momentum = macdDiff !== null ? (macdDiff > 0 ? 0.5 : -0.5) : 0;
+    const regimeLabel = marketRegime.label;
+    const regimeIntent = marketRegime.intent;
+
+    let setup = "wait";
+    let action = "wait";
+    let reason = "neutral";
+    let confidence = 0.55;
+    let tp = null;
+    let sl = null;
+
+    const breakoutLong = donHigh && close > donHigh && volSpike;
+    const breakoutShort = donLow && close < donLow && volSpike;
+    const reversionLong = rsi !== null && rsi < 30 && bollLower && close <= bollLower;
+    const reversionShort = rsi !== null && rsi > 70 && bollUpper && close >= bollUpper;
+
+    if (trendUp && macdDiff !== null && macdDiff > 0 && vwap && close > vwap && atrPct && atrPct < 3) {
+      setup = "trend";
+      action = "long";
+      reason = "trend up & MACD bull & above VWAP";
+      confidence = 0.64;
+    }
+    if (!trendUp && macdDiff !== null && macdDiff < 0 && vwap && close < vwap && atrPct && atrPct < 3) {
+      setup = "trend";
+      action = "short";
+      reason = "trend down & MACD bear & below VWAP";
+      confidence = 0.62;
+    }
+    if (breakoutLong) {
+      setup = "breakout";
+      action = "long";
+      reason = "breakout above Donchian + volume spike";
+      confidence = Math.max(confidence, 0.7);
+    }
+    if (breakoutShort) {
+      setup = "breakout";
+      action = "short";
+      reason = "breakdown below Donchian + volume spike";
+      confidence = Math.max(confidence, 0.7);
+    }
+    if (reversionLong) {
+      setup = "reversion";
+      action = "long";
+      reason = "mean reversion near lower band with RSI<30";
+      confidence = Math.max(confidence, 0.63);
+    }
+    if (reversionShort) {
+      setup = "reversion";
+      action = "short";
+      reason = "mean reversion near upper band with RSI>70";
+      confidence = Math.max(confidence, 0.63);
+    }
+    if (flowBias < 0 && action === "long") confidence -= 0.05;
+    if (flowBias > 0 && action === "short") confidence -= 0.05;
+
+    if (action !== "wait" && atrPct && close) {
+      const atrFrac = Math.min(atrPct / 100, 0.02);
+      const riskPad = setup === "breakout" ? atrFrac * 0.6 : atrFrac * 0.5;
+      if (action === "long") {
+        sl = close * (1 - riskPad);
+        tp = close * (1 + riskPad * 2.2);
+      } else {
+        sl = close * (1 + riskPad);
+        tp = close * (1 - riskPad * 2.2);
+      }
+    }
+
+    const scoreParts = [trendBias, momentum, flowBias, volQuality].map((v) => (Number.isFinite(v) ? v : 0));
+    const score = Math.min(0.99, Math.max(-0.99, scoreParts.reduce((a, b) => a + b, 0)));
+    const checks = {
+      trend: trendBias > 0 ? "ok" : trendBias < 0 ? "warn" : "neutral",
+      momentum: momentum > 0 ? "ok" : momentum < 0 ? "warn" : "neutral",
+      flow: flowBias > 0 ? "ok" : flowBias < 0 ? "warn" : "neutral",
+      vol: volQuality > 0.3 ? "ok" : "neutral",
+    };
+
+    let setupLabel = t("setupWait");
+    if (setup === "trend") setupLabel = t("setupTrend");
+    else if (setup === "breakout") setupLabel = t("setupBreakout");
+    else if (setup === "reversion") setupLabel = t("setupReversion");
+
+    return {
+      action,
+      reason,
+      confidence,
+      tp,
+      sl,
+      setup,
+      setupLabel,
+      regimeLabel,
+      regimeIntent,
+      score,
+      meta: {
+        atrPct,
+        vwap,
+        donHigh,
+        donLow,
+        volSpike: !!volSpike,
+        macdDiff,
+        checks,
+      },
+    };
+  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, smartMoney.net, marketRegime.label, marketRegime.intent, t]);
+
+  // backtestStats handled via state setter to avoid duplicate declarations
+
+  const addJournalEntry = () => {
+    const date = journalForm.date || new Date().toISOString().slice(0, 10);
+    if (!journalForm.note.trim()) return;
+    const entry = { date, mood: journalForm.mood, note: journalForm.note.trim(), ts: Date.now() };
+    setJournalEntries((prev) => [entry, ...prev].slice(0, 50));
+    setJournalForm((p) => ({ ...p, note: "" }));
+  };
+
+  const volumeBuckets = useMemo(() => {
+    const now = Date.now();
+    const bucketCount = 24;
+    const buckets = [];
+    for (let i = bucketCount - 1; i >= 0; i -= 1) {
+      const start = now - i * 60 * 1000;
+      const end = start + 60 * 1000;
+      const tradesInBucket = trades.filter((t) => t.ts >= start && t.ts < end);
+      const buy = tradesInBucket.filter((t) => t.side === "buy").reduce((acc, t) => acc + t.usd, 0);
+      const sell = tradesInBucket.filter((t) => t.side === "sell").reduce((acc, t) => acc + t.usd, 0);
+      buckets.push({
+        label: new Date(start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        buy,
+        sell,
+        net: buy - sell,
+      });
+    }
+    return buckets;
+  }, [trades]);
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden">
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-emerald-300">Vision AI Mind</p>
+            <h1 className="text-3xl font-bold text-slate-50">Crypto Risk Manager</h1>
+            <p className="text-sm text-slate-400">{t("heroSubtitle")}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={asset.id}
+              onChange={(e) => {
+                const next = ASSETS.find((a) => a.id === e.target.value) ?? ASSETS[0];
+                setAsset(next);
+                setLivePrice(null);
+              }}
+              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
+            >
+              {ASSETS.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 shadow-inner shadow-black/30">
+              <div>
+                <div className="font-semibold text-slate-100">{tierLabels[userTier]}</div>
+                <div className="text-[11px] text-slate-400">{userEmail}</div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    setUserTier("basic");
+                    persistTier("basic");
+                  }}
+                  className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700"
+                >
+                  {t("tierBasic")}
+                </button>
+                <button
+                  onClick={() => {
+                    setUserTier("pro");
+                    persistTier("pro");
+                  }}
+                  className="rounded bg-emerald-600/80 px-2 py-1 text-[11px] text-emerald-950 hover:bg-emerald-500"
+                >
+                  {t("tierPro")}
+                </button>
+                <button
+                  onClick={() => {
+                    setUserTier("elite");
+                    persistTier("elite");
+                  }}
+                  className="rounded bg-cyan-500/80 px-2 py-1 text-[11px] text-cyan-950 hover:bg-cyan-400"
+                >
+                  {t("tierElite")}
+                </button>
+              </div>
+              <div className="flex flex-col gap-1">
+                <button onClick={() => openStripe(STRIPE_LINKS.customer_portal)} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                  {t("billing")}
+                </button>
+                <div className="flex gap-1">
+                  <button onClick={handleSignin} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                    {t("signin")}
+                  </button>
+                  <button onClick={handleSignup} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                    {t("signup")}
+                  </button>
+                  <button onClick={handleLogout} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                    {t("logout")}
+                  </button>
+                </div>
+                <div className="flex gap-1">
+                  <input
+                    type="email"
+                    value={authForm.email}
+                    onChange={(e) => setAuthForm((p) => ({ ...p, email: e.target.value }))}
+                    placeholder={t("loginEmail")}
+                    className="w-36 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+                  />
+                  <input
+                    type="password"
+                    value={authForm.password}
+                    onChange={(e) => setAuthForm((p) => ({ ...p, password: e.target.value }))}
+                    placeholder={t("loginPassword")}
+                    className="w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+                  />
+                </div>
+                {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
+                {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
+                <button onClick={grantTrial} className="rounded bg-amber-500/80 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-400">
+                  {t("startTrial")}
+                </button>
+              </div>
+            </div>
+            <button
+              onClick={() => setLang((p) => (p === "de" ? "en" : "de"))}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
+            >
+              {t("langToggle")}
+            </button>
+            <select
+              value={timeFrame}
+              onChange={(e) => setTimeFrame(e.target.value)}
+              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
+            >
+              <option value="15">15m</option>
+              <option value="60">1h</option>
+              <option value="240">4h</option>
+              <option value="1440">1d</option>
+            </select>
+            <button
+              onClick={() => {
+                setIsBeginner((prev) => {
+                  const next = !prev;
+                  localStorage.setItem("mode:beginner", next ? "true" : "false");
+                  return next;
+                });
+              }}
+              className={`rounded-xl border px-3 py-2 text-sm shadow-inner shadow-black/30 ${
+                isBeginner ? "border-emerald-500/70 bg-emerald-500/10 text-emerald-100" : "border-slate-700 bg-slate-900 text-slate-100"
+              }`}
+              title="Beginner-Mode blendet Advanced Cards aus"
+            >
+              {isBeginner ? "Beginner-Mode" : "Pro-View"}
+            </button>
+            <IndicatorBadge label="WebSocket" value={wsStatus === "live" ? "Live" : wsStatus} intent={wsStatus === "live" ? "ok" : "warn"} />
+            <button
+              onClick={refreshAll}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              {t("refresh")}
+            </button>
+          </div>
+        </header>
+
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card
+            title={t("livePrice")}
+            icon={Activity}
+            tooltip="Live Price mit 24h Change, Multi-Source Fallback."
+            actions={
+              <div className="flex gap-2">
+                <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{asset.label}</span>
+                <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{priceState.source}</span>
+              </div>
+            }
+          >
+            <div className="flex flex-col gap-2">
+              <div className="text-3xl font-bold text-white">{formatUSD(displayPrice)}</div>
+              <div className={`text-sm font-semibold ${(priceState.change24h ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                {formatPercent(priceState.change24h ?? 0)} 24h
+              </div>
+              <p className="text-xs text-slate-400">Update: {priceState.updatedAt ? new Date(priceState.updatedAt).toLocaleTimeString() : "-"}</p>
+            </div>
+          </Card>
+
+          <Card title={t("fearGreed")} icon={Gauge} tooltip="Fear & Greed Index letzte Aktualisierung.">
+            {fearGreed ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold text-white">{fearGreed.value}</span>
+                  <span className="text-sm uppercase tracking-wide text-slate-400">{fearGreed.classification}</span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-slate-800">
+                  <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
+                </div>
+                <span className="text-xs text-slate-400">Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()}</span>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">Lade Daten...</p>
+            )}
+          </Card>
+
+          <Card title={t("indicators")} icon={LineChartIcon} tooltip="RSI: Oversold <30, Overbought >70. MACD Momentum + Bollinger.">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">RSI</span>
+                <span className={`font-semibold ${indicators.rsi && (indicators.rsi < 30 || indicators.rsi > 70) ? "text-amber-400" : "text-emerald-300"}`}>
+                  {indicators.rsi ? indicators.rsi.toFixed(1) : "-"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">MACD</span>
+                <span className="font-semibold text-slate-100">
+                  {indicators.macd && indicators.signal ? `${(indicators.macd - indicators.signal).toFixed(2)} (${indicators.macd.toFixed(2)}/${indicators.signal.toFixed(2)})` : "-"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">Bollinger</span>
+                <span className="font-semibold text-slate-100">20 / 2 std</span>
+              </div>
+            </div>
+          </Card>
+
+          <Card title={t("reliability")} icon={Shield} tooltip="System-Robustheit: Cache, Polling, WS Reconnect.">
+            <ul className="space-y-1 text-sm text-slate-300">
+              <li className="flex items-center gap-2">
+                <PlugZap className="h-4 w-4 text-emerald-400" /> {t("reliability1")}
+              </li>
+              <li className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 text-emerald-400" /> {t("reliability2")}
+              </li>
+              <li className="flex items-center gap-2">
+                <WifiOff className="h-4 w-4 text-emerald-400" /> {t("reliability3")}
+              </li>
+              <li className="flex items-center gap-2">
+                <Bell className="h-4 w-4 text-emerald-400" /> {t("reliability4")}
+              </li>
+            </ul>
+          </Card>
+        </div>
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <Card
+              title={t("liveMarket")}
+              icon={TrendingUp}
+              actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+            >
+              {indicatorSeries.length ? (
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={indicatorSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                        <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                        <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={65} />
+                        <YAxis
+                          yAxisId="vol"
+                          orientation="right"
+                          tick={{ fill: "#94a3b8", fontSize: 10 }}
+                          tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
+                          width={55}
+                        />
+                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                        <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
+                        <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
+                        <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                        <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                        <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                      <Line
+                        type="monotone"
+                        dataKey="close"
+                        stroke="#22c55e"
+                        dot={renderLastDot(indicatorSeries.length, "#22c55e")}
+                        yAxisId="y"
+                        strokeWidth={2}
+                        name="Close"
+                        isAnimationActive
+                        animationDuration={650}
+                        animationEasing="ease-out"
+                      />
+                        <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                        <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
+              )}
+            </Card>
+            <div className="mt-4">
+              <Card
+                title={t("fibMap")}
+                icon={LineChartIcon}
+                actions={<span className="text-xs text-slate-400">{t("fibGolden")} · TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+              >
+                {indicatorSeries.length ? (
+                  <div className="relative h-64">
+                    {(nearTp || nearSl) && (
+                      <div className="absolute right-3 top-3 flex gap-2 text-xs">
+                        {nearTp ? <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-200 pulse-soft">{t("tpAlarm")}</span> : null}
+                        {nearSl ? <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-200 pulse-soft">{t("slAlarm")}</span> : null}
+                      </div>
+                    )}
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={indicatorSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                        <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                        <YAxis
+                          tick={{ fill: "#94a3b8", fontSize: 10 }}
+                          width={80}
+                          domain={[fibView.yMin ?? "auto", fibView.yMax ?? "auto"]}
+                          tickFormatter={(v) => Math.round(v).toLocaleString()}
+                        />
+                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                        {tpZone ? <ReferenceArea y1={tpZone.y1} y2={tpZone.y2} strokeOpacity={0} fill="#22c55e" fillOpacity={0.07} className="glow-band" /> : null}
+                        {slZone ? <ReferenceArea y1={slZone.y1} y2={slZone.y2} strokeOpacity={0} fill="#ef4444" fillOpacity={0.07} className="glow-band" /> : null}
+                        {fibView.goldenLow && fibView.goldenHigh ? (
+                          <ReferenceArea y1={fibView.goldenLow} y2={fibView.goldenHigh} strokeOpacity={0} fill="#fbbf24" fillOpacity={0.1} />
+                        ) : null}
+                    {fibView.levels.map((lvl) => (
+                      <ReferenceLine key={lvl.label} y={lvl.value} stroke="#475569" strokeDasharray="2 4" label={{ value: lvl.label, position: "insideRight", fill: "#cbd5e1", fontSize: 10 }} />
+                    ))}
+                    {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
+                    {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
+                    {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
+                    <Line
+                      type="monotone"
+                      dataKey="close"
+                          stroke="#22c55e"
+                          dot={renderLastDot(indicatorSeries.length, "#22c55e")}
+                          strokeWidth={2}
+                          name="Close"
+                          isAnimationActive
+                          animationDuration={650}
+                          animationEasing="ease-out"
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">{t("loadingFib")}</p>
+                )}
+              </Card>
+            </div>
+            <div className="mt-4">
+            <Card title={t("cryptoBubbles")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">{t("bubblesTop")}</span>}>
+                {bubbleData.length ? (
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    {bubbleData.map((b) => (
+                      <div
+                        key={b.id}
+                        className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
+                        style={{ width: `${b.size}px`, height: `${b.size}px` }}
+                      >
+                        <div className="text-center text-[10px] font-semibold leading-tight px-1">
+                          <div className="truncate">{b.label}</div>
+                          <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">{t("noBubbles")}</p>
+                )}
+              </Card>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schätzung + Confidence.">
+                <div className="flex flex-col gap-3">
+                  <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">Trend</span>
+                    <span className={`font-semibold ${aiPredict.trend === "bullish" ? "text-emerald-300" : aiPredict.trend === "bearish" ? "text-red-300" : "text-slate-200"}`}>
+                      {aiPredict.trend === "bullish" ? "Bullish" : aiPredict.trend === "bearish" ? "Bearish" : "Neutral"}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-sm text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <span>Confidence</span>
+                      <span className="font-semibold text-cyan-300">{aiPredict.confidence ? `${aiPredict.confidence}%` : "--"}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-800">
+                      <div className="h-2 rounded-full bg-cyan-400" style={{ width: `${Math.min(100, aiPredict.confidence ?? 0)}%` }} />
+                    </div>
+                    <p className="text-xs text-slate-400">Forecast basiert auf letzter Drift + 5% Bias via HF-Style Cache.</p>
+                  </div>
+                  <div className="text-xs text-slate-400">Updated: {aiPredict.refreshedAt ? new Date(aiPredict.refreshedAt).toLocaleTimeString() : "-"}</div>
+                </div>
+              </Card>
+
+              <Card title="Backtest (Local JS)" icon={Gauge} tooltip="Rolling-Test: 3-Tick Delay Entry, Exit T+3, misst Winrate & RR.">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">Trades</span>
+                    <span className="font-semibold text-slate-100">{backtestStats.trades ?? "--"}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">Winrate</span>
+                    <span className="font-semibold text-emerald-300">{backtestStats.winRate ? `${backtestStats.winRate.toFixed(1)}%` : "--"}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">Avg R/R</span>
+                    <span className="font-semibold text-slate-100">{backtestStats.avgRr ? backtestStats.avgRr.toFixed(2) : "--"}</span>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Validiert lokal gegen aktuelle OHLC-Serie, keine API-Last. Ziel: 90%+ Treffer bei klaren Trends.
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Card title="Risk Score Summary" icon={Shield} tooltip="Aggregiert RSI/MACD/ADX in einem Ampel-Bar für schnelle Übersicht.">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">Score</span>
+                    <span className="text-xl font-bold text-white">
+                      {indicators.rsi && indicators.macd ? Math.min(95, Math.max(10, Math.round((indicators.rsi / 2 + (indicators.macd ?? 0) * 8) / 2))) : "--"}
+                    </span>
+                  </div>
+                  <div className="h-3 rounded-full bg-slate-800">
+                    <div
+                      className="h-3 rounded-full bg-emerald-400"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            5,
+                            indicators.rsi && indicators.macd ? Math.round((indicators.rsi / 2 + (indicators.macd ?? 0) * 8) / 2) : 20
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-sm text-slate-300">
+                    Grün = Momentum + Stärke. Rot = schwach/Seitwärts. Nutzt RSI, MACD-Signal und ADX ≥ 20 als Verstärker.
+                  </p>
+                </div>
+              </Card>
+
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide für erste Trades.">
+                <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
+                  <li>Starte mit BTC/ETH und 1h-Chart.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone für mögliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% – siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode hält nur Kernkarten aktiv; pro View für volle Tiefe.</li>
+                </ul>
+              </Card>
+            </div>
+
+            {/* === NEUE PRO-CARDS === */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+              <section
+                className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
+                aria-label="Market Regime Detector"
+                itemScope
+                itemType="https://schema.org/FinancialProduct"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-emerald-300" aria-hidden />
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50" itemProp="name">
+                      {t("cardMarketRegime")}
+                    </h3>
+                  </div>
+                  <span className={`rounded-full bg-slate-800/80 px-2 py-1 text-[11px] font-semibold min-w-[68px] text-center ${marketRegime.color}`} itemProp="additionalType">
+                    {marketRegime.label}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-200 leading-snug min-h-[42px]" itemProp="description">
+                  {t("marketRegimeDesc")}
+                </p>
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="text-3xl font-black text-slate-50 whitespace-nowrap">
+                    {(marketRegime.confidence * 100).toFixed(0)}%
+                  </div>
+                  <div className="text-[11px] text-slate-300 leading-tight min-h-[32px] max-w-[180px]">
+                    {marketRegime.detail}
+                  </div>
+                </div>
+              </section>
+
+              <section
+                className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
+                aria-label="Smart Money Flow"
+                itemScope
+                itemType="https://schema.org/FinancialProduct"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-emerald-300" aria-hidden />
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50" itemProp="name">
+                      {t("cardSmartMoney")}
+                    </h3>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold min-w-[80px] text-center ${smartMoney.net >= 0 ? "bg-emerald-500/15 text-emerald-100" : "bg-red-500/15 text-red-100"}`}>
+                    {smartMoney.pct >= 0 ? "+" : ""}
+                    {smartMoney.pct}% Netflow
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-200 leading-snug min-h-[40px]" itemProp="description">
+                  {smartMoney.title}
+                </p>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-100">
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 min-h-[78px]">
+                    <p className="text-xs text-slate-400">{t("smartNet")}</p>
+                    <p className="font-semibold text-slate-50">{smartMoney.direction}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 min-h-[78px]">
+                    <p className="text-xs text-slate-400">{t("smartTrades")}</p>
+                    <p className="font-semibold">{smartMoney.count}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 min-h-[78px]">
+                    <p className="text-xs text-slate-400">{t("smartBuys")}</p>
+                    <p className="font-semibold text-emerald-200">{formatUSD(smartMoney.buys)}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 min-h-[78px]">
+                    <p className="text-xs text-slate-400">{t("smartSells")}</p>
+                    <p className="font-semibold text-red-200">{formatUSD(smartMoney.sells)}</p>
+                  </div>
+                </div>
+              </section>
+
+              <section
+                className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
+                aria-label="Liquidity Heatmap"
+                itemScope
+                itemType="https://schema.org/FinancialProduct"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-emerald-300" aria-hidden />
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50" itemProp="name">
+                      {t("cardLiquidity")}
+                    </h3>
+                  </div>
+                  <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 min-w-[96px] text-center">
+                    {liquidity.dominance}% Bid Dominance
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-200 leading-snug min-h-[40px]" itemProp="description">
+                  {t("liquidityDesc")}
+                </p>
+                <div className="mt-4 space-y-2 text-sm text-slate-100">
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-400">{t("liquidityBid")}</p>
+                    <div className="h-2 rounded-full bg-slate-800">
+                      <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Number(liquidity.dominance))}%` }} />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-400">{t("liquidityAsk")}</p>
+                    <div className="h-2 rounded-full bg-slate-800">
+                      <div className="h-2 rounded-full bg-red-500" style={{ width: `${Math.min(100, 100 - Number(liquidity.dominance))}%` }} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className={`${liquidity.tone} font-semibold`}>{t("liquidityImb")}: {liquidity.imbalance}%</span>
+                    <span className="text-slate-400">{t("liquidityHint")}</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            {/* === ANALYTICS ROW === */}
+            {!isBeginner ? (
+              <div className="mt-4 grid grid-cols-1 gap-6 card-bg-animate">
+                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <section
+                  className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between gap-4 overflow-hidden"
+                  aria-label="On-Chain Metrics"
+                  itemScope
+                  itemType="https://schema.org/Dataset"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-cyan-400" aria-hidden />
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">On-Chain Metrics</h3>
+                    </div>
+                    <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
+                      {formatClock(onChainMetrics.updatedAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200 leading-snug">{t("onchainDesc")}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-3xl font-black text-emerald-400 whitespace-nowrap">
+                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "—"}
+                    </div>
+                    <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[140px] space-y-1 break-words">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Whales</span>
+                        <span className="font-semibold text-slate-100">{(onChainMetrics.supplyWhales ?? 0.6 * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Retail</span>
+                        <span className="font-semibold text-slate-100">{(onChainMetrics.supplyRetail ?? 0.4 * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Delta</span>
+                        <span className="font-semibold text-slate-100">
+                          {onChainMetrics.supplyWhales && onChainMetrics.supplyRetail
+                            ? ((onChainMetrics.supplyWhales - onChainMetrics.supplyRetail) * 100).toFixed(1) + "%"
+                            : "--"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-[11px] text-slate-400 mb-1">Whale Share</p>
+                      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div className="h-2 bg-emerald-500" style={{ width: `${Math.min(100, Math.max(0, (onChainMetrics.supplyWhales ?? 0.6) * 100))}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-400 mb-1">Retail Share</p>
+                      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div className="h-2 bg-red-500" style={{ width: `${Math.min(100, Math.max(0, (onChainMetrics.supplyRetail ?? 0.4) * 100))}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </Paywall>
+
+                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <section
+                  className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between overflow-hidden"
+                  aria-label="Sentiment Analysis"
+                  itemScope
+                  itemType="https://schema.org/Dataset"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Signal className="h-5 w-5 text-cyan-400" aria-hidden />
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">Sentiment Analysis</h3>
+                    </div>
+                    <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
+                      {formatClock(sentimentMetrics.updatedAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200 leading-snug">{t("sentimentDesc")}</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="relative h-16 w-16 flex-shrink-0">
+                      <div className="absolute inset-0 rounded-full border-4 border-slate-800" />
+                      <div className="absolute inset-0 rounded-full border-4 border-cyan-400 opacity-80" style={{ clipPath: "polygon(0 0, 100% 0, 100% 50%, 0 50%)" }} />
+                      <div className="absolute inset-0 flex items-center justify-center text-lg font-black text-emerald-400">
+                        {sentimentMetrics.score ?? "--"}
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-300 text-left leading-tight break-words max-w-[180px] space-y-1">
+                      <p>Label: {sentimentMetrics.label}</p>
+                      <p>Trend: {sentimentMetrics.score !== null ? (sentimentMetrics.score > 60 ? "Positiv" : "Neutral") : "-"}</p>
+                      <p>Tweets: {sentimentMetrics.tweets ?? "—"}</p>
+                    </div>
+                  </div>
+                </section>
+              </Paywall>
+
+                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <section
+                  className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
+                  aria-label="Correlation Heatmap"
+                  itemScope
+                  itemType="https://schema.org/Dataset"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-cyan-400" aria-hidden />
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">Correlation Heatmap</h3>
+                    </div>
+                    <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
+                      {formatClock(fearGreed?.updatedAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200 leading-snug">{t("correlationDesc")}</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-100">
+                    {correlations.slice(0, 8).map((c) => {
+                      const val = c.value ?? 0;
+                      const pct = Math.round(val * 100);
+                      const color = val >= 0.6 ? "bg-emerald-500/60" : val >= 0.3 ? "bg-amber-500/60" : val >= 0 ? "bg-slate-700" : "bg-red-500/60";
+                      return (
+                        <div key={c.pair} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-50 truncate max-w-[88px]">{c.pair}</span>
+                            <span className="text-slate-200">{pct}%</span>
+                          </div>
+                          <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                            <div className={`h-1.5 ${color}`} style={{ width: `${Math.min(100, Math.max(0, Math.abs(pct)))}%` }} />
+                          </div>
+                          <div className="mt-1 text-[10px] text-slate-400 flex justify-between">
+                            <span>Positiv</span>
+                            <span className="text-slate-200">{pct >= 0 ? "Ja" : "Nein"}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-300 mt-1">Std: {val !== null ? Math.abs(val).toFixed(2) : "--"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              </Paywall>
+
+                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <section
+                  className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
+                  aria-label="Funding Rates"
+                  itemScope
+                  itemType="https://schema.org/Dataset"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 text-cyan-400" aria-hidden />
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">Funding Rates</h3>
+                    </div>
+                    <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
+                      {formatClock(priceState.updatedAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200 leading-snug">{t("fundingDesc")}</p>
+                  <div className="space-y-3 text-xs text-slate-100">
+                    {fundingRates.slice(0, 3).map((f) => {
+                      const pct = f.rate ? f.rate * 100 : 0;
+                      const bullish = pct >= 0;
+                      return (
+                        <div key={f.symbol} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-50">{f.symbol}</span>
+                            <span className={bullish ? "text-emerald-300" : "text-red-300"}>{pct.toFixed(4)}%</span>
+                          </div>
+                          <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                            <div className={`h-1.5 ${bullish ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, Math.abs(pct) * 800)}%` }} />
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-300">
+                            {bullish ? "Longs zahlen Shorts" : "Shorts zahlen Longs"}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-400 flex justify-between">
+                            <span>Mark</span>
+                            <span className="text-slate-200">{f.mark ? formatUSD(f.mark) : "--"}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-[11px] text-slate-300 flex justify-between">
+                      <span>Avg Rate</span>
+                      <span className="font-semibold text-slate-100">
+                        {fundingRates.length
+                          ? (fundingRates.reduce((a, b) => a + (b.rate || 0), 0) / fundingRates.length * 100).toFixed(4) + "%"
+                          : "--"}
+                      </span>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-[11px] text-slate-300 flex justify-between">
+                      <span>Hourly est.</span>
+                      <span className="font-semibold text-slate-100">
+                        {fundingRates.length
+                          ? (fundingRates.reduce((a, b) => a + (b.rate || 0), 0) / fundingRates.length * 24 * 100).toFixed(4) + "%"
+                          : "--"}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              </Paywall>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <Card title={t("signals")} icon={Signal}>
+              <div className="flex flex-wrap gap-2">
+                {signalBadges.map((s) => (
+                  <IndicatorBadge key={s.label} label={s.label} value={s.value} intent={s.intent} />
+                ))}
+              </div>
+              <div className="mt-3 rounded-xl bg-slate-800/60 p-3 text-sm text-slate-300">
+                <div className="flex items-center gap-2 text-emerald-300">
+                  <AlertTriangle className="h-4 w-4" />
+                  {t("signalsLive")}
+                </div>
+                <ul className="mt-2 space-y-1 text-xs text-slate-400">
+                  <li>{t("signalsOversold")}</li>
+                  <li>{t("signalsOverbought")}</li>
+                  <li>{t("signalsFallback")}</li>
+                </ul>
+              </div>
+            </Card>
+
+            <Card title={t("systemStatus")} icon={Shield}>
+              <div className="space-y-2 text-sm text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>{t("systemWs")}</span>
+                  <span className={`rounded-full px-2 py-1 text-xs ${wsStatus === "live" ? "bg-emerald-500/10 text-emerald-200" : "bg-amber-500/10 text-amber-200"}`}>
+                    {wsStatus} (Retries {wsAttempts}/5)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>{t("systemCache")}</span>
+                  <span className="text-slate-100">5 Minuten</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>{t("systemPoll")}</span>
+                  <span className="text-slate-100">30s</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>{t("systemError")}</span>
+                  <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card title={t("manualControls")} icon={PlugZap}>
+              <div className="flex flex-col gap-2 text-sm text-slate-300">
+                <button onClick={loadPrice} className="inline-flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 hover:bg-slate-700">
+                  <span>{t("manualPrice")}</span>
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+                <button onClick={loadOHLC} className="inline-flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 hover:bg-slate-700">
+                  <span>{t("manualKraken")}</span>
+                  <Activity className="h-4 w-4" />
+                </button>
+                <button onClick={loadFearGreed} className="inline-flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 hover:bg-slate-700">
+                  <span>{t("manualFG")}</span>
+                  <Gauge className="h-4 w-4" />
+                </button>
+              </div>
+            </Card>
+
+            <Card title={t("tpSlTitle")} icon={Bell}>
+              <div className="space-y-3 text-sm text-slate-200">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    {t("tpEntryLabel")}
+                    <input
+                      type="number"
+                      value={tpForm.entry ?? ""}
+                      onChange={(e) => setTpForm((p) => ({ ...p, entry: e.target.value ? Number(e.target.value) : null }))}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                      placeholder="62000"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    {t("tpQtyLabel")}
+                    <input
+                      type="number"
+                      value={tpForm.quantity}
+                      min="0"
+                      step="0.0001"
+                      onChange={(e) => setTpForm((p) => ({ ...p, quantity: Number(e.target.value) || 0 }))}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                      placeholder="1.0"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    {t("tpTpLabel")}
+                    <input
+                      type="number"
+                      value={tpForm.tpPct}
+                      onChange={(e) => setTpForm((p) => ({ ...p, tpPct: Number(e.target.value) || 0 }))}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                      placeholder="4"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    {t("tpSlLabel")}
+                    <input
+                      type="number"
+                      value={tpForm.slPct}
+                      onChange={(e) => setTpForm((p) => ({ ...p, slPct: Number(e.target.value) || 0 }))}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                      placeholder="3"
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={suggestRisk} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-emerald-950 hover:bg-emerald-400">
+                    AI Vorschlag
+                    <Shield className="h-4 w-4" />
+                  </button>
+                  {aiNote ? <span className="text-xs text-emerald-300">{aiNote}</span> : null}
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
+                  <div className="flex justify-between">
+                    <span>{t("tpPrice")}</span>
+                    <span className="font-semibold">{takeProfitPrice ? formatUSD(takeProfitPrice) : "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("slPrice")}</span>
+                    <span className="font-semibold">{stopLossPrice ? formatUSD(stopLossPrice) : "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("profitAtTp")}</span>
+                    <span className="font-semibold text-emerald-300">{profit !== null ? formatUSD(profit) : "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("lossAtSl")}</span>
+                    <span className="font-semibold text-red-300">{loss !== null ? formatUSD(-loss) : "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("rrLabel")}</span>
+                    <span className="font-semibold">{rr !== null ? rr.toFixed(2) : "-"}</span>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Paywall minTier="elite" userTier={userTier} lockText={t("eliteRequired")}>
+              <Card title={t("aiSignalTitle")} icon={Signal}>
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>Aktion</span>
+                    <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-semibold">{aiSignal.action}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Begruendung</span>
+                    <span className="text-right text-slate-200">{aiSignal.reason}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Konfidenz (~ Backtest)</span>
+                    <span className="text-emerald-300 font-semibold">{(aiSignal.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs">
+                    <div className="flex justify-between">
+                      <span>TP Ziel</span>
+                      <span className="font-semibold">{aiSignal.tp ? formatUSD(aiSignal.tp) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>SL Ziel</span>
+                      <span className="font-semibold">{aiSignal.sl ? formatUSD(aiSignal.sl) : "-"}</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-amber-300">{t("aiHint")}</p>
+                </div>
+              </Card>
+            </Paywall>
+
+            <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+              <Card title={t("proSignalsTitle")} icon={TrendingUp}>
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>Aktion</span>
+                    <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${proSignal.action === "long" ? "bg-emerald-500/10 text-emerald-200" : proSignal.action === "short" ? "bg-red-500/10 text-red-200" : "bg-slate-800 text-slate-200"}`}>
+                      {proSignal.action}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>{t("setupType")}</span>
+                    <span className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-100">{proSignal.setupLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>{t("regime")}</span>
+                    <span className={`rounded px-2 py-1 text-[11px] font-semibold ${proSignal.regimeIntent === "ok" ? "bg-emerald-500/10 text-emerald-200" : proSignal.regimeIntent === "warn" ? "bg-red-500/10 text-red-200" : "bg-slate-800 text-slate-200"}`}>
+                      {proSignal.regimeLabel}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400">Reason: <span className="text-slate-200">{proSignal.reason}</span></div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span>Confidence</span>
+                    <span className="font-semibold text-emerald-300">{(proSignal.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span>TP</span>
+                      <span className="font-semibold">{proSignal.tp ? formatUSD(proSignal.tp) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>SL</span>
+                      <span className="font-semibold">{proSignal.sl ? formatUSD(proSignal.sl) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>{t("rrLabel")}</span>
+                      <span className="font-semibold">{proSignal.tp && proSignal.sl && lastClose ? ((proSignal.action === "long" ? proSignal.tp - lastClose : lastClose - proSignal.tp) / (proSignal.action === "long" ? lastClose - proSignal.sl : proSignal.sl - lastClose || 1)).toFixed(2) : "-"}</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                      <span>ATR%: {proSignal.meta?.atrPct ? proSignal.meta.atrPct.toFixed(2) : "-"}</span>
+                      <span>MACD Δ: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
+                      <span>VWAP: {proSignal.meta?.vwap ? formatUSD(proSignal.meta.vwap) : "-"}</span>
+                      <span>Vol Spike: {proSignal.meta?.volSpike ? "Ja" : "Nein"}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">{t("checks")}:</span>
+                      <span className="text-slate-300">{(proSignal.score * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.trend === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.trend === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkTrend")}</span>
+                      <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.momentum === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.momentum === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkMomentum")}</span>
+                      <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.flow === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.flow === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkFlow")}</span>
+                      <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.vol === "ok" ? "bg-emerald-500/15 text-emerald-200" : "bg-slate-800 text-slate-200"}`}>{t("checkVol")}</span>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </Paywall>
+            <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+              <Card title={t("backtestTitle")} icon={TrendingUp}>
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>{t("backtestTrades")}</span>
+                    <span className="font-semibold">{backtestStats.trades}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>{t("backtestWinRate")}</span>
+                    <span className="font-semibold text-emerald-300">{backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>{t("backtestWinsLosses")}</span>
+                    <span className="font-semibold">
+                      {backtestStats.wins} / {backtestStats.losses}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>{t("backtestAvgRR")}</span>
+                    <span className="font-semibold">{backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
+                </div>
+              </Card>
+            </Paywall>
+            <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+              <Card
+                title={t("apiPlaybook")}
+                icon={PlugZap}
+                actions={
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <span>Limits · Snippets</span>
+                    <button
+                      onClick={loadApiPlaybook}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60"
+                    >
+                      {t("liveCheck")}
+                    </button>
+                  </div>
+                }
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {API_SOURCES.map((api) => {
+                    const status = apiStatuses[api.name]?.state || "idle";
+                    const note = apiStatuses[api.name]?.note || "";
+                    const dataPoint = apiStatuses[api.name]?.data || "";
+                    const tone =
+                      status === "ok"
+                        ? "bg-emerald-500/15 text-emerald-200"
+                        : status === "auth"
+                        ? "bg-amber-500/15 text-amber-200"
+                        : status === "fail"
+                        ? "bg-red-500/15 text-red-200"
+                        : "bg-slate-800 text-slate-200";
+                    const label =
+                      status === "ok" ? t("liveLabel") : status === "auth" ? t("keyNeeded") : status === "fail" ? t("errorLabel") : "…";
+                    return (
+                      <div key={api.name} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-slate-100">{api.name}</span>
+                            <span className="text-[11px] text-slate-400">{api.limit}</span>
+                          </div>
+                          {!(api.name === "HuggingFace" && status === "auth") ? (
+                            <span
+                              className={`inline-flex items-center justify-center rounded-full px-2 py-[3px] text-[10px] font-semibold whitespace-nowrap max-w-[72px] overflow-hidden text-ellipsis text-center ${tone}`}
+                              title={label}
+                            >
+                              {label}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-slate-300 leading-snug">{api.desc}</p>
+                        {status === "fail" ? (
+                          <div className="rounded-md bg-slate-800 px-2 py-1 text-[11px] text-red-400">{note || t("unavailable")}</div>
+                        ) : status === "auth" ? (
+                          <div className="rounded-md bg-slate-800 px-2 py-1 text-[11px] text-amber-300">{note || t("apiKeyNeeded")}</div>
+                        ) : (
+                          <div className="rounded-md border border-slate-800 bg-slate-950/60 px-2 py-2 text-sm text-slate-200">
+                            <div className="text-[11px] uppercase tracking-wide text-slate-500">{t("liveData")}</div>
+                            <div className="text-sm text-slate-200 break-words">{note || t("reachable")}</div>
+                            {dataPoint ? <div className="text-xs text-slate-400 break-words">{dataPoint}</div> : null}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </Paywall>
+            <Card title={t("backtestTitle")} icon={TrendingUp}>
+              <div className="space-y-2 text-sm text-slate-200">
+                <div className="flex items-center justify-between">
+                  <span>Trades (Lookahead 5)</span>
+                  <span className="font-semibold">{backtestStats.trades}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Win Rate</span>
+                  <span className="font-semibold text-emerald-300">{backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Wins / Losses</span>
+                  <span className="font-semibold">
+                    {backtestStats.wins} / {backtestStats.losses}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Ø RR</span>
+                  <span className="font-semibold">{backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}</span>
+                </div>
+                <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
+              </div>
+            </Card>
+          </div>
+        </div>
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <Card title={t("rsiChart")} icon={LineChartIcon}>
+              <div className="h-48">
+                {indicatorSeries.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={indicatorSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} minTickGap={20} />
+                    <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={60} tickCount={5} padding={{ top: 8, bottom: 8 }} tickFormatter={(v) => Number.isFinite(v) ? v.toFixed(0) : ""} />
+                    <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                    <Line
+                      type="monotone"
+                      dataKey="rsi"
+                      stroke="#22c55e"
+                      strokeWidth={2}
+                      dot={renderLastDot(indicatorSeries.length, "#22c55e")}
+                      name="RSI"
+                      isAnimationActive
+                      animationDuration={550}
+                      animationEasing="ease-out"
+                    />
+                    <Line type="monotone" dataKey={() => 70} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey={() => 30} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey="stochK" stroke="#38bdf8" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%K" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="stochD" stroke="#a855f7" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%D" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                  </ComposedChart>
+                  </ResponsiveContainer>
+                ) : (
+                <p className="text-sm text-slate-400">{t("loadingRSI")}</p>
+                )}
+              </div>
+            </Card>
+
+          <Card title={t("macdChart")} icon={TrendingUp}>
+            <div className="h-48">
+              {indicatorSeries.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={indicatorSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                    <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} width={60} />
+                    <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                    <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
+                    <Line type="monotone" dataKey="macd" stroke="#22c55e" dot={false} name="MACD" isAnimationActive animationDuration={550} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="macdSignal" stroke="#f59e0b" dot={false} name="Signal" isAnimationActive animationDuration={550} animationEasing="ease-out" />
+                    <Bar dataKey="macdHist" fill="#60a5fa" barSize={8} name="Histogram" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                  </ComposedChart>
+                  </ResponsiveContainer>
+                ) : (
+                <p className="text-sm text-slate-400">{t("loadingMACD")}</p>
+                )}
+              </div>
+            </Card>
+
+          <Card title={t("flowsCard")} icon={Activity}>
+            <div className="h-48">
+              {volumeBuckets.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={volumeBuckets}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                    <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} width={70} />
+                    <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} formatter={(v, n) => [formatUSD(v), n]} />
+                    <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
+                    <Bar dataKey="buy" stackId="vol" fill="#22c55e" barSize={10} name="Buy Vol" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                    <Bar dataKey="sell" stackId="vol" fill="#ef4444" barSize={10} name="Sell Vol" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="net" stroke="#38bdf8" dot={renderLastDot(volumeBuckets.length, "#38bdf8")} name="Net" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-sm text-slate-400">{t("loadingFlows")}</p>
+              )}
+            </div>
+            <div className="mt-3 max-h-28 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs text-slate-200">
+              {trades.length ? (
+                trades.map((trade, idx) => (
+                  <div key={idx} className="flex items-center justify-between border-b border-slate-800/60 py-1 last:border-b-0">
+                    <span className={`font-semibold ${trade.side === "buy" ? "text-emerald-300" : "text-red-300"}`}>
+                      {trade.side === "buy" ? t("buyLabel") : t("sellLabel")}
+                    </span>
+                    <span>{formatUSD(trade.usd)}</span>
+                    <span className="text-slate-400">{new Date(trade.ts).toLocaleTimeString()}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-slate-400">{t("waitingTrades")}</p>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        <div className="mt-6">
+          <Card title={t("dataIntegrityTitle")} icon={Shield}>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-xl bg-slate-800/50 p-3">
+                <p className="text-sm font-semibold text-slate-100">{t("diFallback")}</p>
+                <p className="text-xs text-slate-400">{t("dataIntegrity1")}</p>
+              </div>
+              <div className="rounded-xl bg-slate-800/50 p-3">
+                <p className="text-sm font-semibold text-slate-100">{t("diResilience")}</p>
+                <p className="text-xs text-slate-400">{t("dataIntegrity2")}</p>
+              </div>
+              <div className="rounded-xl bg-slate-800/50 p-3">
+                <p className="text-sm font-semibold text-slate-100">{t("diIndicators")}</p>
+                <p className="text-xs text-slate-400">{t("dataIntegrity3")}</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <Card title={t("trendStoch")} icon={TrendingUp}>
+            <div className="h-40 flex flex-col justify-center">
+              {indicatorSeries.length ? (
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>%K</span>
+                    <span className="font-semibold text-emerald-300">
+                      {indicatorSeries.at(-1)?.stochPriceK ? indicatorSeries.at(-1).stochPriceK.toFixed(1) : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>%D</span>
+                    <span className="font-semibold text-slate-100">
+                      {indicatorSeries.at(-1)?.stochPriceD ? indicatorSeries.at(-1).stochPriceD.toFixed(1) : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Status</span>
+                    <span className="font-semibold">
+                      {indicatorSeries.at(-1)?.stochPriceK && indicatorSeries.at(-1)?.stochPriceD
+                        ? indicatorSeries.at(-1).stochPriceK > indicatorSeries.at(-1).stochPriceD
+                          ? "Bull Cross"
+                          : "Bear Cross"
+                        : "-"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">{t("loadingStoch")}</p>
+              )}
+            </div>
+          </Card>
+          <Card title={t("cciCard")} icon={TrendingUp}>
+            <div className="h-40 flex flex-col justify-center">
+              {indicatorSeries.length ? (
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>CCI</span>
+                    <span className={`font-semibold ${Number(indicatorSeries.at(-1)?.cci) > 100 ? "text-emerald-300" : Number(indicatorSeries.at(-1)?.cci) < -100 ? "text-red-300" : "text-slate-100"}`}>
+                      {indicatorSeries.at(-1)?.cci ? indicatorSeries.at(-1).cci.toFixed(1) : "-"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">+100 Überkauft · -100 Überverkauft</p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">{t("loadingCCI")}</p>
+              )}
+            </div>
+          </Card>
+          <Card title={t("volatilityCard")} icon={TrendingUp}>
+            <div className="h-40 flex flex-col justify-center">
+              {indicatorSeries.length ? (
+                <div className="space-y-2 text-sm text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>ATR%</span>
+                    <span className="font-semibold text-emerald-300">
+                      {indicatorSeries.at(-1)?.atrPct ? indicatorSeries.at(-1).atrPct.toFixed(2) : "-"}%
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">Höher = mehr Volatilität → breitere SL/TP</p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">{t("loadingATR")}</p>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        <div className="mt-4">
+          <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory · Notes</span>}>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2 text-sm text-slate-200">
+                <label className="flex flex-col gap-1 text-xs text-slate-400">
+                  Datum
+                  <input
+                    type="date"
+                    value={journalForm.date}
+                    onChange={(e) => setJournalForm((p) => ({ ...p, date: e.target.value }))}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-slate-400">
+                  Stimmung
+                  <select
+                    value={journalForm.mood}
+                    onChange={(e) => setJournalForm((p) => ({ ...p, mood: e.target.value }))}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                  >
+                    <option>Fearful</option>
+                    <option>Neutral</option>
+                    <option>Confident</option>
+                  </select>
+                </label>
+              </div>
+              <div className="md:col-span-2 space-y-2 text-sm text-slate-200">
+                <label className="flex flex-col gap-1 text-xs text-slate-400">
+                  Notiz
+                  <textarea
+                    value={journalForm.note}
+                    onChange={(e) => setJournalForm((p) => ({ ...p, note: e.target.value }))}
+                    rows={3}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                    placeholder="Setup, Emotion, Plan..."
+                  />
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={addJournalEntry}
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-emerald-950 hover:bg-emerald-400"
+                  >
+                    Speichern
+                  </button>
+                  <span className="text-xs text-slate-400">Autosave (local) · max 50 Einträge</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {journalEntries.length ? (
+                journalEntries.slice(0, 6).map((e) => (
+                  <div key={e.ts} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold">{e.date}</span>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                          e.mood === "Confident"
+                            ? "bg-emerald-500/10 text-emerald-200"
+                            : e.mood === "Fearful"
+                            ? "bg-red-500/10 text-red-200"
+                            : "bg-slate-800 text-slate-200"
+                        }`}
+                      >
+                        {e.mood}
+                      </span>
+                    </div>
+                    <p className="text-slate-300">{e.note}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-400">Noch keine Einträge.</p>
+              )}
+            </div>
+          </Card>
+        </div>
+        <div className="mt-4">
+          <Card title={t("etfCard")} icon={TrendingUp}>
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">{t("netFlowsLabel")}</p>
+                {etfFlows.length ? (
+                  <div className="mt-2 grid gap-2 md:grid-cols-3">
+                    {etfFlows.map((f, idx) => (
+                      <div key={`${f.name}-${idx}`} className="rounded-lg border border-slate-800/70 bg-slate-900/60 p-3">
+                        <p className="text-sm font-semibold text-slate-100 line-clamp-1">{f.name}</p>
+                        <p className="text-[11px] text-slate-400">{f.date ? new Date(f.date).toLocaleDateString() : "—"}</p>
+                        <p className={`text-sm font-semibold ${f.inflow >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(f.inflow)}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">{t("noETFLinks")}</p>
+                )}
+                {etfFlowsError ? <p className="mt-1 text-xs text-amber-300">{etfFlowsError}</p> : null}
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">{t("newsLabel")}</p>
+                {etfLoading && !etfNews.length ? <p className="text-sm text-slate-400">{t("loadingETFNews")}</p> : null}
+                {etfNews.length ? (
+                  <div className="mt-2 space-y-2">
+                    {etfNews.map((item, idx) => {
+                      const ts = item.publishedAt ? new Date(Number(item.publishedAt) || item.publishedAt) : null;
+                      return (
+                        <a
+                          key={`${item.url}-${idx}`}
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-lg border border-slate-800/80 bg-slate-900/60 px-3 py-2 transition hover:border-emerald-600/60 hover:bg-slate-800/60"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-slate-100 line-clamp-2">{item.title}</p>
+                              <p className="text-[11px] text-slate-400">
+                                {item.source || "News"} {ts ? `· ${ts.toLocaleDateString([], { day: "2-digit", month: "short" })} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] text-slate-300">View</span>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {!etfLoading && !etfNews.length ? <p className="text-sm text-slate-400">{t("noETFNews")}</p> : null}
+                {etfError ? <p className="mt-2 text-xs text-amber-300">{etfError}</p> : null}
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+      <div className="mt-8 text-center text-xs text-slate-500">{t("madeBy")}</div>
+      {showTutorial ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur">
+          <div className="w-[90%] max-w-xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl text-slate-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-emerald-300">Willkommen!</p>
+                <h2 className="text-2xl font-bold text-white">Starte mit Live Price</h2>
+              </div>
+              <button
+                onClick={() => {
+                  setShowTutorial(false);
+                  localStorage.setItem("tutorial:shown", "true");
+                }}
+                className="rounded bg-slate-800 px-3 py-1 text-xs text-slate-200 hover:bg-slate-700"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                <p className="text-sm font-semibold text-emerald-300">1) Asset wählen</p>
+                <p className="text-sm text-slate-300">Oben links BTC/ETH umschalten. Preise und Fib-Map laden live.</p>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                <p className="text-sm font-semibold text-emerald-300">2) Beginner-Mode</p>
+                <p className="text-sm text-slate-300">Lässt Advanced Karten weg – perfekt für den Einstieg.</p>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                <p className="text-sm font-semibold text-emerald-300">3) AI & Backtest</p>
+                <p className="text-sm text-slate-300">Neue AI-Predictor Karte + Schnell-Backtest liefert Trefferquote.</p>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsBeginner(true);
+                  setShowTutorial(false);
+                  localStorage.setItem("mode:beginner", "true");
+                  localStorage.setItem("tutorial:shown", "true");
+                }}
+                className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400"
+              >
+                Beginner starten
+              </button>
+              <button
+                onClick={() => {
+                  setIsBeginner(false);
+                  setShowTutorial(false);
+                  localStorage.setItem("mode:beginner", "false");
+                  localStorage.setItem("tutorial:shown", "true");
+                }}
+                className="rounded border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800"
+              >
+                Pro-View
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!consentGeo ? (
+        <div className="fixed bottom-4 left-4 z-50 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-xs text-slate-200 shadow-lg max-w-xs">
+          <p className="text-slate-200">{t("consentText")}</p>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => {
+                setConsentGeo(true);
+                localStorage.setItem("consent:geo", "true");
+              }}
+              className="rounded bg-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-950 hover:bg-emerald-400"
+            >
+              {t("consentAllow")}
+            </button>
+            <button
+              onClick={() => {
+                setConsentGeo(false);
+                localStorage.setItem("consent:geo", "false");
+              }}
+              className="rounded bg-slate-800 px-3 py-1 text-[11px] text-slate-200 hover:bg-slate-700"
+            >
+              {t("consentDeny")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => {
+            setConsentGeo(false);
+            localStorage.setItem("consent:geo", "false");
+          }}
+          className="fixed bottom-4 left-4 z-40 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+        >
+          {t("consentRevoke")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default App;

@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dezente Pulse-Animationen fuer letzte Ticks/Badges */
+
+body {
+  @apply bg-slate-950 text-slate-200 antialiased;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Dezente Pulse-Animationen f�r letzte Ticks/Badges */
+@keyframes pulseSoft {
+  0% {
+    opacity: 0.45;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(0.96);
+  }
+}
+
+.pulse-soft {
+  animation: pulseSoft 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes glowBand {
+  0% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 0.32;
+  }
+}
+
+.glow-band {
+  animation: glowBand 2.6s ease-in-out infinite;
+}
+
+.card-bg-animate {
+  position: relative;
+}
+
+.card-bg-animate::before {
+  content: "";
+  position: absolute;
+  inset: -16px;
+  z-index: 0;
+  background: linear-gradient(120deg, rgba(34, 211, 238, 0.18), rgba(15, 23, 42, 0.2), rgba(56, 189, 248, 0.18));
+  background-size: 220% 220%;
+  filter: blur(32px);
+  border-radius: 36px;
+  animation: gradient-move 14s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.card-bg-animate > * {
+  position: relative;
+  z-index: 1;
+}
