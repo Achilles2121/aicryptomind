@@ -46,7 +46,7 @@
 - Simulation: Entry = Close[i], Slippage = ATR%*0.1, Fees 0.075% je Seite; TP/SL-Check forward bis Hold-Limit; Exit sonst per Close.
 - RR: LONG `(exit-entry_eff)/(entry_eff-sl)`, SHORT `(entry_eff-exit)/(sl-entry_eff)`; Result win/loss/be.
 - Kennzahlen: Trades, Winrate, AvgRR, ProfitPct, Long/Short-Stats, per-Setup-Winrates, per-Regime-Winrates.
-- UI: Backtest-Cards lesen `backtestStats` (Winrate, Trades, Wins/Losses, AvgRR); Confidence-Modell nutzt Setup/Regime-Winrates.
+- UI: Backtest-Cards in `src/App.jsx` (Titel "Backtest V3 Snapshot") lesen `backtestStats` aus `runBacktestV3` (Winrate, Trades, Wins/Losses, AvgRR) und zeigen Hinweistext zu TP/SL + Fees/Slippage; Confidence-Modell nutzt Setup/Regime-Winrates.
 
 ## Kennzahlen-Anzeigen
 - Backtest Cards: Trades, Winrate, Wins/Losses, AvgRR (live per OHLC-Reload, mit Fees/Slippage).
@@ -65,6 +65,14 @@
 - Backtest noch ohne Positionsgroessen/Equity-Curve/Fees variabel; keine per-Setup RR-Optimierung; keine Slippage-Stochastik.
 - Confidence nutzt Setup/Regime-Winrates, aber Historie nur aus aktuellem Dataset; keine Persistenz/Parameter-Tuning.
 - ATR-TP/SL capped (2% RiskPad-Basis) kann enge Stops bedeuten.
+
+## Umgesetzte Aenderungen (Logik & Tier/Branding)
+- Backtest V3 an UI angebunden: `runBacktestV3` in `src/App.jsx` via `buildBacktestSignals`; Stats (Trades, Winrate, Wins/Losses, AvgRR) befuellen Backtest-Karten ("Backtest V3 Snapshot"), Hinweistext zu TP/SL + Fees/Slippage.
+- Confidence/Signals: `buildSignalsV3` nutzt Setup/Regime-Winrates aus Backtest, Flow/Vol/Social-Filter, HTF-Regime-Filter, Ultra-Flag.
+- Tier-System (basic/pro/elite) via Context (`src/context/UserTierContext.jsx`), LockedCard fuer gated Karten (Backtest ab Pro, Chat ab Elite), Context in `main.jsx` um App.
+- Branding/SEO: `src/config/brand.js` (APP_BRAND/APP_TAGLINE), Meta/JSON-LD aktualisiert; Kern-Libs mit Vision-AI-Header.
+- Mobile/Overflow: Root overflow-y-auto/overscroll/touch; Kennzahlen nowrap/ellipsis; Scrollbereiche mit overscroll-contain.
+- CryptoEduChatCard Stub + Hook (`useCryptoEduChat`) eingebunden (Elite-gated), Hinweis auf spaeteres LLM-Backend; TODO Payment-/Admin-System und Chat-API Anbindung.
 
 ### Potenzielle V3-Verbesserungen
 - Echte HTF-Daten laden (4h), Funding/Sentiment als Hard-Filter einbauen.

@@ -21,8 +21,8 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
-    "firebase": "^10.12.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "firebase": "^10.14.1",
     "lucide-react": "^0.554.0",
     "prop-types": "^15.8.1",
     "react": "^19.2.0",

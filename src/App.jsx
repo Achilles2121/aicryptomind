@@ -32,6 +32,10 @@ import {
 import { auth, db } from "./firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { useUserTier } from "./context/UserTierContext";
+import LockedCard from "./components/LockedCard";
+import { APP_BRAND, APP_TAGLINE } from "./config/brand";
+import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import {
   calculateEMA,
   calculateRSISeries,
@@ -49,8 +53,6 @@ import {
 } from "./lib/indicators";
 import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
-import { APP_BRAND, APP_TAGLINE } from "./config/brand";
-import CryptoEduChatCard from "./components/CryptoEduChatCard";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const POLL_INTERVAL = 30 * 1000; // 30 seconds
@@ -346,7 +348,7 @@ const TRANSLATIONS = {
     dataIntegrity1: "CoinGecko to CryptoCompare, Polling Backup 30s, Cache 5m.",
     dataIntegrity2: "WebSocket Auto-Reconnect bis 5x, Volume & Candles von Kraken.",
     dataIntegrity3: "RSI (14), MACD (12/26/9), Bollinger (20, 2 std) live berechnet.",
-    backtestNote: "Heuristik: Donchian Break + MACD Diff, TP/SL aus ATR%.",
+    backtestNote: "Backtest V3: TP/SL, Fees & Slippage beruecksichtigt. Historische Trefferquote ist keine Garantie.",
     netFlowsLabel: "Net Flows",
     newsLabel: "News",
     smartAccum: "Smart Money: Accumulation Phase",
@@ -404,7 +406,7 @@ const TRANSLATIONS = {
     tpSlTitle: "TP / SL Rechner (AI Assist)",
     aiSignalTitle: "AI Signal (Heuristik, Open-Source Stil)",
     proSignalsTitle: "Pro Signals",
-    backtestTitle: "Backtest Snapshot",
+    backtestTitle: "Backtest V3 Snapshot",
     dataIntegrityTitle: "Data Integrity",
     buyLabel: "Buy",
     sellLabel: "Sell",
@@ -532,7 +534,7 @@ const TRANSLATIONS = {
     dataIntegrity1: "CoinGecko to CryptoCompare, polling backup 30s, cache 5m.",
     dataIntegrity2: "WebSocket auto-reconnect up to 5x, volume & candles from Kraken.",
     dataIntegrity3: "RSI (14), MACD (12/26/9), Bollinger (20, 2 std) computed live.",
-    backtestNote: "Heuristic: Donchian Break + MACD diff, TP/SL from ATR%.",
+    backtestNote: "Backtest V3: includes TP/SL, fees & slippage. Past performance != future results.",
     netFlowsLabel: "Net Flows",
     newsLabel: "News",
     smartAccum: "Smart Money: Accumulation Phase",
@@ -590,7 +592,7 @@ const TRANSLATIONS = {
     tpSlTitle: "TP / SL Calculator (AI Assist)",
     aiSignalTitle: "AI Signal (Heuristic, Open-Source Style)",
     proSignalsTitle: "Pro Signals",
-    backtestTitle: "Backtest Snapshot",
+    backtestTitle: "Backtest V3 Snapshot",
     dataIntegrityTitle: "Data Integrity",
     buyLabel: "Buy",
     sellLabel: "Sell",
@@ -751,6 +753,8 @@ function App() {
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
   const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
   const [blink, setBlink] = useState(true);
+  const { tier: contextTier, loading: tierLoading } = useUserTier();
+  const effectiveTier = contextTier || userTier;
   const tierLabels = useMemo(
     () => ({
       basic: t("tierBasic"),
@@ -1298,6 +1302,10 @@ function App() {
     const timer = setInterval(() => setBlink((p) => !p), 900);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (contextTier && contextTier !== userTier) setUserTier(contextTier);
+  }, [contextTier, userTier]);
 
   useEffect(() => {
     let attempts = 0;
@@ -2574,7 +2582,17 @@ function App() {
               </div>
             </Card>
 
-            {SHOW_CRYPTO_EDU_CHAT ? <CryptoEduChatCard /> : null}
+            {SHOW_CRYPTO_EDU_CHAT ? (
+              effectiveTier === "elite" ? (
+                <CryptoEduChatCard />
+              ) : (
+                <LockedCard
+                  title="Crypto Education AI Chat"
+                  requiredTier="elite"
+                  description="Nur für Elite-Mitglieder. Demo-Stub bis LLM-Backend angebunden ist."
+                />
+              )
+            ) : null}
 
             <Card title={t("tpSlTitle")} icon={Bell}>
               <div className="space-y-3 text-sm text-slate-200">
@@ -2743,7 +2761,13 @@ function App() {
                 </div>
               </Card>
             </Paywall>
-            <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+            {effectiveTier === "basic" ? (
+              <LockedCard
+                title={t("backtestTitle")}
+                requiredTier="pro"
+                description="Schalte Pro frei, um historische Trefferquote und Risiko-Kennzahlen zu sehen."
+              />
+            ) : (
               <Card title={t("backtestTitle")} icon={TrendingUp}>
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
@@ -2771,7 +2795,7 @@ function App() {
                   <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
                 </div>
               </Card>
-            </Paywall>
+            )}
             <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
               <Card
                 title={t("apiPlaybook")}
@@ -2837,6 +2861,13 @@ function App() {
                 </div>
               </Card>
             </Paywall>
+            {effectiveTier === "basic" ? (
+              <LockedCard
+                title={t("backtestTitle")}
+                requiredTier="pro"
+                description="Schalte Pro frei, um historische Trefferquote und Risiko-Kennzahlen zu sehen."
+              />
+            ) : (
             <Card title={t("backtestTitle")} icon={TrendingUp}>
               <div className="space-y-2 text-sm text-slate-200">
                 <div className="flex items-center justify-between">
@@ -2860,6 +2891,7 @@ function App() {
                 <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
               </div>
             </Card>
+            )}
           </div>
         </div>
         <div className="mt-6 grid gap-4 lg:grid-cols-3">

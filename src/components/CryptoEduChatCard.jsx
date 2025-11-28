@@ -19,6 +19,7 @@ const CryptoEduChatCard = ({ title = "Crypto Education AI Chat", subtitle = "Fin
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">{title}</h3>
           <p className="text-xs text-slate-400 leading-snug">{subtitle}</p>
+          <p className="text-[11px] text-amber-300 leading-tight">Hinweis: Demo-Stub, echtes Krypto-Edu-LLM wird später angebunden.</p>
         </div>
         <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-200 whitespace-nowrap">
           {APP_BRAND}

@@ -6,3 +6,4 @@
 - SEO/Meta: `index.html` Titel/Description/Keywords auf Vision AI Mind ausgerichtet; OG/Twitter/Geo-Tags; JSON-LD SoftwareApplication + Organization.
 - Mobile: Root-Container `overflow-y-auto`, `overscroll-contain`, `touch-pan-y`; Scrollbereiche (Trades/Chat) mit overscroll/touch; Kennzahlen mit `whitespace-nowrap`/`text-ellipsis` bei langen Zahlen; correlation grid mit `break-words`.
 - CryptoEduChatCard: `src/components/CryptoEduChatCard.jsx` + Hook `src/lib/useCryptoEduChat.js`, Stubbed Chat (LLM-Backend TODO), eingebunden via Flag in `App.jsx`.
+- Tier-System (basic/pro/elite): Context `src/context/UserTierContext.jsx` (simple Email-Mapping; TODO Payment/Admin); LockedCard-Gating fuer Pro/Elite-Karten; Backtest/Spezialkarten ab Pro/Elite.
