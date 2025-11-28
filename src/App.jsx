@@ -32,6 +32,25 @@ import {
 import { auth, db } from "./firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  calculateEMA,
+  calculateRSISeries,
+  calculateMACDSeries,
+  calculateBollingerBands,
+  calculateStochRSI,
+  calculateStochOsc,
+  calculateCCI,
+  calculateATR,
+  calculateADX,
+  calculateDonchian,
+  calculateVWAP,
+  calculateOBV,
+  calculatePearson,
+} from "./lib/indicators";
+import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
+import { runBacktestV3 } from "./lib/backtestV3";
+import { APP_BRAND, APP_TAGLINE } from "./config/brand";
+import CryptoEduChatCard from "./components/CryptoEduChatCard";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const POLL_INTERVAL = 30 * 1000; // 30 seconds
@@ -88,6 +107,7 @@ const API_SOURCES = [
 ];
 
 const TIER_ORDER = ["basic", "pro", "elite"];
+const SHOW_CRYPTO_EDU_CHAT = true;
 
 const Paywall = ({ minTier = "basic", userTier = "basic", lockText = "Pro erforderlich", children }) => {
   const locked = TIER_ORDER.indexOf(userTier) < TIER_ORDER.indexOf(minTier);
@@ -129,290 +149,6 @@ const formatPercent = (value) =>
     : "-";
 
 const clampNumber = (value, fallback = null) => (Number.isFinite(value) ? value : fallback);
-
-const calculateEMA = (values, period) => {
-  if (!values.length) return [];
-  const k = 2 / (period + 1);
-  const ema = [values[0]];
-  for (let i = 1; i < values.length; i += 1) {
-    ema.push(values[i] * k + ema[i - 1] * (1 - k));
-  }
-  return ema;
-};
-
-const calculateRSISeries = (values, period = 14) => {
-  if (values.length < period + 1) return [];
-  const deltas = [];
-  for (let i = 1; i < values.length; i += 1) deltas.push(values[i] - values[i - 1]);
-  let gains = 0;
-  let losses = 0;
-  for (let i = 0; i < period; i += 1) {
-    if (deltas[i] >= 0) gains += deltas[i];
-    else losses -= deltas[i];
-  }
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
-  const rsi = [];
-  for (let i = period; i < deltas.length; i += 1) {
-    const delta = deltas[i];
-    if (delta >= 0) {
-      avgGain = (avgGain * (period - 1) + delta) / period;
-      avgLoss = (avgLoss * (period - 1)) / period;
-    } else {
-      avgGain = (avgGain * (period - 1)) / period;
-      avgLoss = (avgLoss * (period - 1) - delta) / period;
-    }
-    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    rsi.push(100 - 100 / (1 + rs));
-  }
-  return Array(period).fill(null).concat(rsi);
-};
-
-const calculateMACDSeries = (values, fast = 12, slow = 26, signal = 9) => {
-  if (values.length < slow) return { macd: [], signal: [], histogram: [] };
-  const emaFast = calculateEMA(values, fast);
-  const emaSlow = calculateEMA(values, slow);
-  const macd = emaFast.map((v, idx) => v - (emaSlow[idx] ?? v));
-  const signalLine = calculateEMA(macd.slice(slow - 1), signal);
-  const paddedSignal = Array(slow - 1).fill(null).concat(signalLine);
-  const histogram = macd.map((m, idx) =>
-    paddedSignal[idx] !== null && paddedSignal[idx] !== undefined ? m - paddedSignal[idx] : null
-  );
-  return { macd, signal: paddedSignal, histogram };
-};
-
-const calculateBollingerBands = (values, period = 20, multiplier = 2) => {
-  const upper = [];
-  const lower = [];
-  const basis = [];
-  for (let i = 0; i < values.length; i += 1) {
-    if (i + 1 < period) {
-      upper.push(null);
-      lower.push(null);
-      basis.push(null);
-      continue;
-    }
-    const slice = values.slice(i + 1 - period, i + 1);
-    const mean = slice.reduce((a, b) => a + b, 0) / period;
-    const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / slice.length;
-    const std = Math.sqrt(variance);
-    basis.push(mean);
-    upper.push(mean + multiplier * std);
-    lower.push(mean - multiplier * std);
-  }
-  return { upper, lower, basis };
-};
-
-const calculateStochRSI = (values, period = 14, smoothK = 3, smoothD = 3) => {
-  if (values.length < period + smoothK) return { k: [], d: [] };
-  const rsi = calculateRSISeries(values, period);
-  const k = [];
-  for (let i = 0; i < rsi.length; i += 1) {
-    if (i + 1 < smoothK) {
-      k.push(null);
-      continue;
-    }
-    const slice = rsi.slice(i + 1 - smoothK, i + 1).filter((v) => Number.isFinite(v));
-    if (!slice.length) {
-      k.push(null);
-      continue;
-    }
-    const min = Math.min(...slice);
-    const max = Math.max(...slice);
-    const current = rsi[i];
-    const value = max === min ? 0 : ((current - min) / (max - min)) * 100;
-    k.push(value);
-  }
-  const d = [];
-  for (let i = 0; i < k.length; i += 1) {
-    if (i + 1 < smoothD) {
-      d.push(null);
-      continue;
-    }
-    const slice = k.slice(i + 1 - smoothD, i + 1).filter((v) => Number.isFinite(v));
-    if (!slice.length) {
-      d.push(null);
-      continue;
-    }
-    d.push(slice.reduce((a, b) => a + b, 0) / slice.length);
-  }
-  return { k, d };
-};
-
-const calculateATR = (rows, period = 14) => {
-  if (!rows.length) return [];
-  const atr = [];
-  let prevClose = rows[0].close;
-  for (let i = 0; i < rows.length; i += 1) {
-    const { high, low, close } = rows[i];
-    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-    if (i === 0) {
-      atr.push(tr);
-    } else if (i < period) {
-      atr.push(((atr[i - 1] * i) + tr) / (i + 1));
-    } else {
-      atr.push(((atr[i - 1] * (period - 1)) + tr) / period);
-    }
-    prevClose = close;
-  }
-  return atr;
-};
-
-const calculateADX = (rows, period = 14) => {
-  if (rows.length < period + 1) return [];
-  const tr = [];
-  const plusDM = [];
-  const minusDM = [];
-  for (let i = 1; i < rows.length; i += 1) {
-    const up = rows[i].high - rows[i - 1].high;
-    const down = rows[i - 1].low - rows[i].low;
-    plusDM.push(up > down && up > 0 ? up : 0);
-    minusDM.push(down > up && down > 0 ? down : 0);
-    tr.push(Math.max(rows[i].high - rows[i].low, Math.abs(rows[i].high - rows[i - 1].close), Math.abs(rows[i].low - rows[i - 1].close)));
-  }
-  let tr14 = tr.slice(0, period).reduce((a, b) => a + b, 0);
-  let plus14 = plusDM.slice(0, period).reduce((a, b) => a + b, 0);
-  let minus14 = minusDM.slice(0, period).reduce((a, b) => a + b, 0);
-  const adx = Array(rows.length).fill(null);
-  const dxVals = [];
-  const calcDI = () => {
-    const plusDI = tr14 ? (plus14 / tr14) * 100 : 0;
-    const minusDI = tr14 ? (minus14 / tr14) * 100 : 0;
-    const dx = plusDI + minusDI === 0 ? 0 : (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100;
-    return { plusDI, minusDI, dx };
-  };
-  const first = calcDI();
-  dxVals.push(first.dx);
-  for (let i = period; i < tr.length; i += 1) {
-    tr14 = tr14 - tr14 / period + tr[i];
-    plus14 = plus14 - plus14 / period + plusDM[i];
-    minus14 = minus14 - minus14 / period + minusDM[i];
-    const { dx } = calcDI();
-    dxVals.push(dx);
-    if (dxVals.length === period) {
-      adx[i + 1] = dxVals.reduce((a, b) => a + b, 0) / dxVals.length;
-    } else if (dxVals.length > period) {
-      adx[i + 1] = ((adx[i] || dx) * (period - 1) + dx) / period;
-    }
-  }
-  return adx;
-};
-
-const calculateDonchian = (rows, period = 20) => {
-  const upper = [];
-  const lower = [];
-  const mid = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    if (i + 1 < period) {
-      upper.push(null);
-      lower.push(null);
-      mid.push(null);
-      continue;
-    }
-    const slice = rows.slice(i + 1 - period, i + 1);
-    const highs = slice.map((r) => r.high);
-    const lows = slice.map((r) => r.low);
-    const hi = Math.max(...highs);
-    const lo = Math.min(...lows);
-    upper.push(hi);
-    lower.push(lo);
-    mid.push((hi + lo) / 2);
-  }
-  return { upper, lower, mid };
-};
-
-const calculateVWAP = (rows) => {
-  const out = [];
-  let cumPV = 0;
-  let cumVol = 0;
-  for (let i = 0; i < rows.length; i += 1) {
-    const { high, low, close, volume } = rows[i];
-    const typical = (high + low + close) / 3;
-    cumPV += typical * volume;
-    cumVol += volume;
-    out.push(cumVol ? cumPV / cumVol : null);
-  }
-  return out;
-};
-
-const calculateOBV = (rows) => {
-  const out = [];
-  let obv = 0;
-  let prevClose = rows[0]?.close ?? 0;
-  for (let i = 0; i < rows.length; i += 1) {
-    const { close, volume } = rows[i];
-    if (close > prevClose) obv += volume;
-    else if (close < prevClose) obv -= volume;
-    out.push(obv);
-    prevClose = close;
-  }
-  return out;
-};
-
-const calculateStochOsc = (rows, period = 14, smoothK = 3, smoothD = 3) => {
-  if (!rows.length) return { k: [], d: [] };
-  const kRaw = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    if (i + 1 < period) {
-      kRaw.push(null);
-      continue;
-    }
-    const slice = rows.slice(i + 1 - period, i + 1);
-    const highs = slice.map((r) => r.high);
-    const lows = slice.map((r) => r.low);
-    const hi = Math.max(...highs);
-    const lo = Math.min(...lows);
-    const close = rows[i].close;
-    const value = hi === lo ? 50 : ((close - lo) / (hi - lo)) * 100;
-    kRaw.push(value);
-  }
-  const smooth = (arr, len) => arr.map((_, idx) => {
-    if (idx + 1 < len) return null;
-    const seg = arr.slice(idx + 1 - len, idx + 1).filter((v) => Number.isFinite(v));
-    if (!seg.length) return null;
-    return seg.reduce((a, b) => a + b, 0) / seg.length;
-  });
-  const k = smooth(kRaw, smoothK);
-  const d = smooth(k, smoothD);
-  return { k, d };
-};
-
-const calculateCCI = (rows, period = 20) => {
-  if (!rows.length) return [];
-  const cci = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    if (i + 1 < period) {
-      cci.push(null);
-      continue;
-    }
-    const slice = rows.slice(i + 1 - period, i + 1);
-    const tp = slice.map((r) => (r.high + r.low + r.close) / 3);
-    const sma = tp.reduce((a, b) => a + b, 0) / period;
-    const dev = tp.reduce((a, b) => a + Math.abs(b - sma), 0) / period;
-    const currentTp = tp[tp.length - 1];
-    cci.push(dev ? (currentTp - sma) / (0.015 * dev) : null);
-  }
-  return cci;
-};
-
-const calculatePearson = (a = [], b = []) => {
-  if (!a.length || a.length !== b.length) return null;
-  const n = a.length;
-  const ma = a.reduce((x, y) => x + y, 0) / n;
-  const mb = b.reduce((x, y) => x + y, 0) / n;
-  let num = 0;
-  let da = 0;
-  let db = 0;
-  for (let i = 0; i < n; i += 1) {
-    const xa = a[i] - ma;
-    const xb = b[i] - mb;
-    num += xa * xb;
-    da += xa * xa;
-    db += xb * xb;
-  }
-  const den = Math.sqrt(da * db);
-  return den ? num / den : null;
-};
 
 const cryptoDataService = {
   async fetchOnChainMetrics() {
@@ -1411,16 +1147,16 @@ function App() {
       }
       tag.setAttribute("content", content);
     };
-    setMeta("keywords", "crypto dashboard elite 2025, ai trading, risk manager, bitcoin analytics");
-    setMeta("description", "Vision AI Mind Crypto Risk Manager mit AI-Predictor, Backtesting und Live-Daten.");
+    setMeta("keywords", `${APP_BRAND}, ai trading, risk manager, bitcoin analytics`);
+    setMeta("description", `${APP_BRAND} ${APP_TAGLINE}`);
     setMeta("ai-tags", "#CryptoElite #AITrading #RiskManager");
 
     const ld = {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      name: "Vision AI Mind Crypto Dashboard",
+      name: `${APP_BRAND} Crypto Dashboard`,
       applicationCategory: "FinanceApplication",
-      description: "AI-gestütztes Crypto Dashboard mit Backtests, Live OHLC und Risiko-Signalen.",
+      description: `${APP_BRAND} - ${APP_TAGLINE}`,
       operatingSystem: "Web",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
       featureList: ["AI Predictor", "Backtesting", "Risk Score", "GeoIP Meta", "Beginner Mode", "Live OHLC"],
@@ -1710,29 +1446,23 @@ function App() {
       trend: drift >= 0 ? "bullish" : "bearish",
       refreshedAt: Date.now(),
     });
+  }, [indicatorSeries]);
 
-    let wins = 0;
-    let trades = 0;
-    let rrSum = 0;
-    for (let i = 3; i < closes.length; i += 1) {
-      const entry = closes[i - 3];
-      const exit = closes[i];
-      if (!Number.isFinite(entry) || !Number.isFinite(exit)) continue;
-      const change = (exit - entry) / entry;
-      const rr = change >= 0 ? change / 0.03 : change / 0.03;
-      if (change > 0.01) wins += 1;
-      trades += 1;
-      rrSum += rr;
-    }
-    const losses = trades - wins;
-    const avgRr = trades ? rrSum / trades : null;
+  useEffect(() => {
+    if (!indicatorSeries.length) return;
+    const signals = buildBacktestSignals(indicatorSeries);
+    const result = runBacktestV3({ candles: indicatorSeries, signals, maxHoldBars: 5 });
+    const wins = result.trades.filter((t) => t.result === "win").length;
+    const losses = result.trades.filter((t) => t.result === "loss").length;
     setBacktestStats({
-      trades,
+      trades: result.trades.length,
       wins,
       losses,
-      winRate: trades ? (wins / trades) * 100 : null,
-      avgRr,
-      avgRR: avgRr,
+      winRate: result.winRate,
+      avgRr: result.avgRR,
+      avgRR: result.avgRR,
+      setupWinrates: result.setupWinrates,
+      regimeWinrates: result.regimeWinrates,
     });
   }, [indicatorSeries]);
 
@@ -1851,6 +1581,26 @@ function App() {
     };
   }, [lastPoint]);
 
+  const htfRegime = useMemo(() => {
+    const sample = indicatorSeries.filter((_, idx) => idx % 4 === 0);
+    const row = sample.length ? sample[sample.length - 1] : lastPoint;
+    if (!row) return marketRegime;
+    const emaBias = row.ema200 && row.close ? (row.close - row.ema200) / row.ema200 : null;
+    const bbw =
+      Number.isFinite(row.bollUpper) && Number.isFinite(row.bollLower) && Number.isFinite(row.bollBasis) && row.bollBasis
+        ? ((row.bollUpper - row.bollLower) / row.bollBasis) * 100
+        : null;
+    const adxVal = Number.isFinite(row.adx) ? row.adx : null;
+    const strongTrend = adxVal !== null ? adxVal > 25 : false;
+    let label = "Choppy";
+    if (emaBias !== null && strongTrend && bbw !== null && bbw > 5) {
+      label = emaBias > 0 ? "Bull" : "Bear";
+    } else if (bbw !== null && bbw < 3) {
+      label = "Crab";
+    }
+    return { label };
+  }, [indicatorSeries, lastPoint, marketRegime]);
+
   const smartMoney = useMemo(() => {
     const horizon = Date.now() - 3 * 60 * 60 * 1000;
     const filtered = trades.filter((t) => t.ts >= horizon);
@@ -1911,46 +1661,7 @@ function App() {
   }, []);
 
   const aiSignal = useMemo(() => {
-    if (!indicatorSeries.length || !displayPrice) {
-      return { action: "Warten", reason: "Zu wenige Daten", confidence: 0.5, tp: null, sl: null };
-    }
-    const rsi = indicators.rsi;
-    const macdDiff = Number.isFinite(indicators.macd) && Number.isFinite(indicators.signal) ? indicators.macd - indicators.signal : null;
-    const last = indicatorSeries[indicatorSeries.length - 1];
-    const close = last?.close;
-    const upper = last?.bollUpper;
-    const lower = last?.bollLower;
-    let action = "Warten";
-    let reason = "Neutral";
-    let confidence = 0.55;
-    let tp = takeProfitPrice;
-    let sl = stopLossPrice;
-    if (rsi !== null && rsi < 30 && macdDiff !== null && macdDiff > 0) {
-      action = "Kaufen";
-      reason = "RSI < 30 und MACD bullisch";
-      confidence = 0.68;
-      tp = tp || close * 1.05;
-      sl = sl || close * 0.975;
-    } else if (rsi !== null && rsi > 70 && macdDiff !== null && macdDiff < 0) {
-      action = "Verkaufen";
-      reason = "RSI > 70 und MACD baerisch";
-      confidence = 0.66;
-      tp = tp || close * 0.97;
-      sl = sl || close * 1.03;
-    } else if (upper && close && close >= upper) {
-      action = "Take Profit";
-      reason = "Preis am oberen Band";
-      confidence = 0.6;
-      tp = tp || close;
-      sl = sl || close * 0.985;
-    } else if (lower && close && close <= lower) {
-      action = "Stop Loss pruefen";
-      reason = "Preis am unteren Band";
-      confidence = 0.6;
-      tp = tp || close * 1.015;
-      sl = sl || close;
-    }
-    return { action, reason, confidence, tp, sl };
+    return buildAISignal({ indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice });
   }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice]);
 
   const fibView = useMemo(() => {
@@ -2006,127 +1717,33 @@ function App() {
   }, [indicatorSeries, asset.cc]);
 
   const proSignal = useMemo(() => {
-    if (!indicatorSeries.length) {
-      return { action: "wait", reason: "no data", confidence: 0.5, tp: null, sl: null, meta: {} };
-    }
-    const last = indicatorSeries[indicatorSeries.length - 1];
-    const atrPct = Number.isFinite(last.atrPct) ? last.atrPct : null;
-    const vwap = last.vwap;
-    const donHigh = last.donchianHigh;
-    const donLow = last.donchianLow;
-    const volSpike = last.volumeSpike && last.volumeSpike >= 1.3;
-    const macdDiff = Number.isFinite(indicators.macd) && Number.isFinite(indicators.signal) ? indicators.macd - indicators.signal : null;
-    const rsi = Number.isFinite(indicators.rsi) ? indicators.rsi : null;
-    const close = last.close;
-    const bollUpper = last.bollUpper;
-    const bollLower = last.bollLower;
-    const trendUp = last.ema200 && close ? close > last.ema200 : false;
-    const trendBias = trendUp ? 1 : close && last.ema200 ? (close > last.ema200 * 0.995 ? 0.5 : -0.5) : 0;
-    const flowBias = smartMoney.net >= 0 ? 0.5 : -0.5;
-    const volQuality = atrPct ? (atrPct >= 0.5 && atrPct <= 2.5 ? 0.5 : 0.1) : 0.2;
-    const momentum = macdDiff !== null ? (macdDiff > 0 ? 0.5 : -0.5) : 0;
-    const regimeLabel = marketRegime.label;
-    const regimeIntent = marketRegime.intent;
-
-    let setup = "wait";
-    let action = "wait";
-    let reason = "neutral";
-    let confidence = 0.55;
-    let tp = null;
-    let sl = null;
-
-    const breakoutLong = donHigh && close > donHigh && volSpike;
-    const breakoutShort = donLow && close < donLow && volSpike;
-    const reversionLong = rsi !== null && rsi < 30 && bollLower && close <= bollLower;
-    const reversionShort = rsi !== null && rsi > 70 && bollUpper && close >= bollUpper;
-
-    if (trendUp && macdDiff !== null && macdDiff > 0 && vwap && close > vwap && atrPct && atrPct < 3) {
-      setup = "trend";
-      action = "long";
-      reason = "trend up & MACD bull & above VWAP";
-      confidence = 0.64;
-    }
-    if (!trendUp && macdDiff !== null && macdDiff < 0 && vwap && close < vwap && atrPct && atrPct < 3) {
-      setup = "trend";
-      action = "short";
-      reason = "trend down & MACD bear & below VWAP";
-      confidence = 0.62;
-    }
-    if (breakoutLong) {
-      setup = "breakout";
-      action = "long";
-      reason = "breakout above Donchian + volume spike";
-      confidence = Math.max(confidence, 0.7);
-    }
-    if (breakoutShort) {
-      setup = "breakout";
-      action = "short";
-      reason = "breakdown below Donchian + volume spike";
-      confidence = Math.max(confidence, 0.7);
-    }
-    if (reversionLong) {
-      setup = "reversion";
-      action = "long";
-      reason = "mean reversion near lower band with RSI<30";
-      confidence = Math.max(confidence, 0.63);
-    }
-    if (reversionShort) {
-      setup = "reversion";
-      action = "short";
-      reason = "mean reversion near upper band with RSI>70";
-      confidence = Math.max(confidence, 0.63);
-    }
-    if (flowBias < 0 && action === "long") confidence -= 0.05;
-    if (flowBias > 0 && action === "short") confidence -= 0.05;
-
-    if (action !== "wait" && atrPct && close) {
-      const atrFrac = Math.min(atrPct / 100, 0.02);
-      const riskPad = setup === "breakout" ? atrFrac * 0.6 : atrFrac * 0.5;
-      if (action === "long") {
-        sl = close * (1 - riskPad);
-        tp = close * (1 + riskPad * 2.2);
-      } else {
-        sl = close * (1 + riskPad);
-        tp = close * (1 - riskPad * 2.2);
-      }
-    }
-
-    const scoreParts = [trendBias, momentum, flowBias, volQuality].map((v) => (Number.isFinite(v) ? v : 0));
-    const score = Math.min(0.99, Math.max(-0.99, scoreParts.reduce((a, b) => a + b, 0)));
-    const checks = {
-      trend: trendBias > 0 ? "ok" : trendBias < 0 ? "warn" : "neutral",
-      momentum: momentum > 0 ? "ok" : momentum < 0 ? "warn" : "neutral",
-      flow: flowBias > 0 ? "ok" : flowBias < 0 ? "warn" : "neutral",
-      vol: volQuality > 0.3 ? "ok" : "neutral",
+    const enrichedBacktest = {
+      winRate: backtestStats?.winRate || null,
+      avgRR: backtestStats?.avgRR || backtestStats?.avgRr || null,
+      setupWinrates: backtestStats?.setupWinrates,
+      regimeWinrates: backtestStats?.regimeWinrates,
     };
-
-    let setupLabel = t("setupWait");
-    if (setup === "trend") setupLabel = t("setupTrend");
-    else if (setup === "breakout") setupLabel = t("setupBreakout");
-    else if (setup === "reversion") setupLabel = t("setupReversion");
-
-    return {
-      action,
-      reason,
-      confidence,
-      tp,
-      sl,
-      setup,
-      setupLabel,
-      regimeLabel,
-      regimeIntent,
-      score,
-      meta: {
-        atrPct,
-        vwap,
-        donHigh,
-        donLow,
-        volSpike: !!volSpike,
-        macdDiff,
-        checks,
-      },
-    };
-  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, smartMoney.net, marketRegime.label, marketRegime.intent, t]);
+    return buildSignalsV3({
+      indicatorSeries,
+      marketRegime,
+      smartMoney,
+      sentimentMetrics,
+      backtestStats: enrichedBacktest,
+      htfRegime,
+    });
+  }, [
+    indicatorSeries,
+    indicators.macd,
+    indicators.signal,
+    indicators.rsi,
+    smartMoney.net,
+    marketRegime.label,
+    marketRegime.intent,
+    sentimentMetrics,
+    backtestStats?.winRate,
+    backtestStats?.avgRR,
+    htfRegime,
+  ]);
 
   // backtestStats handled via state setter to avoid duplicate declarations
 
@@ -2158,7 +1775,7 @@ function App() {
     return buckets;
   }, [trades]);
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
       <div className="mx-auto max-w-6xl px-4 py-8">
         <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -2816,8 +2433,8 @@ function App() {
                       return (
                         <div key={c.pair} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
                           <div className="flex items-center justify-between">
-                            <span className="font-semibold text-slate-50 truncate max-w-[88px]">{c.pair}</span>
-                            <span className="text-slate-200">{pct}%</span>
+                            <span className="font-semibold text-slate-50 truncate max-w-[88px] break-words">{c.pair}</span>
+                            <span className="text-slate-200 whitespace-nowrap">{pct}%</span>
                           </div>
                           <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
                             <div className={`h-1.5 ${color}`} style={{ width: `${Math.min(100, Math.max(0, Math.abs(pct)))}%` }} />
@@ -2956,6 +2573,8 @@ function App() {
                 </button>
               </div>
             </Card>
+
+            {SHOW_CRYPTO_EDU_CHAT ? <CryptoEduChatCard /> : null}
 
             <Card title={t("tpSlTitle")} icon={Bell}>
               <div className="space-y-3 text-sm text-slate-200">
@@ -3133,17 +2752,21 @@ function App() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span>{t("backtestWinRate")}</span>
-                    <span className="font-semibold text-emerald-300">{backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}</span>
+                    <span className="font-semibold text-emerald-300 whitespace-nowrap overflow-hidden text-ellipsis">
+                      {backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>{t("backtestWinsLosses")}</span>
-                    <span className="font-semibold">
+                    <span className="font-semibold whitespace-nowrap">
                       {backtestStats.wins} / {backtestStats.losses}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>{t("backtestAvgRR")}</span>
-                    <span className="font-semibold">{backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}</span>
+                    <span className="font-semibold whitespace-nowrap overflow-hidden text-ellipsis">
+                      {backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}
+                    </span>
                   </div>
                   <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
                 </div>
@@ -3312,7 +2935,7 @@ function App() {
                 <p className="text-sm text-slate-400">{t("loadingFlows")}</p>
               )}
             </div>
-            <div className="mt-3 max-h-28 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs text-slate-200">
+            <div className="mt-3 max-h-28 overflow-y-auto overscroll-contain touch-pan-y rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs text-slate-200">
               {trades.length ? (
                 trades.map((trade, idx) => (
                   <div key={idx} className="flex items-center justify-between border-b border-slate-800/60 py-1 last:border-b-0">

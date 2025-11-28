@@ -7,6 +7,7 @@ const firebaseConfig = {
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "demo.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "demo",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "demo:app",
+  // Hinweis: Keine geheimen Keys im Client bundlen. Sensitive Keys nur serverseitig einsetzen.
 };
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);

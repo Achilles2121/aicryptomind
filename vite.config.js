@@ -11,6 +11,8 @@ export default defineConfig({
     ssr: false,
     chunkSizeWarningLimit: 1200,
     minify: "terser",
+    // Hinweis: Source Maps in Prod vermeiden; bei Bedarf aktivieren: sourcemap: true (nicht empfohlen fuer Prod).
+    sourcemap: false,
     terserOptions: {
       compress: {
         drop_console: true,
