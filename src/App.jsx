@@ -36,6 +36,7 @@ import { useUserTier } from "./context/UserTierContext";
 import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
+import FullScreenLoader from "./components/FullScreenLoader";
 import {
   calculateEMA,
   calculateRSISeries,
@@ -304,7 +305,6 @@ const TRANSLATIONS = {
     eliteRequired: "Elite erforderlich",
     apiKeyNeeded: "API Key nötig",
     demoUser: "trader@demo.app",
-    guestUser: "guest@demo.app",
     aiTags: "AI-Tags",
     heroSubtitle: "Live Daten mit Multi-Source Fallback, Indikatoren & WebSocket Autoreconnect.",
     reliability1: "Multi-Source Fallback",
@@ -490,7 +490,6 @@ const TRANSLATIONS = {
     eliteRequired: "Elite required",
     apiKeyNeeded: "API Key required",
     demoUser: "trader@demo.app",
-    guestUser: "guest@demo.app",
     aiTags: "AI-Tags",
     heroSubtitle: "Live data with multi-source fallback, indicators & WebSocket auto-reconnect.",
     reliability1: "Multi-source fallback",
@@ -690,7 +689,7 @@ IndicatorBadge.propTypes = {
 
 const Card = ({ title, icon: Icon, children, actions, tooltip }) => (
   <div
-    className="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4 shadow-lg shadow-black/30 backdrop-blur"
+    className="w-full rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4 shadow-lg shadow-black/30 backdrop-blur"
     title={tooltip || title}
   >
     <div className="mb-3 flex items-center justify-between">
@@ -741,13 +740,13 @@ function App() {
   const [lang, setLang] = useState("de");
   const [apiStatuses, setApiStatuses] = useState({});
   const [userTier, setUserTier] = useState("basic");
-  const [userEmail, setUserEmail] = useState("guest@demo.app");
+  const [userEmail, setUserEmail] = useState("");
   const [geoInfo, setGeoInfo] = useState(null);
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [consentGeo, setConsentGeo] = useState(() => localStorage.getItem("consent:geo") === "true");
   const [saveTierMessage, setSaveTierMessage] = useState("");
-  const [isBeginner, setIsBeginner] = useState(() => localStorage.getItem("mode:beginner") !== "false");
+  const [isBeginner, setIsBeginner] = useState(false);
   const [showTutorial, setShowTutorial] = useState(() => localStorage.getItem("tutorial:shown") !== "true");
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
@@ -1211,6 +1210,10 @@ function App() {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUserEmail(user.email || t("demoUser"));
+        if (user.email === "oemeralpay@hotmail.com") {
+          setUserTier("elite");
+          return;
+        }
         const trial = localStorage.getItem(`trial:${user.uid}`);
         if (trial && Number(trial) > Date.now()) setUserTier("elite");
         else {
@@ -1223,14 +1226,15 @@ function App() {
           }
         }
       } else {
-        setUserEmail(t("guestUser"));
+        setUserEmail("");
         setUserTier("basic");
       }
     });
     return () => unsub();
   }, [lang]);
 
-  const handleSignin = async () => {
+  const handleSignin = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
     setAuthError("");
     try {
       await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
@@ -1782,10 +1786,15 @@ function App() {
     }
     return buckets;
   }, [trades]);
+
+  if (tierLoading) {
+    return <FullScreenLoader message="Session wird geladen..." />;
+  }
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
-      <div className="mx-auto max-w-6xl px-4 py-8">
-        <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="w-full max-w-screen lg:max-w-full mx-auto px-3 py-8">
+        <div className="flex flex-col gap-4">
+        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs uppercase tracking-widest text-emerald-300">Vision AI Mind</p>
             <h1 className="text-3xl font-bold text-slate-50">Crypto Risk Manager</h1>
@@ -1809,8 +1818,8 @@ function App() {
             </select>
             <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 shadow-inner shadow-black/30">
               <div>
-                <div className="font-semibold text-slate-100">{tierLabels[userTier]}</div>
-                <div className="text-[11px] text-slate-400">{userEmail}</div>
+                <div className="font-semibold text-slate-100">{tierLabels[effectiveTier] || tierLabels.basic}</div>
+                <div className="text-[11px] text-slate-400">{userEmail || t("login")}</div>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -1845,38 +1854,40 @@ function App() {
                 <button onClick={() => openStripe(STRIPE_LINKS.customer_portal)} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
                   {t("billing")}
                 </button>
-                <div className="flex gap-1">
-                  <button onClick={handleSignin} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                    {t("signin")}
+                <form onSubmit={handleSignin} className="flex flex-col gap-1">
+                  <div className="flex gap-1">
+                    <button type="submit" className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                      {t("signin")}
+                    </button>
+                    <button type="button" onClick={handleSignup} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                      {t("signup")}
+                    </button>
+                    <button type="button" onClick={handleLogout} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                      {t("logout")}
+                    </button>
+                  </div>
+                  <div className="flex gap-1">
+                    <input
+                      type="email"
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm((p) => ({ ...p, email: e.target.value }))}
+                      placeholder={t("loginEmail")}
+                      className="w-36 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+                    />
+                    <input
+                      type="password"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm((p) => ({ ...p, password: e.target.value }))}
+                      placeholder={t("loginPassword")}
+                      className="w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+                    />
+                  </div>
+                  {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
+                  {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
+                  <button type="button" onClick={grantTrial} className="rounded bg-amber-500/80 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-400">
+                    {t("startTrial")}
                   </button>
-                  <button onClick={handleSignup} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                    {t("signup")}
-                  </button>
-                  <button onClick={handleLogout} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                    {t("logout")}
-                  </button>
-                </div>
-                <div className="flex gap-1">
-                  <input
-                    type="email"
-                    value={authForm.email}
-                    onChange={(e) => setAuthForm((p) => ({ ...p, email: e.target.value }))}
-                    placeholder={t("loginEmail")}
-                    className="w-36 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
-                  />
-                  <input
-                    type="password"
-                    value={authForm.password}
-                    onChange={(e) => setAuthForm((p) => ({ ...p, password: e.target.value }))}
-                    placeholder={t("loginPassword")}
-                    className="w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
-                  />
-                </div>
-                {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
-                {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
-                <button onClick={grantTrial} className="rounded bg-amber-500/80 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-400">
-                  {t("startTrial")}
-                </button>
+                </form>
               </div>
             </div>
             <button
@@ -1922,7 +1933,7 @@ function App() {
           </div>
         </header>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <Card
             title={t("livePrice")}
             icon={Activity}
@@ -1998,7 +2009,7 @@ function App() {
             </ul>
           </Card>
         </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <Card
               title={t("liveMarket")}
@@ -2124,7 +2135,7 @@ function App() {
               </Card>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
               <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schätzung + Confidence.">
                 <div className="flex flex-col gap-3">
                   <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
@@ -2169,7 +2180,7 @@ function App() {
               </Card>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
               <Card title="Risk Score Summary" icon={Shield} tooltip="Aggregiert RSI/MACD/ADX in einem Ampel-Bar für schnelle Übersicht.">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
@@ -2261,7 +2272,7 @@ function App() {
                 <p className="mt-3 text-sm text-slate-200 leading-snug min-h-[40px]" itemProp="description">
                   {smartMoney.title}
                 </p>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-100">
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-100 sm:grid-cols-2">
                   <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 min-h-[78px]">
                     <p className="text-xs text-slate-400">{t("smartNet")}</p>
                     <p className="font-semibold text-slate-50">{smartMoney.direction}</p>
@@ -2325,7 +2336,7 @@ function App() {
             {/* === ANALYTICS ROW === */}
             {!isBeginner ? (
               <div className="mt-4 grid grid-cols-1 gap-6 card-bg-animate">
-                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between gap-4 overflow-hidden"
                   aria-label="On-Chain Metrics"
@@ -2382,7 +2393,7 @@ function App() {
                 </section>
               </Paywall>
 
-                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between overflow-hidden"
                   aria-label="Sentiment Analysis"
@@ -2416,7 +2427,7 @@ function App() {
                 </section>
               </Paywall>
 
-                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
                   aria-label="Correlation Heatmap"
@@ -2433,7 +2444,7 @@ function App() {
                     </span>
                   </div>
                   <p className="text-sm text-slate-200 leading-snug">{t("correlationDesc")}</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-100">
+                  <div className="grid grid-cols-1 gap-2 text-xs text-slate-100 sm:grid-cols-2">
                     {correlations.slice(0, 8).map((c) => {
                       const val = c.value ?? 0;
                       const pct = Math.round(val * 100);
@@ -2459,7 +2470,7 @@ function App() {
                 </section>
               </Paywall>
 
-                <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+                <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
                   aria-label="Funding Rates"
@@ -2596,7 +2607,7 @@ function App() {
 
             <Card title={t("tpSlTitle")} icon={Bell}>
               <div className="space-y-3 text-sm text-slate-200">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <label className="flex flex-col gap-1 text-xs text-slate-400">
                     {t("tpEntryLabel")}
                     <input
@@ -2672,7 +2683,7 @@ function App() {
               </div>
             </Card>
 
-            <Paywall minTier="elite" userTier={userTier} lockText={t("eliteRequired")}>
+            <Paywall minTier="elite" userTier={effectiveTier} lockText={t("eliteRequired")}>
               <Card title={t("aiSignalTitle")} icon={Signal}>
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
@@ -2702,7 +2713,7 @@ function App() {
               </Card>
             </Paywall>
 
-            <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+            <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
               <Card title={t("proSignalsTitle")} icon={TrendingUp}>
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
@@ -2739,7 +2750,7 @@ function App() {
                       <span>{t("rrLabel")}</span>
                       <span className="font-semibold">{proSignal.tp && proSignal.sl && lastClose ? ((proSignal.action === "long" ? proSignal.tp - lastClose : lastClose - proSignal.tp) / (proSignal.action === "long" ? lastClose - proSignal.sl : proSignal.sl - lastClose || 1)).toFixed(2) : "-"}</span>
                     </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                    <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-slate-400 sm:grid-cols-2">
                       <span>ATR%: {proSignal.meta?.atrPct ? proSignal.meta.atrPct.toFixed(2) : "-"}</span>
                       <span>MACD Δ: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
                       <span>VWAP: {proSignal.meta?.vwap ? formatUSD(proSignal.meta.vwap) : "-"}</span>
@@ -2751,7 +2762,7 @@ function App() {
                       <span className="text-slate-400">{t("checks")}:</span>
                       <span className="text-slate-300">{(proSignal.score * 100).toFixed(0)}%</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-1">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                       <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.trend === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.trend === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkTrend")}</span>
                       <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.momentum === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.momentum === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkMomentum")}</span>
                       <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.flow === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.flow === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkFlow")}</span>
@@ -2796,7 +2807,7 @@ function App() {
                 </div>
               </Card>
             )}
-            <Paywall minTier="pro" userTier={userTier} lockText={t("proRequired")}>
+            <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
               <Card
                 title={t("apiPlaybook")}
                 icon={PlugZap}
@@ -2812,7 +2823,7 @@ function App() {
                   </div>
                 }
               >
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {API_SOURCES.map((api) => {
                     const status = apiStatuses[api.name]?.state || "idle";
                     const note = apiStatuses[api.name]?.note || "";
@@ -2861,40 +2872,9 @@ function App() {
                 </div>
               </Card>
             </Paywall>
-            {effectiveTier === "basic" ? (
-              <LockedCard
-                title={t("backtestTitle")}
-                requiredTier="pro"
-                description="Schalte Pro frei, um historische Trefferquote und Risiko-Kennzahlen zu sehen."
-              />
-            ) : (
-            <Card title={t("backtestTitle")} icon={TrendingUp}>
-              <div className="space-y-2 text-sm text-slate-200">
-                <div className="flex items-center justify-between">
-                  <span>Trades (Lookahead 5)</span>
-                  <span className="font-semibold">{backtestStats.trades}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Win Rate</span>
-                  <span className="font-semibold text-emerald-300">{backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Wins / Losses</span>
-                  <span className="font-semibold">
-                    {backtestStats.wins} / {backtestStats.losses}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Ø RR</span>
-                  <span className="font-semibold">{backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}</span>
-                </div>
-                <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
-              </div>
-            </Card>
-            )}
           </div>
         </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card title={t("rsiChart")} icon={LineChartIcon}>
               <div className="h-48">
                 {indicatorSeries.length ? (
@@ -2987,7 +2967,7 @@ function App() {
 
         <div className="mt-6">
           <Card title={t("dataIntegrityTitle")} icon={Shield}>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="rounded-xl bg-slate-800/50 p-3">
                 <p className="text-sm font-semibold text-slate-100">{t("diFallback")}</p>
                 <p className="text-xs text-slate-400">{t("dataIntegrity1")}</p>
@@ -3003,7 +2983,7 @@ function App() {
             </div>
           </Card>
         </div>
-        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card title={t("trendStoch")} icon={TrendingUp}>
             <div className="h-40 flex flex-col justify-center">
               {indicatorSeries.length ? (
@@ -3074,7 +3054,7 @@ function App() {
 
         <div className="mt-4">
           <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory · Notes</span>}>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="space-y-2 text-sm text-slate-200">
                 <label className="flex flex-col gap-1 text-xs text-slate-400">
                   Datum
@@ -3120,7 +3100,7 @@ function App() {
                 </div>
               </div>
             </div>
-            <div className="mt-4 grid gap-2 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
               {journalEntries.length ? (
                 journalEntries.slice(0, 6).map((e) => (
                   <div key={e.ts} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
@@ -3153,7 +3133,7 @@ function App() {
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">{t("netFlowsLabel")}</p>
                 {etfFlows.length ? (
-                  <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                     {etfFlows.map((f, idx) => (
                       <div key={`${f.name}-${idx}`} className="rounded-lg border border-slate-800/70 bg-slate-900/60 p-3">
                         <p className="text-sm font-semibold text-slate-100 line-clamp-1">{f.name}</p>
@@ -3204,6 +3184,7 @@ function App() {
           </Card>
         </div>
       </div>
+      </div>
       <div className="mt-8 text-center text-xs text-slate-500">{t("madeBy")}</div>
       {showTutorial ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur">
@@ -3223,7 +3204,7 @@ function App() {
                 Close
               </button>
             </div>
-            <div className="mt-4 grid gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3">
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                 <p className="text-sm font-semibold text-emerald-300">1) Asset wählen</p>
                 <p className="text-sm text-slate-300">Oben links BTC/ETH umschalten. Preise und Fib-Map laden live.</p>

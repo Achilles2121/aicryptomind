@@ -1,53 +1,48 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
-const UserTierContext = createContext({ user: null, tier: "basic", loading: true });
-
-const mapEmailToTier = (email) => {
-  if (!email) return "basic";
-  if (email.endsWith("@vision-ai.test")) return "elite";
-  if (email.endsWith("@pro.test")) return "pro";
-  return "basic";
-};
+const UserTierContext = createContext();
 
 export const UserTierProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [tier, setTier] = useState("basic");
+  const [tier, setTier] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (!u) {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        setUser(null);
         setTier("basic");
         setLoading(false);
         return;
       }
-      if (u.email === "oemeralpay@hotmail.com") {
+
+      setUser(firebaseUser);
+
+      if (firebaseUser.email === "oemeralpay@hotmail.com") {
         setTier("elite");
         setLoading(false);
         return;
       }
+
       try {
-        const ref = doc(db, "users", u.uid);
+        const ref = doc(db, "userTiers", firebaseUser.uid);
         const snap = await getDoc(ref);
         if (snap.exists()) {
-          const data = snap.data();
-          setTier(data?.tier || "basic");
+          setTier(snap.data().tier || "basic");
         } else {
-          const inferred = mapEmailToTier(u.email);
-          await setDoc(ref, { email: u.email, tier: inferred, createdAt: serverTimestamp() }, { merge: true });
-          setTier(inferred);
+          setTier("basic");
         }
-      } catch (err) {
-        console.warn("Tier fetch failed, using fallback", err);
-        setTier(mapEmailToTier(u.email));
-      } finally {
-        setLoading(false);
+      } catch (e) {
+        console.error("Tier load error", e);
+        setTier("basic");
       }
+
+      setLoading(false);
     });
+
     return () => unsub();
   }, []);
 
@@ -55,5 +50,3 @@ export const UserTierProvider = ({ children }) => {
 };
 
 export const useUserTier = () => useContext(UserTierContext);
-
-// TODO: Payment-/Admin-System für Tier-Upgrade integrieren.

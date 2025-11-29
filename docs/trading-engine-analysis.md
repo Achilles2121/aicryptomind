@@ -73,6 +73,10 @@
 - Branding/SEO: `src/config/brand.js` (APP_BRAND/APP_TAGLINE), Meta/JSON-LD aktualisiert; Kern-Libs mit Vision-AI-Header.
 - Mobile/Overflow: Root overflow-y-auto/overscroll/touch; Kennzahlen nowrap/ellipsis; Scrollbereiche mit overscroll-contain.
 - CryptoEduChatCard Stub + Hook (`useCryptoEduChat`) eingebunden (Elite-gated), Hinweis auf spaeteres LLM-Backend; TODO Payment-/Admin-System und Chat-API Anbindung.
+- Admin-Override: `oemeralpay@hotmail.com` wird automatisch als `elite` gestuft (UserTierContext).
+- Hook-Alias: `src/lib/useUserTier.js` re-exportiert den Tier-Hook fuer kuerzere Import-Pfade.
+- LockedCard-Komponente ergaenzt, um Pro/Elite-Gating ohne Layout-Aenderung zu zeigen.
+- Firestore-Regel-Empfehlung: Nur eigener User darf `users/{uid}` lesen/schreiben; Tier-Upgrades spaeter serverseitig absichern.
 
 ### Potenzielle V3-Verbesserungen
 - Echte HTF-Daten laden (4h), Funding/Sentiment als Hard-Filter einbauen.
