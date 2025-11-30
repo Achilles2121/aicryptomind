@@ -711,6 +711,44 @@ Card.propTypes = {
   tooltip: PropTypes.string,
 };
 
+const Skeleton = ({ className = "" }) => <div className={`animate-pulse rounded-lg bg-slate-800/70 ${className}`} />;
+
+Skeleton.propTypes = {
+  className: PropTypes.string,
+};
+
+const useInViewOnce = (rootMargin = "200px") => {
+  const ref = useRef(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    if (!ref.current || inView) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin }
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [inView, rootMargin]);
+  return [ref, inView];
+};
+
+const LazyRender = ({ placeholder, children, rootMargin }) => {
+  const [ref, inView] = useInViewOnce(rootMargin);
+  return <div ref={ref}>{inView ? children : placeholder}</div>;
+};
+
+LazyRender.propTypes = {
+  placeholder: PropTypes.node.isRequired,
+  children: PropTypes.node.isRequired,
+  rootMargin: PropTypes.string,
+};
+
 const renderLastDot = (count, color = "#22c55e") => (props) => {
   if (props.index !== count - 1) return null;
   return <circle cx={props.cx} cy={props.cy} r={4} fill={color} className="pulse-soft" />;
@@ -2017,46 +2055,48 @@ function App() {
               icon={TrendingUp}
               actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
             >
-              {indicatorSeries.length ? (
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={indicatorSeries}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                        <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={65} />
-                        <YAxis
-                          yAxisId="vol"
-                          orientation="right"
-                          tick={{ fill: "#94a3b8", fontSize: 10 }}
-                          tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
-                          width={55}
+              <LazyRender placeholder={<div className="h-80 flex items-center justify-center"><Skeleton className="h-72 w-full" /></div>}>
+                {indicatorSeries.length ? (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={indicatorSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                          <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                          <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={65} />
+                          <YAxis
+                            yAxisId="vol"
+                            orientation="right"
+                            tick={{ fill: "#94a3b8", fontSize: 10 }}
+                            tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
+                            width={55}
+                          />
+                          <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                          <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
+                          <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
+                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                        <Line
+                          type="monotone"
+                          dataKey="close"
+                          stroke="#22c55e"
+                          dot={renderLastDot(indicatorSeries.length, "#22c55e")}
+                          yAxisId="y"
+                          strokeWidth={2}
+                          name="Close"
+                          isAnimationActive
+                          animationDuration={650}
+                          animationEasing="ease-out"
                         />
-                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
-                        <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                        <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                        <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                        <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                        <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                      <Line
-                        type="monotone"
-                        dataKey="close"
-                        stroke="#22c55e"
-                        dot={renderLastDot(indicatorSeries.length, "#22c55e")}
-                        yAxisId="y"
-                        strokeWidth={2}
-                        name="Close"
-                        isAnimationActive
-                        animationDuration={650}
-                        animationEasing="ease-out"
-                      />
-                        <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                        <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
-              )}
+                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                  <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
+                )}
+              </LazyRender>
             </Card>
             <div className="mt-4">
               <Card
@@ -2064,75 +2104,87 @@ function App() {
                 icon={LineChartIcon}
                 actions={<span className="text-xs text-slate-400">{t("fibGolden")} · TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
-                {indicatorSeries.length ? (
-                  <div className="relative h-64">
-                    {(nearTp || nearSl) && (
-                      <div className="absolute right-3 top-3 flex gap-2 text-xs">
-                        {nearTp ? <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-200 pulse-soft">{t("tpAlarm")}</span> : null}
-                        {nearSl ? <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-200 pulse-soft">{t("slAlarm")}</span> : null}
-                      </div>
-                    )}
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={indicatorSeries}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                        <YAxis
-                          tick={{ fill: "#94a3b8", fontSize: 10 }}
-                          width={80}
-                          domain={[fibView.yMin ?? "auto", fibView.yMax ?? "auto"]}
-                          tickFormatter={(v) => Math.round(v).toLocaleString()}
-                        />
-                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
-                        {tpZone ? <ReferenceArea y1={tpZone.y1} y2={tpZone.y2} strokeOpacity={0} fill="#22c55e" fillOpacity={0.07} className="glow-band" /> : null}
-                        {slZone ? <ReferenceArea y1={slZone.y1} y2={slZone.y2} strokeOpacity={0} fill="#ef4444" fillOpacity={0.07} className="glow-band" /> : null}
-                        {fibView.goldenLow && fibView.goldenHigh ? (
-                          <ReferenceArea y1={fibView.goldenLow} y2={fibView.goldenHigh} strokeOpacity={0} fill="#fbbf24" fillOpacity={0.1} />
-                        ) : null}
-                    {fibView.levels.map((lvl) => (
-                      <ReferenceLine key={lvl.label} y={lvl.value} stroke="#475569" strokeDasharray="2 4" label={{ value: lvl.label, position: "insideRight", fill: "#cbd5e1", fontSize: 10 }} />
-                    ))}
-                    {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
-                    {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
-                    {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
-                    <Line
-                      type="monotone"
-                      dataKey="close"
-                          stroke="#22c55e"
-                          dot={renderLastDot(indicatorSeries.length, "#22c55e")}
-                          strokeWidth={2}
-                          name="Close"
-                          isAnimationActive
-                          animationDuration={650}
-                          animationEasing="ease-out"
-                        />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">{t("loadingFib")}</p>
-                )}
+                <LazyRender placeholder={<div className="h-64 flex items-center justify-center"><Skeleton className="h-56 w-full" /></div>}>
+                  {indicatorSeries.length ? (
+                    <div className="relative h-64">
+                      {(nearTp || nearSl) && (
+                        <div className="absolute right-3 top-3 flex gap-2 text-xs">
+                          {nearTp ? <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-200 pulse-soft">{t("tpAlarm")}</span> : null}
+                          {nearSl ? <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-200 pulse-soft">{t("slAlarm")}</span> : null}
+                        </div>
+                      )}
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={indicatorSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                          <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                          <YAxis
+                            tick={{ fill: "#94a3b8", fontSize: 10 }}
+                            width={80}
+                            domain={[fibView.yMin ?? "auto", fibView.yMax ?? "auto"]}
+                            tickFormatter={(v) => Math.round(v).toLocaleString()}
+                          />
+                          <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                          {tpZone ? <ReferenceArea y1={tpZone.y1} y2={tpZone.y2} strokeOpacity={0} fill="#22c55e" fillOpacity={0.07} className="glow-band" /> : null}
+                          {slZone ? <ReferenceArea y1={slZone.y1} y2={slZone.y2} strokeOpacity={0} fill="#ef4444" fillOpacity={0.07} className="glow-band" /> : null}
+                          {fibView.goldenLow && fibView.goldenHigh ? <ReferenceArea y1={fibView.goldenLow} y2={fibView.goldenHigh} strokeOpacity={0} fill="#fbbf24" fillOpacity={0.1} /> : null}
+                      {fibView.levels.map((lvl) => (
+                        <ReferenceLine key={lvl.label} y={lvl.value} stroke="#475569" strokeDasharray="2 4" label={{ value: lvl.label, position: "insideRight", fill: "#cbd5e1", fontSize: 10 }} />
+                      ))}
+                      {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
+                      {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
+                      {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
+                      <Line
+                        type="monotone"
+                        dataKey="close"
+                            stroke="#22c55e"
+                            dot={renderLastDot(indicatorSeries.length, "#22c55e")}
+                            strokeWidth={2}
+                            name="Close"
+                            isAnimationActive
+                            animationDuration={650}
+                            animationEasing="ease-out"
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">{t("loadingFib")}</p>
+                  )}
+                </LazyRender>
               </Card>
             </div>
             <div className="mt-4">
             <Card title={t("cryptoBubbles")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">{t("bubblesTop")}</span>}>
-                {bubbleData.length ? (
-                  <div className="flex flex-wrap items-center justify-center gap-3">
-                    {bubbleData.map((b) => (
-                      <div
-                        key={b.id}
-                        className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
-                        style={{ width: `${b.size}px`, height: `${b.size}px` }}
-                      >
-                        <div className="text-center text-[10px] font-semibold leading-tight px-1">
-                          <div className="truncate">{b.label}</div>
-                          <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
-                        </div>
+                <LazyRender
+                  placeholder={
+                    <div className="h-40 flex items-center justify-center">
+                      <div className="flex gap-2">
+                        <Skeleton className="h-10 w-10 rounded-full" />
+                        <Skeleton className="h-14 w-14 rounded-full" />
+                        <Skeleton className="h-12 w-12 rounded-full" />
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">{t("noBubbles")}</p>
-                )}
+                    </div>
+                  }
+                >
+                  {bubbleData.length ? (
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      {bubbleData.map((b) => (
+                        <div
+                          key={b.id}
+                          className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
+                          style={{ width: `${b.size}px`, height: `${b.size}px` }}
+                        >
+                          <div className="text-center text-[10px] font-semibold leading-tight px-1">
+                            <div className="truncate">{b.label}</div>
+                            <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">{t("noBubbles")}</p>
+                  )}
+                </LazyRender>
               </Card>
             </div>
 
@@ -3471,35 +3523,37 @@ function App() {
                 icon={TrendingUp}
                 actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
-                {indicatorSeries.length ? (
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={indicatorSeries}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                        <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={55} />
-                        <YAxis
-                          yAxisId="vol"
-                          orientation="right"
-                          tick={{ fill: "#94a3b8", fontSize: 10 }}
-                          tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
-                          width={50}
-                        />
-                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
-                        <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                        <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                        <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                        <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                        <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                        <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
-                        <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                        <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
-                )}
+                <LazyRender placeholder={<div className="h-72 flex items-center justify-center"><Skeleton className="h-64 w-full" /></div>}>
+                  {indicatorSeries.length ? (
+                    <div className="h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={indicatorSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                          <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                          <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={55} />
+                          <YAxis
+                            yAxisId="vol"
+                            orientation="right"
+                            tick={{ fill: "#94a3b8", fontSize: 10 }}
+                            tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
+                            width={50}
+                          />
+                          <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                          <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
+                          <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
+                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
+                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
+                  )}
+                </LazyRender>
               </Card>
 
               <Card
@@ -3507,62 +3561,76 @@ function App() {
                 icon={LineChartIcon}
                 actions={<span className="text-xs text-slate-400">{t("fibGolden")} · TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
-                {indicatorSeries.length ? (
-                  <div className="relative h-64">
-                    {(nearTp || nearSl) && (
-                      <div className="absolute right-3 top-3 flex gap-2 text-xs">
-                        {nearTp ? <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-200 pulse-soft">{t("tpAlarm")}</span> : null}
-                        {nearSl ? <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-200 pulse-soft">{t("slAlarm")}</span> : null}
-                      </div>
-                    )}
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={indicatorSeries}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                        <YAxis
-                          tick={{ fill: "#94a3b8", fontSize: 10 }}
-                          width={80}
-                          domain={[fibView.yMin ?? "auto", fibView.yMax ?? "auto"]}
-                          tickFormatter={(v) => Math.round(v).toLocaleString()}
-                        />
-                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
-                        {tpZone ? <ReferenceArea y1={tpZone.y1} y2={tpZone.y2} strokeOpacity={0} fill="#22c55e" fillOpacity={0.07} className="glow-band" /> : null}
-                        {slZone ? <ReferenceArea y1={slZone.y1} y2={slZone.y2} strokeOpacity={0} fill="#ef4444" fillOpacity={0.07} className="glow-band" /> : null}
-                        {fibView.goldenLow && fibView.goldenHigh ? <ReferenceArea y1={fibView.goldenLow} y2={fibView.goldenHigh} strokeOpacity={0} fill="#fbbf24" fillOpacity={0.1} /> : null}
-                        {fibView.levels.map((lvl) => (
-                          <ReferenceLine key={lvl.label} y={lvl.value} stroke="#475569" strokeDasharray="2 4" label={{ value: lvl.label, position: "insideRight", fill: "#cbd5e1", fontSize: 10 }} />
-                        ))}
-                        {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
-                        {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
-                        {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
-                        <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">{t("loadingFib")}</p>
-                )}
+                <LazyRender placeholder={<div className="h-64 flex items-center justify-center"><Skeleton className="h-56 w-full" /></div>}>
+                  {indicatorSeries.length ? (
+                    <div className="relative h-64">
+                      {(nearTp || nearSl) && (
+                        <div className="absolute right-3 top-3 flex gap-2 text-xs">
+                          {nearTp ? <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-200 pulse-soft">{t("tpAlarm")}</span> : null}
+                          {nearSl ? <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-200 pulse-soft">{t("slAlarm")}</span> : null}
+                        </div>
+                      )}
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={indicatorSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                          <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                          <YAxis
+                            tick={{ fill: "#94a3b8", fontSize: 10 }}
+                            width={80}
+                            domain={[fibView.yMin ?? "auto", fibView.yMax ?? "auto"]}
+                            tickFormatter={(v) => Math.round(v).toLocaleString()}
+                          />
+                          <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                          {tpZone ? <ReferenceArea y1={tpZone.y1} y2={tpZone.y2} strokeOpacity={0} fill="#22c55e" fillOpacity={0.07} className="glow-band" /> : null}
+                          {slZone ? <ReferenceArea y1={slZone.y1} y2={slZone.y2} strokeOpacity={0} fill="#ef4444" fillOpacity={0.07} className="glow-band" /> : null}
+                          {fibView.goldenLow && fibView.goldenHigh ? <ReferenceArea y1={fibView.goldenLow} y2={fibView.goldenHigh} strokeOpacity={0} fill="#fbbf24" fillOpacity={0.1} /> : null}
+                          {fibView.levels.map((lvl) => (
+                            <ReferenceLine key={lvl.label} y={lvl.value} stroke="#475569" strokeDasharray="2 4" label={{ value: lvl.label, position: "insideRight", fill: "#cbd5e1", fontSize: 10 }} />
+                          ))}
+                          {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
+                          {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
+                          {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
+                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">{t("loadingFib")}</p>
+                  )}
+                </LazyRender>
               </Card>
 
               <Card title={t("cryptoBubbles")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">{t("bubblesTop")}</span>}>
-                {bubbleData.length ? (
-                  <div className="flex flex-wrap items-center justify-center gap-3">
-                    {bubbleData.map((b) => (
-                      <div
-                        key={b.id}
-                        className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
-                        style={{ width: `${b.size}px`, height: `${b.size}px` }}
-                      >
-                        <div className="text-center text-[10px] font-semibold leading-tight px-1">
-                          <div className="truncate">{b.label}</div>
-                          <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
-                        </div>
+                <LazyRender
+                  placeholder={
+                    <div className="h-32 flex items-center justify-center">
+                      <div className="flex gap-2">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <Skeleton className="h-10 w-10 rounded-full" />
+                        <Skeleton className="h-12 w-12 rounded-full" />
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">{t("noBubbles")}</p>
-                )}
+                    </div>
+                  }
+                >
+                  {bubbleData.length ? (
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      {bubbleData.map((b) => (
+                        <div
+                          key={b.id}
+                          className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
+                          style={{ width: `${b.size}px`, height: `${b.size}px` }}
+                        >
+                          <div className="text-center text-[10px] font-semibold leading-tight px-1">
+                            <div className="truncate">{b.label}</div>
+                            <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">{t("noBubbles")}</p>
+                  )}
+                </LazyRender>
               </Card>
             </div>
           ) : null}
