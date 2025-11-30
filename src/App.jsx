@@ -39,7 +39,7 @@ import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
-import { fetchEtfFlowSeries } from "./services/etfFlows";
+import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
 import EtfHoldingsCard from "./components/etf/EtfHoldingsCard";
 import EtfProviderQualityCard from "./components/etf/EtfProviderQualityCard";
 import { fetchEtfHoldingsLive } from "./services/etfHoldingsLive";
@@ -881,6 +881,9 @@ function App() {
     etfFlows: { status: "ok", ts: Date.now() },
     etfFlowsFmp: { status: "ok", ts: Date.now() },
     etfFlowsSoso: { status: "ok", ts: Date.now() },
+    ETF_FLOWS_FMP: { status: "ok", ts: Date.now() },
+    ETF_FLOWS_SOSO: { status: "ok", ts: Date.now() },
+    ETF_FLOWS_COINSTATS: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_FMP: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_SOSO: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_COINSTATS: { status: "ok", ts: Date.now() },
@@ -1233,15 +1236,11 @@ function App() {
     }
     setEtfAumLoading(true);
     try {
-      const data = await fetchEtfFlowSeries(symbols, {
-        onHealthUpdate: updateApiHealth,
-        onLog: logEvent,
-        onToast: addToast,
-      });
+      const data = await fetchEtfFlowSeriesLive(symbols, updateApiHealth, addToast);
       setEtfFlowSeries(data);
       setEtfLastUpdated(new Date().toISOString());
       setEtfAumError("");
-      updateApiHealth("etfFlows", data.length ? "ok" : "degraded");
+      updateApiHealth("ETF_FLOWS_FMP", data.length ? "ok" : "degraded");
     } catch (err) {
       console.error("ETF flows failed", err);
       setEtfFlowSeries([]);
