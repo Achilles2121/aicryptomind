@@ -750,6 +750,7 @@ function App() {
   const [showTutorial, setShowTutorial] = useState(() => localStorage.getItem("tutorial:shown") !== "true");
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
+  const [mobileTab, setMobileTab] = useState("overview");
   const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
   const [blink, setBlink] = useState(true);
   const { tier: contextTier, loading: tierLoading } = useUserTier();
@@ -1792,7 +1793,7 @@ function App() {
   }
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
-      <div className="w-full max-w-screen lg:max-w-full mx-auto px-3 py-8">
+      <div className="hidden md:block w-full max-w-screen lg:max-w-full mx-auto px-3 py-8">
         <div className="flex flex-col gap-4">
         <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -3184,6 +3185,729 @@ function App() {
           </Card>
         </div>
       </div>
+      </div>
+      <div className="md:hidden w-full px-3 py-6 space-y-5">
+        <header className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-300">Vision AI Mind</p>
+            <h1 className="text-2xl font-bold text-slate-50">Crypto Risk Manager</h1>
+            <p className="text-sm text-slate-400">{t("heroSubtitle")}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={asset.id}
+              onChange={(e) => {
+                const next = ASSETS.find((a) => a.id === e.target.value) ?? ASSETS[0];
+                setAsset(next);
+                setLivePrice(null);
+              }}
+              className="flex-1 min-w-[120px] rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
+            >
+              {ASSETS.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={timeFrame}
+              onChange={(e) => setTimeFrame(e.target.value)}
+              className="w-28 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
+            >
+              <option value="15">15m</option>
+              <option value="60">1h</option>
+              <option value="240">4h</option>
+              <option value="1440">1d</option>
+            </select>
+            <button
+              onClick={() => setLang((p) => (p === "de" ? "en" : "de"))}
+              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
+            >
+              {t("langToggle")}
+            </button>
+            <button
+              onClick={refreshAll}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              {t("refresh")}
+            </button>
+          </div>
+        </header>
+
+        <Card
+          title="Login & Tier"
+          icon={Shield}
+          actions={<span className="text-[11px] text-slate-400">{tierLabels[effectiveTier] || tierLabels.basic}</span>}
+        >
+          <div className="space-y-3 text-sm text-slate-200">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    setUserTier("basic");
+                    persistTier("basic");
+                  }}
+                  className="rounded bg-slate-800 px-3 py-1 text-[11px] hover:bg-slate-700"
+                >
+                  {t("tierBasic")}
+                </button>
+                <button
+                  onClick={() => {
+                    setUserTier("pro");
+                    persistTier("pro");
+                  }}
+                  className="rounded bg-emerald-600/80 px-3 py-1 text-[11px] text-emerald-950 hover:bg-emerald-500"
+                >
+                  {t("tierPro")}
+                </button>
+                <button
+                  onClick={() => {
+                    setUserTier("elite");
+                    persistTier("elite");
+                  }}
+                  className="rounded bg-cyan-500/80 px-3 py-1 text-[11px] text-cyan-950 hover:bg-cyan-400"
+                >
+                  {t("tierElite")}
+                </button>
+              </div>
+              <button
+                onClick={() => openStripe(STRIPE_LINKS.customer_portal)}
+                className="rounded bg-slate-800 px-3 py-1 text-[11px] hover:bg-slate-700"
+              >
+                {t("billing")}
+              </button>
+            </div>
+            <form onSubmit={handleSignin} className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={authForm.email}
+                  onChange={(e) => setAuthForm((p) => ({ ...p, email: e.target.value }))}
+                  placeholder={t("loginEmail")}
+                  className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                />
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(e) => setAuthForm((p) => ({ ...p, password: e.target.value }))}
+                  placeholder={t("loginPassword")}
+                  className="w-32 rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="submit" className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
+                  {t("signin")}
+                </button>
+                <button type="button" onClick={handleSignup} className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
+                  {t("signup")}
+                </button>
+                <button type="button" onClick={handleLogout} className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
+                  {t("logout")}
+                </button>
+                <button
+                  type="button"
+                  onClick={grantTrial}
+                  className="rounded bg-amber-500/80 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400"
+                >
+                  {t("startTrial")}
+                </button>
+              </div>
+              {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
+              {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
+            </form>
+          </div>
+        </Card>
+
+        <div className="grid grid-cols-4 gap-2 text-[12px]">
+          {[
+            { key: "overview", label: "Overview" },
+            { key: "charts", label: "Charts" },
+            { key: "signals", label: "Signals" },
+            { key: "research", label: "Research" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setMobileTab(tab.key)}
+              className={`rounded-xl px-3 py-2 font-semibold transition ${
+                mobileTab === tab.key ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          {mobileTab === "overview" ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Card
+                  title={t("livePrice")}
+                  icon={Activity}
+                  tooltip="Live Price mit 24h Change, Multi-Source Fallback."
+                  actions={
+                    <div className="flex gap-2">
+                      <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{asset.label}</span>
+                      <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{priceState.source}</span>
+                    </div>
+                  }
+                >
+                  <div className="flex flex-col gap-2">
+                    <div className="text-3xl font-bold text-white">{formatUSD(displayPrice)}</div>
+                    <div className={`text-sm font-semibold ${(priceState.change24h ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {formatPercent(priceState.change24h ?? 0)} 24h
+                    </div>
+                    <p className="text-xs text-slate-400">Update: {priceState.updatedAt ? new Date(priceState.updatedAt).toLocaleTimeString() : "-"}</p>
+                  </div>
+                </Card>
+
+                <Card title={t("fearGreed")} icon={Gauge} tooltip="Fear & Greed Index letzte Aktualisierung.">
+                  {fearGreed ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold text-white">{fearGreed.value}</span>
+                        <span className="text-sm uppercase tracking-wide text-slate-400">{fearGreed.classification}</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-800">
+                        <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
+                      </div>
+                      <span className="text-xs text-slate-400">Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()}</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">Lade Daten...</p>
+                  )}
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Card title={t("indicators")} icon={LineChartIcon} tooltip="RSI: Oversold <30, Overbought >70. MACD Momentum + Bollinger.">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">RSI</span>
+                      <span className={`font-semibold ${indicators.rsi && (indicators.rsi < 30 || indicators.rsi > 70) ? "text-amber-400" : "text-emerald-300"}`}>
+                        {indicators.rsi ? indicators.rsi.toFixed(1) : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">MACD</span>
+                      <span className="font-semibold text-slate-100">
+                        {indicators.macd && indicators.signal ? `${(indicators.macd - indicators.signal).toFixed(2)} (${indicators.macd.toFixed(2)}/${indicators.signal.toFixed(2)})` : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">Bollinger</span>
+                      <span className="font-semibold text-slate-100">20 / 2 std</span>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card title={t("reliability")} icon={Shield} tooltip="System-Robustheit: Cache, Polling, WS Reconnect.">
+                  <ul className="space-y-1 text-sm text-slate-300">
+                    <li className="flex items-center gap-2">
+                      <PlugZap className="h-4 w-4 text-emerald-400" /> {t("reliability1")}
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4 text-emerald-400" /> {t("reliability2")}
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <WifiOff className="h-4 w-4 text-emerald-400" /> {t("reliability3")}
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Bell className="h-4 w-4 text-emerald-400" /> {t("reliability4")}
+                    </li>
+                  </ul>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Card title={t("systemStatus")} icon={Activity}>
+                  <div className="space-y-2 text-sm text-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span>{t("systemWs")}</span>
+                      <span className={`rounded-full px-2 py-1 text-xs ${wsStatus === "live" ? "bg-emerald-500/10 text-emerald-200" : "bg-amber-500/10 text-amber-200"}`}>
+                        {wsStatus} (Retries {wsAttempts}/5)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{t("systemCache")}</span>
+                      <span className="text-slate-100">5 Minuten</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{t("systemPoll")}</span>
+                      <span className="text-slate-100">30s</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{t("systemError")}</span>
+                      <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card title={t("manualControls")} icon={PlugZap}>
+                  <div className="flex flex-col gap-2 text-sm text-slate-300">
+                    <button onClick={loadPrice} className="inline-flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 hover:bg-slate-700">
+                      <span>{t("manualPrice")}</span>
+                      <RefreshCw className="h-4 w-4" />
+                    </button>
+                    <button onClick={loadOHLC} className="inline-flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 hover:bg-slate-700">
+                      <span>{t("manualKraken")}</span>
+                      <Activity className="h-4 w-4" />
+                    </button>
+                    <button onClick={loadFearGreed} className="inline-flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 hover:bg-slate-700">
+                      <span>{t("manualFG")}</span>
+                      <Gauge className="h-4 w-4" />
+                    </button>
+                  </div>
+                </Card>
+              </div>
+            </div>
+          ) : null}
+          {mobileTab === "charts" ? (
+            <div className="space-y-4">
+              <Card
+                title={t("liveMarket")}
+                icon={TrendingUp}
+                actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+              >
+                {indicatorSeries.length ? (
+                  <div className="h-72">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={indicatorSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                        <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                        <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={55} />
+                        <YAxis
+                          yAxisId="vol"
+                          orientation="right"
+                          tick={{ fill: "#94a3b8", fontSize: 10 }}
+                          tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
+                          width={50}
+                        />
+                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                        <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
+                        <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
+                        <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                        <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                        <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                        <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
+                        <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                        <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
+                )}
+              </Card>
+
+              <Card
+                title={t("fibMap")}
+                icon={LineChartIcon}
+                actions={<span className="text-xs text-slate-400">{t("fibGolden")} · TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+              >
+                {indicatorSeries.length ? (
+                  <div className="relative h-64">
+                    {(nearTp || nearSl) && (
+                      <div className="absolute right-3 top-3 flex gap-2 text-xs">
+                        {nearTp ? <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-200 pulse-soft">{t("tpAlarm")}</span> : null}
+                        {nearSl ? <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-200 pulse-soft">{t("slAlarm")}</span> : null}
+                      </div>
+                    )}
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={indicatorSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                        <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                        <YAxis
+                          tick={{ fill: "#94a3b8", fontSize: 10 }}
+                          width={80}
+                          domain={[fibView.yMin ?? "auto", fibView.yMax ?? "auto"]}
+                          tickFormatter={(v) => Math.round(v).toLocaleString()}
+                        />
+                        <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
+                        {tpZone ? <ReferenceArea y1={tpZone.y1} y2={tpZone.y2} strokeOpacity={0} fill="#22c55e" fillOpacity={0.07} className="glow-band" /> : null}
+                        {slZone ? <ReferenceArea y1={slZone.y1} y2={slZone.y2} strokeOpacity={0} fill="#ef4444" fillOpacity={0.07} className="glow-band" /> : null}
+                        {fibView.goldenLow && fibView.goldenHigh ? <ReferenceArea y1={fibView.goldenLow} y2={fibView.goldenHigh} strokeOpacity={0} fill="#fbbf24" fillOpacity={0.1} /> : null}
+                        {fibView.levels.map((lvl) => (
+                          <ReferenceLine key={lvl.label} y={lvl.value} stroke="#475569" strokeDasharray="2 4" label={{ value: lvl.label, position: "insideRight", fill: "#cbd5e1", fontSize: 10 }} />
+                        ))}
+                        {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
+                        {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
+                        {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
+                        <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">{t("loadingFib")}</p>
+                )}
+              </Card>
+
+              <Card title={t("cryptoBubbles")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">{t("bubblesTop")}</span>}>
+                {bubbleData.length ? (
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    {bubbleData.map((b) => (
+                      <div
+                        key={b.id}
+                        className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
+                        style={{ width: `${b.size}px`, height: `${b.size}px` }}
+                      >
+                        <div className="text-center text-[10px] font-semibold leading-tight px-1">
+                          <div className="truncate">{b.label}</div>
+                          <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">{t("noBubbles")}</p>
+                )}
+              </Card>
+            </div>
+          ) : null}
+          {mobileTab === "signals" ? (
+            <div className="space-y-4">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Sch��tzung + Confidence.">
+                <div className="flex flex-col gap-3">
+                  <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">Trend</span>
+                    <span className={`font-semibold ${aiPredict.trend === "bullish" ? "text-emerald-300" : aiPredict.trend === "bearish" ? "text-red-300" : "text-slate-200"}`}>
+                      {aiPredict.trend === "bullish" ? "Bullish" : aiPredict.trend === "bearish" ? "Bearish" : "Neutral"}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-sm text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <span>Confidence</span>
+                      <span className="font-semibold text-cyan-300">{aiPredict.confidence ? `${aiPredict.confidence}%` : "--"}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-800">
+                      <div className="h-2 rounded-full bg-cyan-400" style={{ width: `${Math.min(100, aiPredict.confidence ?? 0)}%` }} />
+                    </div>
+                    <p className="text-xs text-slate-400">Forecast basiert auf letzter Drift + 5% Bias via HF-Style Cache.</p>
+                  </div>
+                  <div className="text-xs text-slate-400">Updated: {aiPredict.refreshedAt ? new Date(aiPredict.refreshedAt).toLocaleTimeString() : "-"}</div>
+                </div>
+              </Card>
+
+              <Paywall minTier="elite" userTier={effectiveTier} lockText={t("eliteRequired")}>
+                <Card title={t("aiSignalTitle")} icon={Signal}>
+                  <div className="space-y-2 text-sm text-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span>Aktion</span>
+                      <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-semibold">{aiSignal.action}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>Begruendung</span>
+                      <span className="text-right text-slate-200">{aiSignal.reason}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>Konfidenz (~ Backtest)</span>
+                      <span className="text-emerald-300 font-semibold">{(aiSignal.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs">
+                      <div className="flex justify-between">
+                        <span>TP Ziel</span>
+                        <span className="font-semibold">{aiSignal.tp ? formatUSD(aiSignal.tp) : "-"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>SL Ziel</span>
+                        <span className="font-semibold">{aiSignal.sl ? formatUSD(aiSignal.sl) : "-"}</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-amber-300">{t("aiHint")}</p>
+                  </div>
+                </Card>
+              </Paywall>
+
+              <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
+                <Card title={t("proSignalsTitle")} icon={TrendingUp}>
+                  <div className="space-y-2 text-sm text-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span>Aktion</span>
+                      <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${proSignal.action === "long" ? "bg-emerald-500/10 text-emerald-200" : proSignal.action === "short" ? "bg-red-500/10 text-red-200" : "bg-slate-800 text-slate-200"}`}>
+                        {proSignal.action}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>{t("setupType")}</span>
+                      <span className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-100">{proSignal.setupLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>{t("regime")}</span>
+                      <span className={`rounded px-2 py-1 text-[11px] font-semibold ${proSignal.regimeIntent === "ok" ? "bg-emerald-500/10 text-emerald-200" : proSignal.regimeIntent === "warn" ? "bg-red-500/10 text-red-200" : "bg-slate-800 text-slate-200"}`}>
+                        {proSignal.regimeLabel}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {t("reasonLabel")}: <span className="text-slate-200">{proSignal.reason}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span>Confidence</span>
+                      <span className="font-semibold text-emerald-300">{(proSignal.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-slate-200 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">{t("checks")}:</span>
+                        <span className="text-slate-300">{(proSignal.score * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.trend === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.trend === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkTrend")}</span>
+                        <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.momentum === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.momentum === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkMomentum")}</span>
+                        <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.flow === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.flow === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>{t("checkFlow")}</span>
+                        <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.vol === "ok" ? "bg-emerald-500/15 text-emerald-200" : "bg-slate-800 text-slate-200"}`}>{t("checkVol")}</span>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </Paywall>
+
+              {effectiveTier === "basic" ? (
+                <LockedCard title={t("backtestTitle")} requiredTier="pro" description="Schalte Pro frei, um historische Trefferquote und Risiko-Kennzahlen zu sehen." />
+              ) : (
+                <Card title={t("backtestTitle")} icon={TrendingUp}>
+                  <div className="space-y-2 text-sm text-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span>{t("backtestTrades")}</span>
+                      <span className="font-semibold">{backtestStats.trades}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{t("backtestWinRate")}</span>
+                      <span className="font-semibold text-emerald-300 whitespace-nowrap overflow-hidden text-ellipsis">
+                        {backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{t("backtestWinsLosses")}</span>
+                      <span className="font-semibold whitespace-nowrap">
+                        {backtestStats.wins} / {backtestStats.losses}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{t("backtestAvgRR")}</span>
+                      <span className="font-semibold whitespace-nowrap overflow-hidden text-ellipsis">
+                        {backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>
+                  </div>
+                </Card>
+              )}
+
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide fǬr erste Trades.">
+                <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
+                  <li>Starte mit BTC/ETH und 1h-Chart.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fǬr m��gliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% �?" siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode h��lt nur Kernkarten aktiv; pro View fǬr volle Tiefe.</li>
+                </ul>
+              </Card>
+            </div>
+          ) : null}
+          {mobileTab === "research" ? (
+            <div className="space-y-4">
+              <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
+                <section
+                  className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
+                  aria-label="On-Chain Metrics"
+                  itemScope
+                  itemType="https://schema.org/Dataset"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-cyan-400" aria-hidden />
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">On-Chain Metrics</h3>
+                    </div>
+                    <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
+                      {formatClock(onChainMetrics.updatedAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200 leading-snug">{t("onchainDesc")}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-3xl font-black text-emerald-400 whitespace-nowrap">
+                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "—"}
+                    </div>
+                    <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[160px] space-y-1 break-words">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Whales</span>
+                        <span className="font-semibold text-slate-100">{(onChainMetrics.supplyWhales ?? 0.6 * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Retail</span>
+                        <span className="font-semibold text-slate-100">{(onChainMetrics.supplyRetail ?? 0.4 * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Delta</span>
+                        <span className="font-semibold text-slate-100">
+                          {onChainMetrics.supplyWhales && onChainMetrics.supplyRetail ? ((onChainMetrics.supplyWhales - onChainMetrics.supplyRetail) * 100).toFixed(1) + "%" : "--"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">{t("onchainDesc")}</span>
+                      <span className="rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-100">BTC</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-800">
+                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, (onChainMetrics.active ?? 100000) / 2000)}%` }} />
+                    </div>
+                  </div>
+                </section>
+              </Paywall>
+
+              <section
+                className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
+                aria-label="Sentiment Analysis"
+                itemScope
+                itemType="https://schema.org/Dataset"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Signal className="h-5 w-5 text-cyan-400" aria-hidden />
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">Sentiment Analysis</h3>
+                  </div>
+                  <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
+                    {formatClock(sentimentMetrics.updatedAt)}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-200 leading-snug">{t("sentimentDesc")}</p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="relative h-16 w-16 flex-shrink-0">
+                    <div className="absolute inset-0 rounded-full border-4 border-emerald-500 opacity-40" />
+                    <div className="absolute inset-0 rounded-full border-4 border-cyan-400 opacity-80" style={{ clipPath: "polygon(0 0, 100% 0, 100% 50%, 0 50%)" }} />
+                    <div className="absolute inset-0 flex items-center justify-center text-lg font-black text-emerald-400">{sentimentMetrics.score ?? "--"}</div>
+                  </div>
+                  <div className="text-xs text-slate-300 text-left leading-tight break-words max-w-[180px] space-y-1">
+                    <p>Label: {sentimentMetrics.label}</p>
+                    <p>Trend: {sentimentMetrics.score !== null ? (sentimentMetrics.score > 60 ? "Positiv" : "Neutral") : "-"}</p>
+                    <p>Tweets: {sentimentMetrics.tweets ?? "-"}</p>
+                  </div>
+                </div>
+              </section>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Card title="Correlations" icon={Activity}>
+                  <div className="space-y-2 text-sm text-slate-200">
+                    {correlations.length ? (
+                      correlations.map((c) => {
+                        const pct = Math.round(c.value * 100);
+                        const color = c.value >= 0.6 ? "bg-emerald-500/60" : c.value >= 0.3 ? "bg-amber-500/60" : c.value >= 0 ? "bg-slate-700" : "bg-red-500/60";
+                        return (
+                          <div key={c.pair} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-slate-300">{c.pair}</span>
+                              <span className="text-xs font-semibold text-slate-100">{pct}%</span>
+                            </div>
+                            <div className="mt-1 h-2 rounded-full bg-slate-800">
+                              <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.abs(pct))}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-sm text-slate-400">{t("loading")}</p>
+                    )}
+                  </div>
+                </Card>
+
+                <Card title="Funding Rates" icon={TrendingUp}>
+                  <div className="space-y-2 text-sm text-slate-200">
+                    {fundingRates.length ? (
+                      fundingRates.map((f) => {
+                        const pct = f.rate ? f.rate * 100 : 0;
+                        const bullish = pct >= 0;
+                        return (
+                          <div key={f.symbol} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold">{f.symbol}</span>
+                              <span className={`text-xs font-semibold ${bullish ? "text-emerald-300" : "text-red-300"}`}>{pct.toFixed(4)}%</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400">Mark: {f.mark ? formatUSD(f.mark) : "-"}</p>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-sm text-slate-400">{t("loading")}</p>
+                    )}
+                  </div>
+                </Card>
+              </div>
+
+              <Card title={t("tpSlTitle")} icon={Bell}>
+                <div className="space-y-3 text-sm text-slate-200">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-xs text-slate-400">
+                      {t("tpEntryLabel")}
+                      <input
+                        type="number"
+                        value={tpForm.entry ?? ""}
+                        onChange={(e) => setTpForm((p) => ({ ...p, entry: e.target.value ? Number(e.target.value) : null }))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                        placeholder="62000"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-slate-400">
+                      {t("tpQtyLabel")}
+                      <input
+                        type="number"
+                        value={tpForm.quantity}
+                        min="0"
+                        step="0.0001"
+                        onChange={(e) => setTpForm((p) => ({ ...p, quantity: Number(e.target.value) || 0 }))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                        placeholder="1.0"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-slate-400">
+                      {t("tpTpLabel")}
+                      <input
+                        type="number"
+                        value={tpForm.tpPct}
+                        onChange={(e) => setTpForm((p) => ({ ...p, tpPct: Number(e.target.value) || 0 }))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                        placeholder="4"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-slate-400">
+                      {t("tpSlLabel")}
+                      <input
+                        type="number"
+                        value={tpForm.slPct}
+                        onChange={(e) => setTpForm((p) => ({ ...p, slPct: Number(e.target.value) || 0 }))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
+                        placeholder="3"
+                      />
+                    </label>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
+                    <div className="flex justify-between">
+                      <span>{t("tpPrice")}</span>
+                      <span className="font-semibold">{takeProfitPrice ? formatUSD(takeProfitPrice) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>{t("slPrice")}</span>
+                      <span className="font-semibold">{stopLossPrice ? formatUSD(stopLossPrice) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>{t("profitAtTp")}</span>
+                      <span className="font-semibold text-emerald-300">{profit !== null ? formatUSD(profit) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>{t("lossAtSl")}</span>
+                      <span className="font-semibold text-red-300">{loss !== null ? formatUSD(-loss) : "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>{t("rrLabel")}</span>
+                      <span className="font-semibold">{rr !== null ? rr.toFixed(2) : "-"}</span>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          ) : null}
+        </div>
       </div>
       <div className="mt-8 text-center text-xs text-slate-500">{t("madeBy")}</div>
       {showTutorial ? (
