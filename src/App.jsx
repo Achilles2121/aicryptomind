@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Activity,
@@ -40,10 +40,10 @@ import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
 import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
-import EtfHoldingsCard from "./components/etf/EtfHoldingsCard";
-import EtfProviderQualityCard from "./components/etf/EtfProviderQualityCard";
+const EtfHoldingsCard = lazy(() => import("./components/etf/EtfHoldingsCard"));
+const EtfProviderQualityCard = lazy(() => import("./components/etf/EtfProviderQualityCard"));
 import { fetchEtfHoldingsLive } from "./services/etfHoldingsLive";
-import EtfCorrelationCard from "./components/etf/EtfCorrelationCard";
+const EtfCorrelationCard = lazy(() => import("./components/etf/EtfCorrelationCard"));
 import { safeFetch } from "./lib/safeFetch";
 import {
   calculateEMA,
@@ -3498,12 +3498,14 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         <div className="mt-4">
               <Card title="ETF Zuflüsse" icon={TrendingUp}>
                 <div className="space-y-3">
-                  <EtfHoldingsCard
-                    holdings={etfHoldings}
-                    loading={etfHoldingsLoading}
-                    error={etfHoldingsError}
-                    lastUpdated={etfHoldingsLastUpdated}
-                  />
+                  <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF Holdings…</div>}>
+                    <EtfHoldingsCard
+                      holdings={etfHoldings}
+                      loading={etfHoldingsLoading}
+                      error={etfHoldingsError}
+                      lastUpdated={etfHoldingsLastUpdated}
+                    />
+                  </Suspense>
                   <div className="flex flex-wrap items-center gap-2">
                     {ETF_SYMBOLS.map((sym, idx) => {
                       const active = etfSelection.includes(sym);
@@ -3588,8 +3590,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
             </div>
           </Card>
-          <EtfProviderQualityCard />
-          <EtfCorrelationCard onHealthUpdate={updateApiHealth} onToast={addToast} />
+          <Suspense fallback={<div className="text-xs text-slate-400">Lädt Provider-Metriken…</div>}>
+            <EtfProviderQualityCard />
+          </Suspense>
+          <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
+            <EtfCorrelationCard onHealthUpdate={updateApiHealth} onToast={addToast} />
+          </Suspense>
           <Card title={t("etfCard")} icon={TrendingUp}>
             <div className="flex flex-col gap-3">
               <div>
@@ -4246,12 +4252,14 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
               <Card title="ETF Zuflüsse" icon={TrendingUp}>
                 <div className="space-y-3">
-                  <EtfHoldingsCard
-                    holdings={etfHoldings}
-                    loading={etfHoldingsLoading}
-                    error={etfHoldingsError}
-                    lastUpdated={etfHoldingsLastUpdated}
-                  />
+                  <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF Holdings…</div>}>
+                    <EtfHoldingsCard
+                      holdings={etfHoldings}
+                      loading={etfHoldingsLoading}
+                      error={etfHoldingsError}
+                      lastUpdated={etfHoldingsLastUpdated}
+                    />
+                  </Suspense>
                   <div className="flex flex-wrap items-center gap-2">
                     {ETF_SYMBOLS.map((sym, idx) => {
                       const active = etfSelection.includes(sym);
@@ -4334,8 +4342,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 </div>
               </Card>
-              <EtfProviderQualityCard />
-              <EtfCorrelationCard onHealthUpdate={updateApiHealth} onToast={addToast} />
+              <Suspense fallback={<div className="text-xs text-slate-400">Lädt Provider-Metriken…</div>}>
+                <EtfProviderQualityCard />
+              </Suspense>
+              <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
+                <EtfCorrelationCard onHealthUpdate={updateApiHealth} onToast={addToast} />
+              </Suspense>
 
               <section
                 className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
