@@ -42,7 +42,7 @@ import FullScreenLoader from "./components/FullScreenLoader";
 import { fetchEtfFlowSeries } from "./services/etfFlows";
 import EtfHoldingsCard from "./components/etf/EtfHoldingsCard";
 import EtfProviderQualityCard from "./components/etf/EtfProviderQualityCard";
-import { fetchEtfHoldings } from "./services/etfHoldings";
+import { fetchEtfHoldingsLive } from "./services/etfHoldingsLive";
 import EtfCorrelationCard from "./components/etf/EtfCorrelationCard";
 import { safeFetch } from "./lib/safeFetch";
 import {
@@ -881,6 +881,9 @@ function App() {
     etfFlows: { status: "ok", ts: Date.now() },
     etfFlowsFmp: { status: "ok", ts: Date.now() },
     etfFlowsSoso: { status: "ok", ts: Date.now() },
+    ETF_HOLDINGS_FMP: { status: "ok", ts: Date.now() },
+    ETF_HOLDINGS_SOSO: { status: "ok", ts: Date.now() },
+    ETF_HOLDINGS_COINSTATS: { status: "ok", ts: Date.now() },
     lastUpdated: Date.now(),
   });
   const [toasts, setToasts] = useState([]);
@@ -1256,20 +1259,16 @@ function App() {
     }
     setEtfHoldingsLoading(true);
     try {
-      const data = await fetchEtfHoldings(symbols, {
-        onHealthUpdate: updateApiHealth,
-        onLog: logEvent,
-        onToast: addToast,
-      });
+      const data = await fetchEtfHoldingsLive(symbols, updateApiHealth, addToast);
       setEtfHoldings(data);
       setEtfHoldingsError("");
       setEtfHoldingsLastUpdated(new Date().toISOString());
-      updateApiHealth("etfHoldingsFmp", data.length ? "ok" : "degraded");
+      updateApiHealth("ETF_HOLDINGS_FMP", data.length ? "ok" : "degraded");
     } catch (err) {
       console.error("ETF holdings failed", err);
       setEtfHoldings([]);
       setEtfHoldingsError("Daten derzeit nicht verfügbar");
-      updateApiHealth("etfHoldingsFmp", "error", err.message);
+      updateApiHealth("ETF_HOLDINGS_FMP", "error", err.message);
     } finally {
       setEtfHoldingsLoading(false);
     }
