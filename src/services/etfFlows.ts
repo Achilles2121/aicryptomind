@@ -16,7 +16,7 @@ export type AumPoint = { date: string; aum: number };
 export type FlowPoint = { date: string; flow: number };
 
 const FMP_BASE = "https://financialmodelingprep.com/api";
-const FMP_KEY = import.meta.env.VITE_FMP_KEY || "demo";
+const FMP_KEY = import.meta.env.VITE_FMP_KEY;
 const SOSO_BASE = "https://sosovalue.com/api/v1";
 
 export type SafeOpts = {
@@ -26,8 +26,29 @@ export type SafeOpts = {
 };
 
 const sumRange = (points: EtfFlowPoint[], days: number) => points.slice(-days).reduce((acc, p) => acc + (Number.isFinite(p.netFlowUsd) ? p.netFlowUsd : 0), 0);
+const dateKey = (d: string | Date) => new Date(d).toISOString().slice(0, 10);
+const lastNDates = (n: number) => {
+  const list: string[] = [];
+  const today = new Date();
+  for (let i = n - 1; i >= 0; i -= 1) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    list.push(d.toISOString().slice(0, 10));
+  }
+  return list;
+};
+
+const fillMissingPoints = (points: EtfFlowPoint[], days = 30) => {
+  const map = new Map<string, EtfFlowPoint>();
+  points.forEach((p) => map.set(dateKey(p.date), { ...p, date: dateKey(p.date) }));
+  return lastNDates(days).map((d) => map.get(d) || { date: d, netFlowUsd: 0 });
+};
 
 export async function fetchEtfHoldings(symbol: string, opts: SafeOpts = {}) {
+  if (!FMP_KEY) {
+    opts.onHealthUpdate?.("etfFlowsFmp", "degraded", "FMP key missing");
+    return [];
+  }
   const data = await safeFetch<{ holdings?: any[]; [key: string]: any }>(
     `${FMP_BASE}/v4/etf-holdings?symbol=${symbol}&apikey=${FMP_KEY}`,
     {
@@ -43,6 +64,10 @@ export async function fetchEtfHoldings(symbol: string, opts: SafeOpts = {}) {
 }
 
 async function fetchFmpAumHistory(symbol: string, opts: SafeOpts = {}) {
+  if (!FMP_KEY) {
+    opts.onHealthUpdate?.("etfFlowsFmp", "degraded", "FMP key missing");
+    throw new Error("FMP key missing");
+  }
   const data = await safeFetch<{ historical?: any[]; [key: string]: any }>(
     `${FMP_BASE}/v3/historical-market-capitalization/${symbol}?apikey=${FMP_KEY}`,
     {
@@ -104,15 +129,16 @@ async function buildSeriesFromFmp(symbol: string, opts: SafeOpts): Promise<EtfFl
   const history = await fetchFmpAumHistory(symbol, opts);
   const flows = computeDailyFlows(history).slice(-30);
   const points: EtfFlowPoint[] = flows.map((f) => ({
-    date: f.date,
+    date: dateKey(f.date),
     netFlowUsd: f.flow,
   }));
+  const normalized = fillMissingPoints(points, 30);
   const now = new Date().toISOString();
   return {
     symbol,
-    points,
-    sum7dUsd: sumRange(points, 7),
-    sum30dUsd: sumRange(points, 30),
+    points: normalized,
+    sum7dUsd: sumRange(normalized, 7),
+    sum30dUsd: sumRange(normalized, 30),
     provider: "FMP",
     lastUpdated: now,
   };
@@ -121,16 +147,17 @@ async function buildSeriesFromFmp(symbol: string, opts: SafeOpts): Promise<EtfFl
 async function buildSeriesFromSoso(symbol: string, opts: SafeOpts): Promise<EtfFlowSeries> {
   const rows = await fetchSosoFlows(symbol, opts);
   const points: EtfFlowPoint[] = rows.slice(-30).map((r) => ({
-    date: r.date,
+    date: dateKey(r.date),
     netFlowUsd: Number(r.netFlowUsd || r.netFlow || r.netflow || r.flow || 0),
     aumUsd: r.aumUsd,
   }));
+  const normalized = fillMissingPoints(points, 30);
   const now = new Date().toISOString();
   return {
     symbol,
-    points,
-    sum7dUsd: sumRange(points, 7),
-    sum30dUsd: sumRange(points, 30),
+    points: normalized,
+    sum7dUsd: sumRange(normalized, 7),
+    sum30dUsd: sumRange(normalized, 30),
     provider: "SosoValue",
     lastUpdated: now,
   };
