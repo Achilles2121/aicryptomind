@@ -41,6 +41,7 @@ import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
 import { fetchEtfFlowSeries } from "./services/etfFlows";
 import EtfHoldingsCard from "./components/etf/EtfHoldingsCard";
+import EtfProviderQualityCard from "./components/etf/EtfProviderQualityCard";
 import { fetchEtfHoldings } from "./services/etfHoldings";
 import { safeFetch } from "./lib/safeFetch";
 import {
@@ -3586,6 +3587,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
             </div>
           </Card>
+          <EtfProviderQualityCard />
           <Card title={t("etfCard")} icon={TrendingUp}>
             <div className="flex flex-col gap-3">
               <div>
@@ -4330,6 +4332,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 </div>
               </Card>
+              <EtfProviderQualityCard />
 
               <section
                 className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"

@@ -1,4 +1,6 @@
 import { safeFetch } from "../lib/safeFetch";
+import { etfMetricsFetch } from "../lib/etfMetricsFetch";
+import { incrementFallback } from "../stores/etfProviderMetrics";
 
 export type ApiHealthStatus = "ok" | "degraded" | "fallback" | "error";
 
@@ -61,7 +63,7 @@ async function fetchFmpSeries(symbol: string, opts: SafeOpts): Promise<EtfHoldin
     opts.onHealthUpdate?.("etfHoldingsFmp", "degraded", "FMP key missing");
     throw new Error("FMP key missing");
   }
-  const data = await safeFetch<{ historical?: any[]; [key: string]: any }>(
+  const data = await etfMetricsFetch<{ historical?: any[]; [key: string]: any }>(
     `${FMP_BASE}/v3/historical-market-capitalization/${symbol}?apikey=${FMP_KEY}`,
     {
       serviceName: "etfHoldingsFmp",
@@ -70,26 +72,28 @@ async function fetchFmpSeries(symbol: string, opts: SafeOpts): Promise<EtfHoldin
       onHealthUpdate: opts.onHealthUpdate,
       onLog: opts.onLog,
       onToast: opts.onToast,
-    }
+    } as any
   );
-  const list = Array.isArray(data?.historical) ? data.historical : Array.isArray(data) ? data : [];
+  if (!data) throw new Error("FMP holdings failed");
+  const list = Array.isArray((data as any)?.historical) ? (data as any).historical : Array.isArray(data as any) ? (data as any) : [];
   return list
-    .map((row) => ({
+    .map((row: any) => ({
       date: row.date || row.dateTime || row.timestamp || row.calendarDate,
       aumUsd: Number(row.marketCap || row.aum || row.value || row.nav) || 0,
     }))
-    .filter((p) => p.date);
+    .filter((p: EtfHoldingPoint) => p.date);
 }
 
 async function fetchSosoSeries(symbol: string, opts: SafeOpts): Promise<EtfHoldingPoint[]> {
-  const data = await safeFetch<{ data?: { items?: any[] } }>(`${SOSO_BASE}/etf/flow`, {
+  const data = await etfMetricsFetch<{ data?: { items?: any[] } }>(`${SOSO_BASE}/etf/flow`, {
     serviceName: "etfHoldingsSoso",
     timeoutMs: 8000,
     retries: 1,
     onHealthUpdate: opts.onHealthUpdate,
     onLog: opts.onLog,
     onToast: opts.onToast,
-  });
+  } as any);
+  if (!data) throw new Error("Soso holdings failed");
   const items = (data as any)?.data?.items || (data as any)?.data || [];
   const filtered = (items || []).filter((it: any) => {
     const code = (it.code || it.symbol || it.ticker || "").toString().toUpperCase();
@@ -100,18 +104,19 @@ async function fetchSosoSeries(symbol: string, opts: SafeOpts): Promise<EtfHoldi
       date: row.date || row.time || row.update || new Date().toISOString(),
       aumUsd: Number(row.aum || row.nav || row.market_cap || row.marketCap || row.value || 0),
     }))
-    .filter((p) => p.date);
+    .filter((p: EtfHoldingPoint) => p.date);
 }
 
 async function fetchCoinstatsSeries(symbol: string, opts: SafeOpts): Promise<EtfHoldingPoint[]> {
-  const data = await safeFetch<{ news?: any[]; data?: any }>(`${COINSTATS_BASE}/etf/flows`, {
+  const data = await etfMetricsFetch<{ news?: any[]; data?: any }>(`${COINSTATS_BASE}/etf/flows`, {
     serviceName: "etfHoldingsCoinstats",
     timeoutMs: 8000,
     retries: 1,
     onHealthUpdate: opts.onHealthUpdate,
     onLog: opts.onLog,
     onToast: opts.onToast,
-  });
+  } as any);
+  if (!data) throw new Error("Coinstats holdings failed");
   const items = (data as any)?.data || (data as any)?.items || [];
   const filtered = (items || []).filter((it: any) => (it.symbol || it.ticker || "").toString().toUpperCase().includes(symbol.toUpperCase()));
   return filtered
@@ -119,7 +124,7 @@ async function fetchCoinstatsSeries(symbol: string, opts: SafeOpts): Promise<Etf
       date: row.date || row.time || new Date().toISOString(),
       aumUsd: Number(row.aum || row.nav || row.value || row.flow || 0),
     }))
-    .filter((p) => p.date);
+    .filter((p: EtfHoldingPoint) => p.date);
 }
 
 async function buildFromSeries(symbol: string, series: EtfHoldingPoint[], provider: string): Promise<EtfHolding> {
@@ -131,7 +136,7 @@ async function buildFromSeries(symbol: string, series: EtfHoldingPoint[], provid
     aumUsd: latest,
     change7d: computeChange(normalized, 7),
     change30d: computeChange(normalized, 30),
-    marketShare: null, // will be filled later
+    marketShare: null,
     lastUpdated: new Date().toISOString(),
     provider,
   };
@@ -146,13 +151,15 @@ export async function fetchEtfHoldings(symbols: string[], opts: SafeOpts = {}): 
       series = await fetchFmpSeries(symbol, opts);
       opts.onHealthUpdate?.("etfHoldingsFmp", "ok");
     } catch (err: any) {
+      incrementFallback("fmp");
       opts.onHealthUpdate?.("etfHoldingsFmp", "degraded", err?.message);
-      opts.onToast?.(`ETF ${symbol}: FMP nicht verfügbar, Fallback aktiv`, "warn");
+      opts.onToast?.(`ETF ${symbol}: FMP nicht verf\u00fcgbar, Fallback aktiv`, "warn");
       try {
         series = await fetchSosoSeries(symbol, opts);
         provider = "SosoValue";
         opts.onHealthUpdate?.("etfHoldingsSoso", "ok");
       } catch (err2: any) {
+        incrementFallback("sosovalue");
         opts.onHealthUpdate?.("etfHoldingsSoso", "degraded", err2?.message);
         opts.onToast?.(`ETF ${symbol}: Zweiter Fallback aktiv`, "warn");
         try {
@@ -161,7 +168,7 @@ export async function fetchEtfHoldings(symbols: string[], opts: SafeOpts = {}): 
           opts.onHealthUpdate?.("etfHoldingsCoinstats", "ok");
         } catch (err3: any) {
           opts.onHealthUpdate?.("etfHoldingsCoinstats", "error", err3?.message);
-          opts.onToast?.(`ETF ${symbol}: Daten derzeit nicht verfügbar`, "warn");
+          opts.onToast?.(`ETF ${symbol}: Daten derzeit nicht verf\u00fcgbar`, "warn");
           series = [];
           provider = "unavailable";
         }
@@ -170,7 +177,6 @@ export async function fetchEtfHoldings(symbols: string[], opts: SafeOpts = {}): 
     const holding = await buildFromSeries(symbol, series, provider);
     results.push(holding);
   }
-  // compute market share
   const totalAum = results.reduce((acc, h) => acc + (Number.isFinite(h.aumUsd ?? null) ? (h.aumUsd as number) : 0), 0);
   return results.map((h) => ({
     ...h,

@@ -1,4 +1,6 @@
 import { safeFetch } from "../lib/safeFetch";
+import { etfMetricsFetch } from "../lib/etfMetricsFetch";
+import { incrementFallback } from "../stores/etfProviderMetrics";
 
 export type ApiHealthStatus = "ok" | "degraded" | "fallback" | "error";
 
@@ -68,7 +70,7 @@ async function fetchFmpAumHistory(symbol: string, opts: SafeOpts = {}) {
     opts.onHealthUpdate?.("etfFlowsFmp", "degraded", "FMP key missing");
     throw new Error("FMP key missing");
   }
-  const data = await safeFetch<{ historical?: any[]; [key: string]: any }>(
+  const data = await etfMetricsFetch<{ historical?: any[]; [key: string]: any }>(
     `${FMP_BASE}/v3/historical-market-capitalization/${symbol}?apikey=${FMP_KEY}`,
     {
       serviceName: "etfFlowsFmp",
@@ -77,27 +79,28 @@ async function fetchFmpAumHistory(symbol: string, opts: SafeOpts = {}) {
       onHealthUpdate: opts.onHealthUpdate,
       onLog: opts.onLog,
       onToast: opts.onToast,
-    }
+    } as any
   );
-  const list = Array.isArray(data?.historical) ? data.historical : Array.isArray(data) ? data : [];
+  if (!data) throw new Error("FMP AUM failed");
+  const list = Array.isArray((data as any)?.historical) ? (data as any).historical : Array.isArray(data as any) ? (data as any) : [];
   return list
-    .map((row) => ({
+    .map((row: any) => ({
       date: row.date || row.dateTime || row.timestamp || row.calendarDate,
       aum: Number(row.marketCap || row.aum || row.value || row.nav) || 0,
     }))
-    .filter((p) => p.date && Number.isFinite(p.aum));
+    .filter((p: AumPoint) => p.date && Number.isFinite(p.aum));
 }
 
 async function fetchSosoFlows(symbol: string, opts: SafeOpts = {}) {
-  // SosoValue provides aggregated ETF flows; we'll pick entries matching the symbol and build latest point(s)
-  const data = await safeFetch<{ data?: { items?: any[] } }>(`${SOSO_BASE}/etf/flow`, {
+  const data = await etfMetricsFetch<{ data?: { items?: any[] } }>(`${SOSO_BASE}/etf/flow`, {
     serviceName: "etfFlowsSoso",
     timeoutMs: 8000,
     retries: 1,
     onHealthUpdate: opts.onHealthUpdate,
     onLog: opts.onLog,
     onToast: opts.onToast,
-  });
+  } as any);
+  if (!data) throw new Error("Soso flows failed");
   const items = (data as any)?.data?.items || (data as any)?.data || (Array.isArray((data as any)?.items) ? (data as any).items : []);
   const match = (items || []).filter((it: any) => {
     const code = (it.code || it.symbol || it.ticker || it.name || "").toString().toUpperCase();
@@ -171,14 +174,16 @@ export async function fetchEtfFlowSeries(symbols: string[], opts: SafeOpts = {})
       series = await buildSeriesFromFmp(symbol, opts);
       opts.onHealthUpdate?.("etfFlowsFmp", "ok");
     } catch (err: any) {
+      incrementFallback("fmp");
       opts.onHealthUpdate?.("etfFlowsFmp", "degraded", err?.message);
       opts.onToast?.(`ETF ${symbol}: FMP ausgefallen, versuche Fallback`, "warn");
       try {
         series = await buildSeriesFromSoso(symbol, opts);
         opts.onHealthUpdate?.("etfFlowsSoso", "ok");
       } catch (err2: any) {
+        incrementFallback("sosovalue");
         opts.onHealthUpdate?.("etfFlowsSoso", "error", err2?.message);
-        opts.onToast?.(`ETF ${symbol}: Daten derzeit nicht verfügbar`, "warn");
+        opts.onToast?.(`ETF ${symbol}: Daten derzeit nicht verfuegbar`, "warn");
         series = null;
       }
     }
