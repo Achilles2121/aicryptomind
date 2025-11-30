@@ -711,6 +711,44 @@ Card.propTypes = {
   tooltip: PropTypes.string,
 };
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.error("Boundary caught", error, info);
+    this.props.onError?.(error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+          <div className="max-w-md space-y-3 text-center">
+            <h2 className="text-xl font-bold">Etwas ist schiefgelaufen</h2>
+            <p className="text-sm text-slate-400">Bitte Seite neu laden. Die Fehlermeldung wurde geloggt.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ErrorBoundary.propTypes = {
+  children: PropTypes.node.isRequired,
+  onError: PropTypes.func,
+};
+
 const Skeleton = ({ className = "" }) => <div className={`animate-pulse rounded-lg bg-slate-800/70 ${className}`} />;
 
 Skeleton.propTypes = {
@@ -789,6 +827,16 @@ function App() {
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
   const [mobileTab, setMobileTab] = useState("overview");
+  const [apiHealth, setApiHealth] = useState({
+    coingecko: { status: "ok", ts: Date.now() },
+    cryptocompare: { status: "ok", ts: Date.now() },
+    kraken: { status: "ok", ts: Date.now() },
+    binance: { status: "ok", ts: Date.now() },
+    glassnode: { status: "ok", ts: Date.now() },
+    santiment: { status: "ok", ts: Date.now() },
+  });
+  const [toasts, setToasts] = useState([]);
+  const toastTimers = useRef({});
   const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
   const [blink, setBlink] = useState(true);
   const { tier: contextTier, loading: tierLoading } = useUserTier();
@@ -801,6 +849,46 @@ function App() {
     }),
     [lang]
   );
+
+  const removeToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+    if (toastTimers.current[id]) {
+      clearTimeout(toastTimers.current[id]);
+      delete toastTimers.current[id];
+    }
+  };
+
+  const addToast = (message, type = "error") => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((prev) => [{ id, message, type }, ...prev].slice(0, 6));
+    toastTimers.current[id] = setTimeout(() => removeToast(id), 5200);
+  };
+
+  useEffect(
+    () => () => {
+      Object.values(toastTimers.current || {}).forEach((t) => clearTimeout(t));
+    },
+    []
+  );
+
+  const logEvent = (source, level = "info", message = "", meta = {}) => {
+    const payload = { source, level, message, meta, ts: Date.now() };
+    if (level === "error") console.error("[log]", payload);
+    else if (level === "warn") console.warn("[log]", payload);
+    else console.log("[log]", payload);
+    if (level === "error" || level === "warn") {
+      addToast(`${source}: ${message || level}`, level === "warn" ? "warn" : "error");
+    }
+  };
+
+  const updateApiHealth = (source, status, message = "") => {
+    setApiHealth((prev) => ({ ...prev, [source]: { status, ts: Date.now(), message } }));
+    if (status === "fail") {
+      logEvent(source, "error", message || "API failure");
+    } else if (status === "warn") {
+      logEvent(source, "warn", message || "API warning");
+    }
+  };
 
   const cacheRef = useRef(new Map());
   const wsRef = useRef(null);
@@ -911,16 +999,22 @@ function App() {
       const primary = await fetchWithCache(`price:coingecko:${asset.id}`, () => fetchCoinGeckoPrice(asset.id));
       setPriceState({ value: primary.price, change24h: primary.change, source: primary.source, updatedAt: Date.now() });
       setLastError("");
+      updateApiHealth("coingecko", "ok");
     } catch (err) {
       console.error("Price primary failed", err);
+      updateApiHealth("coingecko", "fail", err.message);
       try {
         const fallback = await fetchWithCache(`price:cryptocompare:${asset.cc}`, () => fetchCryptoComparePrice(asset.cc));
         setPriceState({ value: fallback.price, change24h: fallback.change, source: fallback.source, updatedAt: Date.now() });
         setLastError(t("fetchFailPricePrimary"));
+        updateApiHealth("cryptocompare", "ok");
+        logEvent("price", "warn", t("fetchFailPricePrimary"));
       } catch (err2) {
         console.error("Price fallback failed", err2);
         setLastError(t("fetchFailPrice"));
         setPriceState({ value: null, change24h: null, source: priceState.source, updatedAt: null });
+        updateApiHealth("cryptocompare", "fail", err2.message);
+        logEvent("price", "error", t("fetchFailPrice"));
       }
     }
   };
@@ -938,6 +1032,8 @@ function App() {
     } catch (err) {
       console.error("Fear & Greed failed", err);
       setLastError((prev) => prev || t("fetchFailFearGreed"));
+      updateApiHealth("coingecko", "warn", t("fetchFailFearGreed"));
+      logEvent("fearGreed", "warn", t("fetchFailFearGreed"));
     }
   };
 
@@ -945,9 +1041,12 @@ function App() {
     try {
       const candles = await fetchWithCache(`ohlc:kraken:${asset.kraken}:${timeFrame}`, () => fetchKrakenOHLCV(asset.kraken, Number(timeFrame)));
       setOhlcv(candles);
+      updateApiHealth("kraken", "ok");
     } catch (err) {
       console.error("Kraken OHLC failed", err);
       setLastError((prev) => prev || t("fetchFailOHLC"));
+      updateApiHealth("kraken", "fail", err.message);
+      logEvent("kraken", "error", t("fetchFailOHLC"));
     }
   };
 
@@ -988,6 +1087,7 @@ function App() {
     } catch (err) {
       console.error("ETF news failed", err);
       setEtfError(t("fetchFailETF"));
+      logEvent("etfNews", "warn", t("fetchFailETF"));
     } finally {
       setEtfLoading(false);
     }
@@ -1035,6 +1135,7 @@ function App() {
       console.error("ETF flows failed", err);
       setEtfFlows([]);
       setEtfFlowsError(t("fetchFailETFFlows"));
+      logEvent("etfFlows", "warn", t("fetchFailETFFlows"));
     }
   };
 
@@ -1370,6 +1471,7 @@ function App() {
       wsRef.current = ws;
       ws.onopen = () => {
         setWsStatus("live");
+        updateApiHealth("binance", "ok");
         setWsAttempts(0);
         attempts = 0;
         clearInterval(fallbackTimer.current);
@@ -1390,6 +1492,7 @@ function App() {
           }
         } catch (err) {
           console.error("WS parse error", err);
+          logEvent("websocket", "warn", "WS parse error");
         }
       };
       ws.onclose = () => {
@@ -1400,6 +1503,7 @@ function App() {
         if (attempts <= 5) reconnectTimer.current = setTimeout(connect, 1500);
         else {
           setWsStatus("polling");
+          updateApiHealth("binance", "warn", "WS fallback -> polling");
           clearInterval(fallbackTimer.current);
           fallbackTimer.current = setInterval(loadPrice, 10000);
           if (!pollingReconnectTimer.current) {
@@ -1410,7 +1514,11 @@ function App() {
           }
         }
       };
-      ws.onerror = () => ws.close();
+      ws.onerror = () => {
+        updateApiHealth("binance", "fail", "WebSocket error");
+        logEvent("websocket", "error", "WebSocket error");
+        ws.close();
+      };
     };
     connect();
     return () => {
@@ -1560,6 +1668,8 @@ function App() {
     { label: "Bollinger", value: "20 / 2 std", intent: "neutral" },
   ];
 
+  const healthColor = (status) => (status === "ok" ? "text-emerald-300" : status === "warn" ? "text-amber-300" : "text-red-300");
+
   const tpEntry = clampNumber(tpForm.entry ?? displayPrice, null);
   const tpPct = clampNumber(tpForm.tpPct, null);
   const slPct = clampNumber(tpForm.slPct, null);
@@ -1705,6 +1815,10 @@ function App() {
       setSentimentMetrics(sentiment);
       setCorrelations(corr);
       setFundingRates(funding);
+      updateApiHealth("glassnode", "ok");
+      updateApiHealth("santiment", "ok");
+      updateApiHealth("coingecko", "ok");
+      updateApiHealth("binance", "ok");
     })();
     return () => {
       mounted = false;
@@ -1831,6 +1945,24 @@ function App() {
   }
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
+      {toasts.length ? (
+        <div className="fixed top-4 right-4 z-50 space-y-2">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`flex items-start gap-3 rounded-xl border px-3 py-2 shadow-lg ${
+                t.type === "warn" ? "border-amber-500/50 bg-amber-500/10 text-amber-50" : "border-red-500/50 bg-red-500/10 text-red-50"
+              }`}
+            >
+              <span className="text-xs font-semibold uppercase tracking-wide">{t.type === "warn" ? "Warn" : "Error"}</span>
+              <p className="text-sm leading-snug">{t.message}</p>
+              <button onClick={() => removeToast(t.id)} className="text-xs text-slate-200/80 hover:text-white ml-auto">
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="hidden md:block w-full max-w-screen lg:max-w-full mx-auto px-3 py-8">
         <div className="flex flex-col gap-4">
         <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -2625,6 +2757,14 @@ function App() {
                 <div className="flex items-center justify-between">
                   <span>{t("systemError")}</span>
                   <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
+                </div>
+                <div className="pt-2 space-y-1 text-xs">
+                  {Object.entries(apiHealth).map(([key, val]) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="uppercase text-slate-400">{key}</span>
+                      <span className={`font-semibold ${healthColor(val.status)}`}>{val.status}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </Card>
@@ -3490,12 +3630,20 @@ function App() {
                       <span>{t("systemPoll")}</span>
                       <span className="text-slate-100">30s</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>{t("systemError")}</span>
-                      <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
+                <div className="flex items-center justify-between">
+                  <span>{t("systemError")}</span>
+                  <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
+                </div>
+                <div className="pt-2 space-y-1 text-xs">
+                  {Object.entries(apiHealth).map(([key, val]) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="uppercase text-slate-400">{key}</span>
+                      <span className={`font-semibold ${healthColor(val.status)}`}>{val.status}</span>
                     </div>
-                  </div>
-                </Card>
+                  ))}
+                </div>
+              </div>
+            </Card>
 
                 <Card title={t("manualControls")} icon={PlugZap}>
                   <div className="flex flex-col gap-2 text-sm text-slate-300">
@@ -4076,4 +4224,10 @@ function App() {
   );
 }
 
-export default App;
+const AppWithBoundary = () => (
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);
+
+export default AppWithBoundary;
