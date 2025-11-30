@@ -884,6 +884,8 @@ function App() {
     ETF_FLOWS_FMP: { status: "ok", ts: Date.now() },
     ETF_FLOWS_SOSO: { status: "ok", ts: Date.now() },
     ETF_FLOWS_COINSTATS: { status: "ok", ts: Date.now() },
+    ETF_CORR_PRIMARY: { status: "ok", ts: Date.now() },
+    ETF_CORR_FALLBACK: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_FMP: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_SOSO: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_COINSTATS: { status: "ok", ts: Date.now() },

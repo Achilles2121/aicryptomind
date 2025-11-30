@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { Activity } from "lucide-react";
-import { fetchEtfCorrelations } from "../../services/etfCorrelations";
+import { fetchEtfCorrelationsLive } from "../../services/etfCorrelationLive";
 import { setCorrelationCache } from "./EtfCorrelationHeatmapCard";
 
 const statusColor = (val) => {
@@ -23,7 +23,7 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }) => {
 
   const load = async () => {
     setLoading(true);
-    const res = await fetchEtfCorrelations(onHealthUpdate, onToast);
+    const res = await fetchEtfCorrelationsLive(onHealthUpdate, onToast);
     setData(res.data || []);
     setLastUpdated(res.lastUpdated);
     setCorrelationCache(res.data || [], res.lastUpdated);
