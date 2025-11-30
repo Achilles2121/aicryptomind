@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { Activity } from "lucide-react";
 import { fetchEtfCorrelations } from "../../services/etfCorrelations";
+import { setCorrelationCache } from "./EtfCorrelationHeatmapCard";
 
 const statusColor = (val) => {
   if (val === null || val === undefined) return "text-slate-400";
@@ -25,6 +26,7 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }) => {
     const res = await fetchEtfCorrelations(onHealthUpdate, onToast);
     setData(res.data || []);
     setLastUpdated(res.lastUpdated);
+    setCorrelationCache(res.data || [], res.lastUpdated);
     setError(res.error ? "Daten derzeit nicht verfügbar" : "");
     setLoading(false);
   };
