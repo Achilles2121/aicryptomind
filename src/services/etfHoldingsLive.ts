@@ -20,18 +20,6 @@ const FMP_BASE = "https://financialmodelingprep.com/api";
 const FMP_KEY = import.meta.env.VITE_FMP_KEY;
 const SOSO_BASE = "https://sosovalue.com/api/v1";
 const COINSTATS_BASE = "https://api.coinstats.app/public/v1";
-const TOAST_COOLDOWN_MS = 2 * 60 * 1000;
-const lastToastTs = new Map<string, number>();
-
-const maybeToast = (key: string, onToast?: ToastFn, message?: string, type: string = "info") => {
-  if (!onToast || !message) return;
-  const now = Date.now();
-  const last = lastToastTs.get(key) || 0;
-  if (now - last < TOAST_COOLDOWN_MS) return;
-  lastToastTs.set(key, now);
-  onToast(message, type);
-};
-
 const dateKey = (d: string | Date) => new Date(d).toISOString().slice(0, 10);
 const lastNDates = (n: number) => {
   const out: string[] = [];
@@ -126,19 +114,16 @@ async function loadSeries(symbol: string, onHealthUpdate?: HealthFn, onToast?: T
     return { points: res, provider: "FMP" };
   } catch (err: any) {
     onHealthUpdate?.("ETF_HOLDINGS_FMP", "degraded", err?.message);
-    maybeToast("ETF_HOLDINGS_FMP", onToast, `ETF Holdings: FMP Fallback aktiv (${symbol})`);
     try {
       const res = await fetchSoso(symbol, onHealthUpdate);
       return { points: res, provider: "SosoValue" };
     } catch (err2: any) {
       onHealthUpdate?.("ETF_HOLDINGS_SOSO", "degraded", err2?.message);
-      maybeToast("ETF_HOLDINGS_SOSO", onToast, `ETF Holdings: SosoValue Fallback aktiv (${symbol})`);
       try {
         const res = await fetchCoinstats(symbol, onHealthUpdate);
         return { points: res, provider: "CoinStats" };
       } catch (err3: any) {
         onHealthUpdate?.("ETF_HOLDINGS_COINSTATS", "degraded", err3?.message);
-        maybeToast("ETF_HOLDINGS_COINSTATS", onToast, `ETF Holdings: Daten derzeit nicht verfuegbar (${symbol})`, "warn");
         return { points: [], provider: "unavailable" };
       }
     }
