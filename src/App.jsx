@@ -1238,7 +1238,7 @@ function App() {
     }
     setEtfAumLoading(true);
     try {
-      const data = await fetchEtfFlowSeriesLive(symbols, updateApiHealth, addToast);
+      const data = await fetchEtfFlowSeriesLive(symbols, updateApiHealth);
       setEtfFlowSeries(data);
       setEtfLastUpdated(new Date().toISOString());
       setEtfAumError("");
@@ -1260,7 +1260,7 @@ function App() {
     }
     setEtfHoldingsLoading(true);
     try {
-      const data = await fetchEtfHoldingsLive(symbols, updateApiHealth, addToast);
+      const data = await fetchEtfHoldingsLive(symbols, updateApiHealth);
       setEtfHoldings(data);
       setEtfHoldingsError("");
       setEtfHoldingsLastUpdated(new Date().toISOString());
@@ -3594,7 +3594,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <EtfProviderQualityCard />
           </Suspense>
           <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
-            <EtfCorrelationCard onHealthUpdate={updateApiHealth} onToast={addToast} />
+            <EtfCorrelationCard onHealthUpdate={updateApiHealth} />
           </Suspense>
           <Card title={t("etfCard")} icon={TrendingUp}>
             <div className="flex flex-col gap-3">
@@ -4346,7 +4346,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <EtfProviderQualityCard />
               </Suspense>
               <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
-                <EtfCorrelationCard onHealthUpdate={updateApiHealth} onToast={addToast} />
+                <EtfCorrelationCard onHealthUpdate={updateApiHealth} />
               </Suspense>
 
               <section
