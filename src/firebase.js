@@ -21,4 +21,15 @@ export const db = getFirestore(app); // falls du Firestore nutzt
 // export const storage = getStorage(app); // falls benötigt
 // export const messaging = getMessaging(app); // falls nötig
 
+export const saveWinrateSnapshot = async (key, payload) => {
+  console.warn('[firebase stub] saveWinrateSnapshot', key, payload);
+  return Promise.resolve(null);
+};
+
+export const loadWinrateSnapshot = async (key) => {
+  console.warn('[firebase stub] loadWinrateSnapshot', key);
+  return Promise.resolve(null);
+};
+
 export default app;
+

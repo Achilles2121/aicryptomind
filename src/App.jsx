@@ -45,6 +45,8 @@ const EtfProviderQualityCard = lazy(() => import("./components/etf/EtfProviderQu
 import { fetchEtfHoldingsLive } from "./services/etfHoldingsLive";
 const EtfCorrelationCard = lazy(() => import("./components/etf/EtfCorrelationCard"));
 import { safeFetch } from "./lib/safeFetch";
+import { fetchHtfOhlc } from "./services/marketDataLive";
+import { fetchDerivativesLive } from "./services/derivativesLive";
 import {
   calculateEMA,
   calculateRSISeries,
@@ -830,6 +832,7 @@ function App() {
   const [priceState, setPriceState] = useState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
   const [fearGreed, setFearGreed] = useState(null);
   const [ohlcv, setOhlcv] = useState([]);
+  const [htfOhlcv, setHtfOhlcv] = useState({ h4: [], d1: [] });
   const [indicators, setIndicators] = useState({ rsi: null, macd: null, signal: null, histogram: null });
   const [wsStatus, setWsStatus] = useState("connecting");
   const [wsAttempts, setWsAttempts] = useState(0);
@@ -889,6 +892,11 @@ function App() {
     ETF_HOLDINGS_FMP: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_SOSO: { status: "ok", ts: Date.now() },
     ETF_HOLDINGS_COINSTATS: { status: "ok", ts: Date.now() },
+    ETFFLOWS: { status: "ok", ts: Date.now() },
+    ETFNEWS: { status: "ok", ts: Date.now() },
+    MARKET_HTF_PRIMARY: { status: "ok", ts: Date.now() },
+    MARKET_HTF_FALLBACK: { status: "ok", ts: Date.now() },
+    DERIVATIVES_PRIMARY: { status: "ok", ts: Date.now() },
     lastUpdated: Date.now(),
   });
   const [toasts, setToasts] = useState([]);
@@ -950,7 +958,27 @@ function App() {
   const updateApiHealth = (source, status, message = "") => {
     setApiHealth((prev) => {
       const prevStatus = prev[source]?.status || "ok";
-      const next = { ...prev, [source]: { status, ts: Date.now(), message }, lastUpdated: Date.now() };
+      const now = Date.now();
+      const next = { ...prev, [source]: { status, ts: now, message }, lastUpdated: now };
+      const reconcileEtfAggregator = () => {
+        const primary = next.ETF_FLOWS_FMP?.status;
+        const fallbacks = [next.ETF_FLOWS_SOSO?.status, next.ETF_FLOWS_COINSTATS?.status].filter(Boolean);
+        if (primary === "ok") {
+          next.ETFFLOWS = { status: "ok", ts: now };
+        } else if (primary === "error" && fallbacks.length && fallbacks.every((s) => s === "error")) {
+          next.ETFFLOWS = { status: "error", ts: now };
+        } else if (primary) {
+          next.ETFFLOWS = { status: "degraded", ts: now };
+        }
+        if (next.etfNews?.status) {
+          const nStatus = next.etfNews.status;
+          next.ETFNEWS = {
+            status: nStatus === "error" ? "error" : nStatus === "ok" ? "ok" : "degraded",
+            ts: now,
+          };
+        }
+      };
+      reconcileEtfAggregator();
       const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
       if ((prevStatus === "error" || prevStatus === "degraded" || prevStatus === "fallback") && status === "ok") {
         if (!isEtfService) addToast(`${source} wiederhergestellt`, "info");
@@ -976,6 +1004,7 @@ function App() {
   useEffect(() => {
     assetIdRef.current = asset.id;
     setOhlcv([]);
+    setHtfOhlcv({ h4: [], d1: [] });
     setIndicators({ rsi: null, macd: null, signal: null, histogram: null });
     setLivePrice(null);
     setPriceState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
@@ -1100,7 +1129,7 @@ function App() {
 
   const refreshAll = async () => {
     setIsRefreshing(true);
-    await Promise.allSettled([loadPrice(), loadFearGreed(), loadOHLC()]);
+    await Promise.allSettled([loadPrice(), loadFearGreed(), loadOHLC(), loadHTF(), loadDerivatives()]);
     setIsRefreshing(false);
   };
 
@@ -1126,6 +1155,42 @@ function App() {
       setLastError((prev) => prev || t("fetchFailOHLC"));
       updateApiHealth("kraken", "error", err.message);
       logEvent("kraken", "error", t("fetchFailOHLC"));
+    }
+  };
+
+  const resolveCoinApiSymbol = (cc) => `KRAKEN_SPOT_${(cc || "").toUpperCase()}_USD`;
+
+  const loadHTF = async () => {
+    try {
+      const symbolId = resolveCoinApiSymbol(asset.cc);
+      const data = await fetchWithCache(`htf:${asset.kraken}:${symbolId}`, () =>
+        fetchHtfOhlc(asset.kraken, symbolId, updateApiHealth, logEvent, addToast)
+      );
+      setHtfOhlcv(data);
+      const hasData = (data?.h4?.length || data?.d1?.length) ? "ok" : "degraded";
+      updateApiHealth("MARKET_HTF_PRIMARY", hasData, hasData === "ok" ? "" : "HTF data empty");
+    } catch (err) {
+      console.error("HTF fetch failed", err);
+      updateApiHealth("MARKET_HTF_PRIMARY", "error", err.message);
+      logEvent("MARKET_HTF_PRIMARY", "error", err.message);
+    }
+  };
+
+  const resolveDerivativesSymbol = (cc) => `DERIBIT_PERPETUAL_${(cc || "").toUpperCase()}_USD`;
+
+  const loadDerivatives = async () => {
+    try {
+      const symbolId = resolveDerivativesSymbol(asset.cc);
+      const res = await fetchWithCache(`derivatives:${symbolId}`, () =>
+        fetchDerivativesLive(symbolId, updateApiHealth, logEvent, addToast)
+      );
+      setDerivativesRisk(res);
+      const status = res?.riskLevel ? "ok" : "degraded";
+      updateApiHealth("DERIVATIVES_PRIMARY", status);
+    } catch (err) {
+      console.error("Derivatives fetch failed", err);
+      updateApiHealth("DERIVATIVES_PRIMARY", "error", err.message);
+      logEvent("DERIVATIVES_PRIMARY", "error", err.message);
     }
   };
 
@@ -1774,6 +1839,10 @@ function App() {
       avgRR: result.avgRR,
       setupWinrates: result.setupWinrates,
       regimeWinrates: result.regimeWinrates,
+      equityCurve: result.equityCurve,
+      maxDrawdown: result.maxDrawdown,
+      profitFactor: result.profitFactor,
+      profitPct: result.profitPct,
     });
   }, [indicatorSeries]);
 
@@ -1868,14 +1937,14 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   const nearTp = takeProfitPrice && lastClose ? Math.abs(lastClose - takeProfitPrice) / takeProfitPrice <= 0.006 : false;
   const nearSl = stopLossPrice && lastClose ? Math.abs(lastClose - stopLossPrice) / stopLossPrice <= 0.006 : false;
 
-  const marketRegime = useMemo(() => {
-    if (!lastPoint) return { label: "Neutral", color: "text-slate-200", intent: "neutral", confidence: 0.5, detail: "Keine Daten" };
-    const emaBias = lastPoint.ema200 && lastPoint.close ? (lastPoint.close - lastPoint.ema200) / lastPoint.ema200 : null;
+  const computeRegime = (row) => {
+    if (!row) return { label: "Neutral", color: "text-slate-200", intent: "neutral", confidence: 0.5, detail: "Keine Daten" };
+    const emaBias = row.ema200 && row.close ? (row.close - row.ema200) / row.ema200 : null;
     const bbWidth =
-      Number.isFinite(lastPoint.bollUpper) && Number.isFinite(lastPoint.bollLower) && Number.isFinite(lastPoint.bollBasis) && lastPoint.bollBasis
-        ? ((lastPoint.bollUpper - lastPoint.bollLower) / lastPoint.bollBasis) * 100
+      Number.isFinite(row.bollUpper) && Number.isFinite(row.bollLower) && Number.isFinite(row.bollBasis) && row.bollBasis
+        ? ((row.bollUpper - row.bollLower) / row.bollBasis) * 100
         : null;
-    const adxVal = Number.isFinite(lastPoint.adx) ? lastPoint.adx : null;
+    const adxVal = Number.isFinite(row.adx) ? row.adx : null;
     const strongTrend = adxVal !== null ? adxVal > 25 : false;
     let label = "Choppy";
     let color = "text-slate-200";
@@ -1905,32 +1974,32 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       color,
       intent,
       confidence,
-      detail: `EMA200 ${emaBias !== null ? (emaBias * 100).toFixed(2) + "%" : "-"} · ADX ${adxVal ? adxVal.toFixed(1) : "-"} · BBW ${
+      detail: `EMA200 ${emaBias !== null ? (emaBias * 100).toFixed(2) + "%" : "-"} | ADX ${adxVal ? adxVal.toFixed(1) : "-"} | BBW ${
         bbWidth ? bbWidth.toFixed(2) + "%" : "-"
       }`,
     };
-  }, [lastPoint]);
+  };
 
+  const marketRegime = useMemo(() => computeRegime(lastPoint), [lastPoint]);
   const htfRegime = useMemo(() => {
-    const sample = indicatorSeries.filter((_, idx) => idx % 4 === 0);
-    const row = sample.length ? sample[sample.length - 1] : lastPoint;
-    if (!row) return marketRegime;
-    const emaBias = row.ema200 && row.close ? (row.close - row.ema200) / row.ema200 : null;
-    const bbw =
-      Number.isFinite(row.bollUpper) && Number.isFinite(row.bollLower) && Number.isFinite(row.bollBasis) && row.bollBasis
-        ? ((row.bollUpper - row.bollLower) / row.bollBasis) * 100
-        : null;
-    const adxVal = Number.isFinite(row.adx) ? row.adx : null;
-    const strongTrend = adxVal !== null ? adxVal > 25 : false;
-    let label = "Choppy";
-    if (emaBias !== null && strongTrend && bbw !== null && bbw > 5) {
-      label = emaBias > 0 ? "Bull" : "Bear";
-    } else if (bbw !== null && bbw < 3) {
-      label = "Crab";
-    }
-    return { label };
-  }, [indicatorSeries, lastPoint, marketRegime]);
-
+    const series = htfOhlcv?.h4?.length ? htfOhlcv.h4 : htfOhlcv?.d1 || [];
+    if (!series.length) return marketRegime;
+    const closes = series.map((c) => c.close);
+    const ema200 = calculateEMA(closes, 200);
+    const bb = calculateBollingerBands(closes, 20, 2);
+    const adx = calculateADX(series, 14);
+    const idx = series.length - 1;
+    const row = {
+      ...series[idx],
+      ema200: ema200[idx],
+      bollUpper: bb.upper[idx],
+      bollLower: bb.lower[idx],
+      bollBasis: bb.basis[idx],
+      adx: adx[idx],
+    };
+    const derived = computeRegime(row);
+    return { label: derived.label, intent: derived.intent };
+  }, [htfOhlcv, marketRegime]);
   const smartMoney = useMemo(() => {
     const horizon = Date.now() - 3 * 60 * 60 * 1000;
     const filtered = trades.filter((t) => t.ts >= horizon);
@@ -1969,6 +2038,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   const [sentimentMetrics, setSentimentMetrics] = useState({ score: null, label: "Social Score", updatedAt: null });
   const [correlations, setCorrelations] = useState([]);
   const [fundingRates, setFundingRates] = useState([]);
+  const [derivativesRisk, setDerivativesRisk] = useState({ score: null, riskLevel: "neutral", updatedAt: null });
 
   useEffect(() => {
     let mounted = true;
@@ -2064,6 +2134,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       sentimentMetrics,
       backtestStats: enrichedBacktest,
       htfRegime,
+      derivativesRisk,
     });
   }, [
     indicatorSeries,
@@ -2077,6 +2148,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     backtestStats?.winRate,
     backtestStats?.avgRR,
     htfRegime,
+    derivativesRisk,
   ]);
 
   // backtestStats handled via state setter to avoid duplicate declarations
@@ -4609,3 +4681,5 @@ const AppWithBoundary = () => (
 );
 
 export default AppWithBoundary;
+
+

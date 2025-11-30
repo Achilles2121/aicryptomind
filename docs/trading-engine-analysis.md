@@ -1,4 +1,4 @@
-# Vision AI Mind – Trading & ETF Dashboard (Aktueller Stand)
+﻿# Vision AI Mind – Trading & ETF Dashboard (Aktueller Stand)
 
 ## Überblick
 - Vite + React + TypeScript, Tailwind; zentrale App in `src/App.jsx`.
@@ -66,3 +66,89 @@
 ## Test/Build
 - Letzter Build lokal: `npm run build` ✅.
 - Main ist up to date, Vercel redeployt automatisch nach Push.
+
+## Master Prompt: Crypto Risk Manager (V3 -> V3+)
+
+**Role:** Senior TypeScript/React/Vite engineer + HF crypto trading architect. Ziel: Crypto Risk Manager V3 auf V3+ (institutionell) heben, Lookahead eliminieren, Risikokennzahlen implementieren.
+
+**Stack & Health**
+- Vite + React/TS, strikte Trennung UI vs. Services/Libs.
+- Zentrale Fetch-Schicht: `src/lib/safeFetch.ts` (Timeouts, Retries, Health-Callbacks).
+- Health Store: `src/stores/apiHealth.ts` mit Status `ok/degraded/error`.
+
+**Prioritat 1 — Data Integrity / Lookahead-Fix**
+- Problem: `strategyEngineV3` approximiert HTF (4h/1D) via 4x Sampling von 60m -> Lookahead.
+- Losung: Dedizierte HTF-Fetches (z. B. in `src/services/marketDataLive.ts`) von Kraken OHLC (`interval=240/1440`) oder CoinAPI; kein Resampling.
+- Health Keys erganzen: `MARKET_HTF_PRIMARY`, `MARKET_HTF_FALLBACK`.
+
+**Prioritat 2 — Derivate-Risikometrics**
+- Neuer Service `src/services/derivativesLive.ts`.
+- CoinAPI Metrics REST `/v1/metrics/symbol/history`:
+  - `DERIVATIVES_FUNDING_RATE_CURRENT`
+  - `DERIVATIVES_OPEN_INTEREST`
+- OI- & Funding-Delta normalisieren -> `DerivativesRiskScore` in `strategyEngineV3` einspeisen.
+
+**Prioritat 3 — Backtest Engine**
+- `backtestV3.js` erweitern:
+  - Kumulative Equity Curve (fixes Risk-% pro Trade).
+  - Max Drawdown & Profit Factor berechnen/anzeigen.
+  - Slippage stochastisch (z. B. Normalverteilung auf Slippage-%), nicht statisch.
+  - Confidence-Persistenz: Stub in `src/firebase.js` zum Speichern/Laden von Setup/Regime-Winrates (Firestore).
+
+**Optional — LLM-Integration**
+- Wrapper fur Research-Tab-Ausgabe via ChainGPT API (oder OSS LLM + RAG spezialisiert auf Krypto).
+
+**Health-Aggregation**
+- Aggregatoren (`ETFFLOWS`, `ETFNEWS`): Primary OK => Aggregator OK; Primary Error + Fallback Error => Aggregator Error.
+
+**APIs**
+- Kraken OHLC (HTF 4h/1D) oder CoinAPI/CoinDesk.
+- CoinAPI Metrics: Funding, Open Interest.
+- Deribit (IV-Proxy via Price Index oder eigene IV aus Options-Ticks).
+- IntoTheBlock / CoinDesk On-Chain (Institutional Flow).
+- LLM: ChainGPT oder OSS Llama 3 + RAG.
+
+## Implementierungsanweisung V3 -> V3+
+
+- Rolle: Senior TypeScript/React/Vite Full-Stack Engineer mit HF-Krypto-Risikomanagement.
+- Ziel: Crypto Risk Manager von V3 auf V3+ (institutionell); Lookahead entfernen, Risikometriken absichern; UI-Layout unveraendert lassen.
+
+**Architektur & Health-Regeln**
+- Stack: Vite + React/TS; zentrale Fetch-Schicht bleibt `src/lib/safeFetch.ts` (nicht grundlegend aendern).
+- Health-Store: Status `ok|degraded|error` in `src/stores/apiHealth.ts` setzen.
+- Health-Aggregation (neu):
+  - ETFFLOWS, ETFNEWS: Primary ok => Aggregator ok; Primary error + Fallback error => Aggregator error; sonst degraded.
+- Neue Health-Keys: `MARKET_HTF_PRIMARY`, `MARKET_HTF_FALLBACK`, `DERIVATIVES_PRIMARY`.
+
+**Prioritaet 1: Lookahead-Fix (HTF-Daten)**
+- Problem: `strategyEngineV3` nutzt 4x Sampling von 60m-Kerzen fuer 4h/1D -> Lookahead.
+- Lösung: Dedizierter HTF-Service (z. B. `src/services/marketDataLive.ts`) mit echten 4h/1D-Kerzen via Kraken OHLC (`interval=240/1440`) oder CoinAPI (`period_id=1DAY` etc.), strikt zeitlich alignen. Keine Aggregation der 60m-Serie.
+- strategyEngineV3 muss diese separaten HTF-Daten fuer Regime-Filter nutzen.
+
+**Prioritaet 2: DerivativesRiskScore**
+- Neuer Service: `src/services/derivativesLive.ts`.
+- API: CoinAPI Metrics REST `/v1/metrics/symbol/history` fuer Funding Rate History und Open Interest History.
+- Score: Funding Delta + OI Delta berechnen, ueber letzte ~20 Perioden normalisieren (z. B. z-Score), gewichten (z. B. 0.6 OI, 0.4 Funding) und zu `DerivativesRiskScore` aggregieren.
+- Integration: Score als neuen Filter in `strategyEngineV3` einspeisen.
+
+**Prioritaet 3: Backtest-Validierung**
+- Datei: `src/lib/backtestV3.js`.
+- Equity Curve: Startkapital, fixes Risiko-% pro Trade, nach jedem Trade Equity inkl. PnL/Fees/Slippage updaten.
+- Risikometriken: Max Drawdown (Peak-to-Trough %) und Profit Factor (Summe Gewinne / Summe Verluste, >1 anstreben) berechnen/ausgeben.
+- Slippage: Stochastisch (Normalverteilung um Basis-Slippage mit kleiner StdDev) statt statisch.
+- Confidence-Persistenz: Stub in `src/firebase.js` fuer Speichern/Laden von Setup-/Regime-Winrates in Firestore.
+
+**Optionale LLM-Erweiterung**
+- Wrapper-Service `src/services/llmMentor.ts` fuer ChainGPT API oder OSS-LLM mit RAG.
+
+**Environment**
+- Neue Secrets immer ueber `import.meta.env.VITE_...` (z. B. `VITE_COINAPI_KEY`); keine Secrets im Code.
+
+## V3+ Logik & Architektur (Kurzreferenz)
+
+- **HTF-Regime (kein Lookahead):** Echte 4h/1D-Kerzen via `src/services/marketDataLive.ts` (Kraken primär, CoinAPI Fallback). Regime-Berechnung mit EMA200-Bias, ADX>25, Bollinger-Bandbreite. Setups nur zulässig, wenn sie zum HTF-Regime passen (Trend/Breakout nur Bull/Bear; Reversion nur Crab/Choppy).
+- **Signal-Engine (`buildSignalsV3`):** Kandidaten Trend/Breakout/Reversion; Scores aus VolatilityScore (ATR%), FlowScore (Smart Money), SocialBias, Setup-/Regime-Winrates. Konfidenz: 0.35 Setup-WR + 0.25 Regime-WR + 0.2 VolScore + 0.2 FlowScore (0..1). DerivativesRisk (Funding/OI) dämpft/erhöht: Hot -15%, Cool +5%.
+- **Derivate-Service (`src/services/derivativesLive.ts`):** CoinAPI Metrics `/v1/metrics/symbol/history` für Funding Rate & Open Interest (1H, 200 Punkte). Z-Score auf Deltas, Composite (0.6 OI, 0.4 Funding) → `DerivativesRiskScore`, RiskLevel hot/cool/neutral. Health-Key: `DERIVATIVES_PRIMARY`.
+- **Backtest (`src/lib/backtestV3.js`):** Equity-Curve mit fixem Risiko-% pro Trade; Kennzahlen Max Drawdown, Profit Factor, WinRate, AvgRR, ProfitPct. Slippage stochastisch (Normalverteilung um ATR-basierten Mean), Fees 0.075%. TP/SL-Candle-Lauf ohne Lookahead. Setup-/Regime-Winrates werden zurückgegeben. Firebase-Stubs (`saveWinrateSnapshot`/`loadWinrateSnapshot`) noch ohne echte Persistenz.
+- **Health-Aggregation:** `ETFFLOWS`/`ETFNEWS`: Primary ok ⇒ Aggregator ok; Primary error + alle Fallbacks error ⇒ Aggregator error; sonst degraded. Neue Keys: `MARKET_HTF_PRIMARY`, `MARKET_HTF_FALLBACK`, `DERIVATIVES_PRIMARY`.
+- **Env:** `VITE_COINAPI_KEY` erforderlich (lokal & Deployment), sonst leere HTF/Derivatives-Daten.

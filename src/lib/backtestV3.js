@@ -43,6 +43,9 @@
  * @property {{trades:number,wins:number,losses:number,be:number,avgRR:number|null}} shortStats
  * @property {Record<string, number>} setupWinrates
  * @property {Record<string, number>} regimeWinrates
+ * @property {number[]} equityCurve
+ * @property {number|null} maxDrawdown
+ * @property {number|null} profitFactor
  */
 
 const classifyResult = (direction, entryPrice, exitPrice, sl) => {
@@ -65,6 +68,14 @@ const computeRR = (direction, entryPrice, exitPrice, sl) => {
   return risk ? (entryPrice - exitPrice) / risk : null;
 };
 
+const sampleNormal = (mean = 0, std = 1) => {
+  const u = 1 - Math.random();
+  const v = Math.random();
+  const mag = Math.sqrt(-2.0 * Math.log(u));
+  const z = mag * Math.cos(2.0 * Math.PI * v);
+  return mean + z * std;
+};
+
 const simulateTrade = ({ candles, signal, maxHoldBars }) => {
   const { index, direction } = signal;
   if (!candles?.length || index >= candles.length) return null;
@@ -75,7 +86,8 @@ const simulateTrade = ({ candles, signal, maxHoldBars }) => {
   const sl = signal.sl ?? (direction === "long" ? entryPrice * 0.99 : entryPrice * 1.01);
   const atrPct = signal.meta?.atrPct ?? entryCandle.atrPct ?? 1;
   const fee = 0.00075; // 0.075%
-  const slipPct = ((atrPct || 0) / 100) * 0.1; // 10% of ATR% as slippage
+  const slipMean = ((atrPct || 0) / 100) * 0.1; // 10% of ATR% as baseline slippage
+  const slipPct = Math.max(0, sampleNormal(slipMean, slipMean * 0.35)); // stochastic slippage around baseline
 
   const entryAdj = direction === "long" ? 1 + slipPct + fee : 1 - slipPct - fee;
   const exitAdjWin = direction === "long" ? 1 - slipPct - fee : 1 + slipPct + fee;
@@ -121,7 +133,7 @@ const simulateTrade = ({ candles, signal, maxHoldBars }) => {
   return { entryIndex, exitIndex, direction, entryPrice: effectiveEntry, exitPrice, tp, sl, rr, result, meta: signal.meta };
 };
 
-export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5 }) => {
+export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5, startEquity = 10000, riskPct = 0.01 }) => {
   const trades = [];
   if (!candles.length || !signals.length) {
     return {
@@ -133,6 +145,9 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5 }) =
       shortStats: { trades: 0, wins: 0, losses: 0, be: 0, avgRR: null },
       setupWinrates: {},
       regimeWinrates: {},
+      equityCurve: [startEquity],
+      maxDrawdown: null,
+      profitFactor: null,
     };
   }
 
@@ -186,6 +201,29 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5 }) =
     };
   };
 
+  const equityCurve = [];
+  let equity = startEquity;
+  let peak = startEquity;
+  let maxDrawdown = 0;
+  let grossWin = 0;
+  let grossLoss = 0;
+
+  for (const t of trades) {
+    const stopDistance = t.direction === "long" ? t.entryPrice - t.sl : t.sl - t.entryPrice;
+    const riskBudget = equity * riskPct;
+    const positionSize = stopDistance > 0 ? riskBudget / stopDistance : 0;
+    const pnl = positionSize * (t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice);
+    equity += pnl;
+    if (pnl >= 0) grossWin += pnl;
+    else grossLoss += Math.abs(pnl);
+    peak = Math.max(peak, equity);
+    const dd = peak ? (peak - equity) / peak : 0;
+    maxDrawdown = Math.max(maxDrawdown, dd);
+    equityCurve.push(Number(equity.toFixed(2)));
+  }
+
+  const profitFactor = grossLoss > 0 ? grossWin / grossLoss : null;
+
   return {
     trades,
     winRate: trades.length ? (wins / trades.length) * 100 : null,
@@ -195,6 +233,9 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5 }) =
     shortStats: summarize("short"),
     setupWinrates,
     regimeWinrates,
+    equityCurve: equityCurve.length ? equityCurve : [startEquity],
+    maxDrawdown: maxDrawdown || null,
+    profitFactor: profitFactor || null,
   };
 };
 // Vision AI Mind – Crypto Risk Engine

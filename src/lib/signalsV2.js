@@ -280,7 +280,7 @@ const normalizeSocial = (sentimentMetrics) => {
   return Math.max(-1, Math.min(1, (score - 50) / 50));
 };
 
-export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney, sentimentMetrics, backtestStats, htfRegime }) => {
+export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney, sentimentMetrics, backtestStats, htfRegime, derivativesRisk }) => {
   if (!indicatorSeries.length) {
     return { action: "wait", reason: "no data", confidence: 0.5, tp: null, sl: null, meta: {} };
   }
@@ -327,12 +327,15 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
   for (const c of candidates) {
     const setupWinrate = deriveSetupWinrate(backtestStats, c.meta?.setup);
     const regimeWinrate = deriveRegimeWinrate(backtestStats, regimeLabel);
-    const confidence = computeConfidenceFromBacktest({
+    let confidence = computeConfidenceFromBacktest({
       setupWinrate,
       regimeWinrate,
       volatilityScore: c.meta?.volatilityScore ?? volatilityScore,
       flowScore: c.meta?.flowScore ?? flowScore,
     });
+    if (derivativesRisk?.riskLevel === "hot") confidence *= 0.85;
+    if (derivativesRisk?.riskLevel === "cool") confidence *= 1.05;
+    confidence = Math.min(0.99, Math.max(0, confidence));
     const ultra = isUltraSignal({
       setupWinrate,
       regimeWinrate,
@@ -341,7 +344,7 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
       atrPct: last.atrPct,
       socialBias,
     });
-    const enriched = { ...c, confidence, ultra, setupWinrate, regimeWinrate };
+    const enriched = { ...c, confidence, ultra, setupWinrate, regimeWinrate, meta: { ...c.meta, derivativesRisk } };
     if (confidence > bestConfidence) {
       bestConfidence = confidence;
       best = enriched;
