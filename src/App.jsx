@@ -39,7 +39,7 @@ import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
-import { fetchEtfAumHistory, computeDailyFlows } from "./services/etfFlows";
+import { fetchEtfFlowSeries } from "./services/etfFlows";
 import { safeFetch } from "./lib/safeFetch";
 import {
   calculateEMA,
@@ -820,7 +820,7 @@ const renderLastDot = (count, color = "#22c55e") => (props) => {
   return <circle cx={props.cx} cy={props.cy} r={4} fill={color} className="pulse-soft" />;
 };
 const sumFlows = (flows = [], days = 7) =>
-  flows.slice(-days).reduce((acc, f) => acc + (Number.isFinite(f.flow) ? f.flow : 0), 0);
+  flows.slice(-days).reduce((acc, f) => acc + (Number.isFinite(f.flow ?? f.netFlowUsd) ? (f.flow ?? f.netFlowUsd) : 0), 0);
 function App() {
   const [asset, setAsset] = useState(ASSETS[0]);
   const [priceState, setPriceState] = useState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
@@ -841,11 +841,11 @@ function App() {
   const [etfError, setEtfError] = useState("");
   const [etfFlows, setEtfFlows] = useState([]);
   const [etfFlowsError, setEtfFlowsError] = useState("");
-  const [etfSymbol, setEtfSymbol] = useState("IBIT");
-  const [etfAumHistory, setEtfAumHistory] = useState([]);
+  const [etfSelection, setEtfSelection] = useState(["IBIT", "FBTC", "ARKB"]);
   const [etfFlowSeries, setEtfFlowSeries] = useState([]);
   const [etfAumError, setEtfAumError] = useState("");
   const [etfAumLoading, setEtfAumLoading] = useState(false);
+  const [etfLastUpdated, setEtfLastUpdated] = useState(null);
   const [journalEntries, setJournalEntries] = useState([]);
   const [journalForm, setJournalForm] = useState({ date: "", mood: "Neutral", note: "" });
   const [lang, setLang] = useState("de");
@@ -871,6 +871,8 @@ function App() {
     santiment: { status: "ok", ts: Date.now() },
     etfNews: { status: "ok", ts: Date.now() },
     etfFlows: { status: "ok", ts: Date.now() },
+    etfFlowsFmp: { status: "ok", ts: Date.now() },
+    etfFlowsSoso: { status: "ok", ts: Date.now() },
     lastUpdated: Date.now(),
   });
   const [toasts, setToasts] = useState([]);
@@ -1213,24 +1215,27 @@ function App() {
     }
   };
 
-  const loadEtfAum = async (symbol) => {
+  const loadEtfFlowData = async (symbols = etfSelection) => {
+    if (!symbols?.length) {
+      setEtfFlowSeries([]);
+      return;
+    }
     setEtfAumLoading(true);
     try {
-      const history = await fetchEtfAumHistory(symbol, {
+      const data = await fetchEtfFlowSeries(symbols, {
         onHealthUpdate: updateApiHealth,
         onLog: logEvent,
         onToast: addToast,
       });
-      const flows = computeDailyFlows(history).slice(-30);
-      setEtfAumHistory(history);
-      setEtfFlowSeries(flows);
+      setEtfFlowSeries(data);
+      setEtfLastUpdated(new Date().toISOString());
       setEtfAumError("");
-      updateApiHealth("etfFlows", "ok");
+      updateApiHealth("etfFlows", data.length ? "ok" : "degraded");
     } catch (err) {
-      console.error("ETF AUM failed", err);
-      setEtfAumError("Daten temporär nicht verfügbar");
+      console.error("ETF flows failed", err);
       setEtfFlowSeries([]);
-      updateApiHealth("etfFlows", "degraded", err.message);
+      setEtfAumError("Daten derzeit nicht verfügbar");
+      updateApiHealth("etfFlows", "error", err.message);
     } finally {
       setEtfAumLoading(false);
     }
@@ -1360,8 +1365,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    loadEtfAum(etfSymbol);
-  }, [etfSymbol]);
+    const ETF_REFRESH = 240000;
+    loadEtfFlowData(etfSelection);
+    const timer = setInterval(() => loadEtfFlowData(etfSelection), ETF_REFRESH);
+    return () => clearInterval(timer);
+  }, [etfSelection]);
 
   useEffect(() => {
     loadApiPlaybook();
@@ -1769,8 +1777,24 @@ function App() {
     { label: "Bollinger", value: "20 / 2 std", intent: "neutral" },
   ];
 
-  const healthColor = (status) =>
-    status === "ok" ? "text-emerald-300" : status === "degraded" || status === "fallback" ? "text-amber-300" : "text-red-300";
+const healthColor = (status) =>
+  status === "ok" ? "text-emerald-300" : status === "degraded" || status === "fallback" ? "text-amber-300" : "text-red-300";
+
+const ETF_SYMBOLS = ["IBIT", "FBTC", "ARKB", "BTCO", "BITB", "HODL"];
+
+const buildEtfChartData = (seriesList = []) => {
+  const map = {};
+  seriesList.forEach((s) => {
+    s.points.forEach((p) => {
+      const key = p.date;
+      if (!map[key]) map[key] = { date: key };
+      map[key][s.symbol] = p.netFlowUsd ?? p.flow ?? 0;
+    });
+  });
+  return Object.values(map).sort((a, b) => new Date(a.date) - new Date(b.date));
+};
+
+const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5e9"];
 
   const tpEntry = clampNumber(tpForm.entry ?? displayPrice, null);
   const tpPct = clampNumber(tpForm.tpPct, null);
@@ -3434,19 +3458,28 @@ function App() {
           <Card title="ETF Zuflüsse" icon={TrendingUp}>
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={etfSymbol}
-                  onChange={(e) => setEtfSymbol(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                >
-                  {["IBIT", "FBTC", "ARKB", "BTCO", "BITB", "HODL"].map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                {ETF_SYMBOLS.map((sym, idx) => {
+                  const active = etfSelection.includes(sym);
+                  return (
+                    <button
+                      key={sym}
+                      onClick={() =>
+                        setEtfSelection((prev) => (prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym].slice(0, ETF_SYMBOLS.length)))
+                      }
+                      className={`rounded-full px-3 py-1 text-xs font-semibold border ${
+                        active ? "border-emerald-500/70 bg-emerald-500/10 text-emerald-100" : "border-slate-700 bg-slate-900 text-slate-200"
+                      }`}
+                      style={{ borderColor: active ? etfColors[idx % etfColors.length] : undefined }}
+                    >
+                      {sym}
+                    </button>
+                  );
+                })}
                 {etfAumLoading ? <span className="text-xs text-slate-400">Lade...</span> : null}
                 {etfAumError ? <span className="text-xs text-amber-300">{etfAumError}</span> : null}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <span>Last updated: {etfLastUpdated ? new Date(etfLastUpdated).toLocaleTimeString() : "-"}</span>
               </div>
               <LazyRender
                 placeholder={
@@ -3456,42 +3489,55 @@ function App() {
                 }
               >
                 {etfFlowSeries.length ? (
-                  <div className="h-64">
+                  <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={etfFlowSeries.slice(-30)}>
+                      <BarChart data={buildEtfChartData(etfFlowSeries)}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                         <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 10 }} />
                         <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => `${v >= 0 ? "+" : ""}${(v / 1_000_000).toFixed(1)}M`} />
                         <Tooltip
                           contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }}
                           labelStyle={{ color: "#e2e8f0" }}
-                          formatter={(val) => `${Number(val) >= 0 ? "+" : ""}${Number(val).toLocaleString()}`}
+                          formatter={(val, name) => [`${Number(val) >= 0 ? "+" : ""}${Number(val).toLocaleString()}`, name]}
                         />
-                        <Bar dataKey="flow" fill="#22c55e" radius={[4, 4, 0, 0]} isAnimationActive opacity={0.85}>
-                          {etfFlowSeries.slice(-30).map((entry, idx) => (
-                            <Cell key={`cell-${idx}`} fill={entry.flow >= 0 ? "#22c55e" : "#ef4444"} />
-                          ))}
-                        </Bar>
+                        {etfFlowSeries.map((s, idx) => (
+                          <Bar
+                            key={s.symbol}
+                            dataKey={s.symbol}
+                            name={s.symbol}
+                            fill={etfColors[idx % etfColors.length]}
+                            radius={[4, 4, 0, 0]}
+                            isAnimationActive
+                            opacity={0.9}
+                          />
+                        ))}
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-400">{etfAumError || "Keine Daten"}</p>
+                  <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
                 )}
               </LazyRender>
-              <div className="grid grid-cols-2 gap-2 text-sm text-slate-200">
-                <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Summe 7 Tage</p>
-                  <p className={`text-lg font-semibold ${sumFlows(etfFlowSeries, 7) >= 0 ? "text-emerald-300" : "text-red-300"}`}>
-                    {formatUSD(sumFlows(etfFlowSeries, 7))}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Summe 30 Tage</p>
-                  <p className={`text-lg font-semibold ${sumFlows(etfFlowSeries, 30) >= 0 ? "text-emerald-300" : "text-red-300"}`}>
-                    {formatUSD(sumFlows(etfFlowSeries, 30))}
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 gap-2 text-sm text-slate-200 md:grid-cols-2">
+                {etfFlowSeries.map((s, idx) => (
+                  <div key={s.symbol} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold" style={{ color: etfColors[idx % etfColors.length] }}>
+                        {s.symbol}
+                      </span>
+                      <span className="text-xs text-slate-400">{s.provider}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>7d</span>
+                      <span className={`font-semibold ${s.sum7dUsd >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(s.sum7dUsd)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>30d</span>
+                      <span className={`font-semibold ${s.sum30dUsd >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(s.sum30dUsd)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Updated {s.lastUpdated ? new Date(s.lastUpdated).toLocaleString() : "-"}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </Card>
@@ -4152,20 +4198,27 @@ function App() {
               <Card title="ETF Zuflüsse" icon={TrendingUp}>
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={etfSymbol}
-                      onChange={(e) => setEtfSymbol(e.target.value)}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                    >
-                      {["IBIT", "FBTC", "ARKB", "BTCO", "BITB", "HODL"].map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    {ETF_SYMBOLS.map((sym, idx) => {
+                      const active = etfSelection.includes(sym);
+                      return (
+                        <button
+                          key={sym}
+                          onClick={() =>
+                            setEtfSelection((prev) => (prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym].slice(0, ETF_SYMBOLS.length)))
+                          }
+                          className={`rounded-full px-3 py-1 text-xs font-semibold border ${
+                            active ? "border-emerald-500/70 bg-emerald-500/10 text-emerald-100" : "border-slate-700 bg-slate-900 text-slate-200"
+                          }`}
+                          style={{ borderColor: active ? etfColors[idx % etfColors.length] : undefined }}
+                        >
+                          {sym}
+                        </button>
+                      );
+                    })}
                     {etfAumLoading ? <span className="text-xs text-slate-400">Lade...</span> : null}
                     {etfAumError ? <span className="text-xs text-amber-300">{etfAumError}</span> : null}
                   </div>
+                  <div className="text-xs text-slate-400">Last updated: {etfLastUpdated ? new Date(etfLastUpdated).toLocaleTimeString() : "-"}</div>
                   <LazyRender
                     placeholder={
                       <div className="h-64 flex items-center justify-center">
@@ -4176,20 +4229,26 @@ function App() {
                     {etfFlowSeries.length ? (
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={etfFlowSeries.slice(-30)}>
+                          <BarChart data={buildEtfChartData(etfFlowSeries)}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                             <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 10 }} />
                             <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => `${v >= 0 ? "+" : ""}${(v / 1_000_000).toFixed(1)}M`} />
                             <Tooltip
                               contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }}
                               labelStyle={{ color: "#e2e8f0" }}
-                              formatter={(val) => `${Number(val) >= 0 ? "+" : ""}${Number(val).toLocaleString()}`}
+                              formatter={(val, name) => [`${Number(val) >= 0 ? "+" : ""}${Number(val).toLocaleString()}`, name]}
                             />
-                            <Bar dataKey="flow" fill="#22c55e" radius={[4, 4, 0, 0]} isAnimationActive opacity={0.85}>
-                              {etfFlowSeries.slice(-30).map((entry, idx) => (
-                                <Cell key={`cell-${idx}`} fill={entry.flow >= 0 ? "#22c55e" : "#ef4444"} />
-                              ))}
-                            </Bar>
+                            {etfFlowSeries.map((s, idx) => (
+                              <Bar
+                                key={s.symbol}
+                                dataKey={s.symbol}
+                                name={s.symbol}
+                                fill={etfColors[idx % etfColors.length]}
+                                radius={[4, 4, 0, 0]}
+                                isAnimationActive
+                                opacity={0.9}
+                              />
+                            ))}
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -4197,19 +4256,26 @@ function App() {
                       <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
                     )}
                   </LazyRender>
-                  <div className="grid grid-cols-2 gap-2 text-sm text-slate-200">
-                    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Summe 7 Tage</p>
-                      <p className={`text-lg font-semibold ${sumFlows(etfFlowSeries, 7) >= 0 ? "text-emerald-300" : "text-red-300"}`}>
-                        {formatUSD(sumFlows(etfFlowSeries, 7))}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Summe 30 Tage</p>
-                      <p className={`text-lg font-semibold ${sumFlows(etfFlowSeries, 30) >= 0 ? "text-emerald-300" : "text-red-300"}`}>
-                        {formatUSD(sumFlows(etfFlowSeries, 30))}
-                      </p>
-                    </div>
+                  <div className="grid grid-cols-1 gap-2 text-sm text-slate-200">
+                    {etfFlowSeries.map((s, idx) => (
+                      <div key={s.symbol} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold" style={{ color: etfColors[idx % etfColors.length] }}>
+                            {s.symbol}
+                          </span>
+                          <span className="text-xs text-slate-400">{s.provider}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span>7d</span>
+                          <span className={`font-semibold ${s.sum7dUsd >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(s.sum7dUsd)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span>30d</span>
+                          <span className={`font-semibold ${s.sum30dUsd >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(s.sum30dUsd)}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">Updated {s.lastUpdated ? new Date(s.lastUpdated).toLocaleString() : "-"}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </Card>
