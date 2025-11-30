@@ -941,7 +941,8 @@ function App() {
     if (level === "error") console.error("[log]", payload);
     else if (level === "warn") console.warn("[log]", payload);
     else console.log("[log]", payload);
-    if (level === "error" || level === "warn") {
+    const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
+    if (!isEtfService && (level === "error" || level === "warn")) {
       addToast(`${source}: ${message || level}`, level === "warn" ? "warn" : "error");
     }
   };
@@ -950,8 +951,9 @@ function App() {
     setApiHealth((prev) => {
       const prevStatus = prev[source]?.status || "ok";
       const next = { ...prev, [source]: { status, ts: Date.now(), message }, lastUpdated: Date.now() };
+      const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
       if ((prevStatus === "error" || prevStatus === "degraded" || prevStatus === "fallback") && status === "ok") {
-        addToast(`${source} wiederhergestellt`, "info");
+        if (!isEtfService) addToast(`${source} wiederhergestellt`, "info");
       } else if (status === "error" || status === "degraded" || status === "fallback") {
         logEvent(source, status === "error" ? "error" : "warn", message || "API issue");
       }
