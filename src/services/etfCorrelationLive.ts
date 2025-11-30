@@ -1,4 +1,4 @@
-import { safeFetch } from "../lib/safeFetch";
+﻿import { safeFetch } from "../lib/safeFetch";
 
 export type CorrelationPoint = {
   pair: string;
@@ -18,6 +18,17 @@ type ToastFn = (msg: string, type?: string) => void;
 const CG = (id: string) => `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30`;
 const CC = (sym: string) => `https://min-api.cryptocompare.com/data/v2/histoday?fsym=${sym}&tsym=USD&limit=30`;
 const AV = (sym: string) => `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${sym}&apikey=demo`;
+const TOAST_COOLDOWN_MS = 2 * 60 * 1000;
+const lastToastTs = new Map<string, number>();
+
+const maybeToast = (key: string, onToast?: ToastFn, message?: string, type: string = "info") => {
+  if (!onToast || !message) return;
+  const now = Date.now();
+  const last = lastToastTs.get(key) || 0;
+  if (now - last < TOAST_COOLDOWN_MS) return;
+  lastToastTs.set(key, now);
+  onToast(message, type);
+};
 
 const SOURCES: Record<
   string,
@@ -131,7 +142,7 @@ export async function fetchEtfCorrelationsLive(onHealthUpdate?: HealthFn, onToas
   } catch (err: any) {
     onHealthUpdate?.("ETF_CORR_PRIMARY", "degraded", err?.message);
     onHealthUpdate?.("ETF_CORR_FALLBACK", "degraded", err?.message);
-    onToast?.("ETF-Korrelationen live: Daten derzeit nicht verfügbar", "warn");
+    maybeToast("ETF_CORR_PRIMARY", onToast, "ETF-Korrelationen live: Daten derzeit nicht verfuegbar", "warn");
     return { data: [], lastUpdated: new Date().toISOString(), error: "unavailable" };
   }
 }

@@ -1,4 +1,4 @@
-import { safeFetch } from "../lib/safeFetch";
+﻿import { safeFetch } from "../lib/safeFetch";
 
 export type LiveFlowPoint = { date: string; netFlowUsd: number; aumUsd?: number };
 export type LiveFlowSeries = {
@@ -17,6 +17,17 @@ const FMP_BASE = "https://financialmodelingprep.com/api";
 const FMP_KEY = import.meta.env.VITE_FMP_KEY;
 const SOSO_BASE = "https://sosovalue.com/api/v1";
 const COINSTATS_BASE = "https://api.coinstats.app/public/v1";
+const TOAST_COOLDOWN_MS = 2 * 60 * 1000;
+const lastToastTs = new Map<string, number>();
+
+const maybeToast = (key: string, onToast?: ToastFn, message?: string, type: string = "info") => {
+  if (!onToast || !message) return;
+  const now = Date.now();
+  const last = lastToastTs.get(key) || 0;
+  if (now - last < TOAST_COOLDOWN_MS) return;
+  lastToastTs.set(key, now);
+  onToast(message, type);
+};
 
 const dateKey = (d: string | Date) => new Date(d).toISOString().slice(0, 10);
 const lastNDates = (n: number) => {
@@ -113,19 +124,19 @@ async function loadSeries(symbol: string, onHealthUpdate?: HealthFn, onToast?: T
     return { points: flows, provider: "FMP" };
   } catch (err: any) {
     onHealthUpdate?.("ETF_FLOWS_FMP", "degraded", err?.message);
-    onToast?.(`ETF Flows: FMP Fallback aktiv (${symbol})`, "warn");
+    maybeToast("ETF_FLOWS_FMP", onToast, `ETF Flows: FMP Fallback aktiv (${symbol})`);
     try {
       const soso = await fetchSosoFlows(symbol, onHealthUpdate);
       return { points: soso, provider: "SosoValue" };
     } catch (err2: any) {
       onHealthUpdate?.("ETF_FLOWS_SOSO", "degraded", err2?.message);
-      onToast?.(`ETF Flows: SosoValue Fallback aktiv (${symbol})`, "warn");
+      maybeToast("ETF_FLOWS_SOSO", onToast, `ETF Flows: SosoValue Fallback aktiv (${symbol})`);
       try {
         const cs = await fetchCoinstatsFlows(symbol, onHealthUpdate);
         return { points: cs, provider: "CoinStats" };
       } catch (err3: any) {
         onHealthUpdate?.("ETF_FLOWS_COINSTATS", "degraded", err3?.message);
-        onToast?.(`ETF Flows: Daten derzeit nicht verfügbar (${symbol})`, "warn");
+        maybeToast("ETF_FLOWS_COINSTATS", onToast, `ETF Flows: Daten derzeit nicht verfuegbar (${symbol})`, "warn");
         return { points: [], provider: "unavailable" };
       }
     }
