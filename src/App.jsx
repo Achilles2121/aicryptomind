@@ -40,6 +40,8 @@ import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
 import { fetchEtfFlowSeries } from "./services/etfFlows";
+import EtfHoldingsCard from "./components/etf/EtfHoldingsCard";
+import { fetchEtfHoldings } from "./services/etfHoldings";
 import { safeFetch } from "./lib/safeFetch";
 import {
   calculateEMA,
@@ -846,6 +848,10 @@ function App() {
   const [etfAumError, setEtfAumError] = useState("");
   const [etfAumLoading, setEtfAumLoading] = useState(false);
   const [etfLastUpdated, setEtfLastUpdated] = useState(null);
+  const [etfHoldings, setEtfHoldings] = useState([]);
+  const [etfHoldingsError, setEtfHoldingsError] = useState("");
+  const [etfHoldingsLoading, setEtfHoldingsLoading] = useState(false);
+  const [etfHoldingsLastUpdated, setEtfHoldingsLastUpdated] = useState("");
   const [journalEntries, setJournalEntries] = useState([]);
   const [journalForm, setJournalForm] = useState({ date: "", mood: "Neutral", note: "" });
   const [lang, setLang] = useState("de");
@@ -1241,6 +1247,32 @@ function App() {
     }
   };
 
+  const loadEtfHoldingsData = async (symbols = etfSelection) => {
+    if (!symbols?.length) {
+      setEtfHoldings([]);
+      return;
+    }
+    setEtfHoldingsLoading(true);
+    try {
+      const data = await fetchEtfHoldings(symbols, {
+        onHealthUpdate: updateApiHealth,
+        onLog: logEvent,
+        onToast: addToast,
+      });
+      setEtfHoldings(data);
+      setEtfHoldingsError("");
+      setEtfHoldingsLastUpdated(new Date().toISOString());
+      updateApiHealth("etfHoldingsFmp", data.length ? "ok" : "degraded");
+    } catch (err) {
+      console.error("ETF holdings failed", err);
+      setEtfHoldings([]);
+      setEtfHoldingsError("Daten derzeit nicht verfügbar");
+      updateApiHealth("etfHoldingsFmp", "error", err.message);
+    } finally {
+      setEtfHoldingsLoading(false);
+    }
+  };
+
   const apiCheckers = [
     {
       key: "defillama",
@@ -1368,6 +1400,13 @@ function App() {
     const ETF_REFRESH = 240000;
     loadEtfFlowData(etfSelection);
     const timer = setInterval(() => loadEtfFlowData(etfSelection), ETF_REFRESH);
+    return () => clearInterval(timer);
+  }, [etfSelection]);
+
+  useEffect(() => {
+    const HOLDING_REFRESH = 300000;
+    loadEtfHoldingsData(etfSelection);
+    const timer = setInterval(() => loadEtfHoldingsData(etfSelection), HOLDING_REFRESH);
     return () => clearInterval(timer);
   }, [etfSelection]);
 
@@ -1777,10 +1816,10 @@ function App() {
     { label: "Bollinger", value: "20 / 2 std", intent: "neutral" },
   ];
 
-const healthColor = (status) =>
-  status === "ok" ? "text-emerald-300" : status === "degraded" || status === "fallback" ? "text-amber-300" : "text-red-300";
+  const healthColor = (status) =>
+    status === "ok" ? "text-emerald-300" : status === "degraded" || status === "fallback" ? "text-amber-300" : "text-red-300";
 
-const ETF_SYMBOLS = ["IBIT", "FBTC", "ARKB", "BTCO", "BITB", "HODL"];
+  const ETF_SYMBOLS = ["IBIT", "FBTC", "ARKB", "BTCO", "BITB", "HODL"];
 
 const buildEtfChartData = (seriesList = []) => {
   const map = {};
@@ -3455,12 +3494,18 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           </Card>
         </div>
         <div className="mt-4">
-          <Card title="ETF Zuflüsse" icon={TrendingUp}>
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {ETF_SYMBOLS.map((sym, idx) => {
-                  const active = etfSelection.includes(sym);
-                  return (
+              <Card title="ETF Zuflüsse" icon={TrendingUp}>
+                <div className="space-y-3">
+                  <EtfHoldingsCard
+                    holdings={etfHoldings}
+                    loading={etfHoldingsLoading}
+                    error={etfHoldingsError}
+                    lastUpdated={etfHoldingsLastUpdated}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {ETF_SYMBOLS.map((sym, idx) => {
+                      const active = etfSelection.includes(sym);
+                      return (
                     <button
                       key={sym}
                       onClick={() =>
@@ -4197,6 +4242,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
               <Card title="ETF Zuflüsse" icon={TrendingUp}>
                 <div className="space-y-3">
+                  <EtfHoldingsCard
+                    holdings={etfHoldings}
+                    loading={etfHoldingsLoading}
+                    error={etfHoldingsError}
+                    lastUpdated={etfHoldingsLastUpdated}
+                  />
                   <div className="flex flex-wrap items-center gap-2">
                     {ETF_SYMBOLS.map((sym, idx) => {
                       const active = etfSelection.includes(sym);
