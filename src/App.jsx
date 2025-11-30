@@ -37,6 +37,7 @@ import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
+import { safeFetch } from "./lib/safeFetch";
 import {
   calculateEMA,
   calculateRSISeries,
@@ -154,11 +155,16 @@ const formatPercent = (value) =>
 const clampNumber = (value, fallback = null) => (Number.isFinite(value) ? value : fallback);
 
 const cryptoDataService = {
-  async fetchOnChainMetrics() {
+  async fetchOnChainMetrics(onHealthUpdate, onLog, onToast) {
     try {
-      const res = await fetch("https://api.glassnode.com/v1/metrics/addresses/active_count?a=BTC&i=24h");
-      if (!res.ok) throw new Error("glassnode failed");
-      const data = await res.json();
+      const data = await safeFetch("https://api.glassnode.com/v1/metrics/addresses/active_count?a=BTC&i=24h", {
+        serviceName: "glassnode",
+        timeoutMs: 9000,
+        retries: 1,
+        onHealthUpdate,
+        onLog,
+        onToast,
+      });
       const last = Array.isArray(data) ? data.at(-1) : null;
       return {
         active: last?.v ?? null,
@@ -168,28 +174,40 @@ const cryptoDataService = {
       };
     } catch (err) {
       console.error("on-chain fallback", err);
+      onHealthUpdate?.("glassnode", "degraded", err.message);
       return { active: 125000, supplyWhales: 0.6, supplyRetail: 0.4, updatedAt: Date.now() };
     }
   },
-  async fetchSentiment() {
+  async fetchSentiment(onHealthUpdate, onLog, onToast) {
     try {
-      const res = await fetch("https://min-api.cryptocompare.com/data/social/coin/latest?fsym=BTC");
-      if (!res.ok) throw new Error("sentiment failed");
-      const data = await res.json();
+      const data = await safeFetch("https://min-api.cryptocompare.com/data/social/coin/latest?fsym=BTC", {
+        serviceName: "santiment",
+        timeoutMs: 8000,
+        retries: 1,
+        onHealthUpdate,
+        onLog,
+        onToast,
+      });
       const score = data?.Data?.General?.SocialScore ?? null;
       return { score, label: "Social Score", updatedAt: Date.now() };
     } catch (err) {
       console.error("sentiment fallback", err);
+      onHealthUpdate?.("santiment", "degraded", err.message);
       return { score: 68, label: "Social Score", updatedAt: Date.now() };
     }
   },
-  async fetchCorrelation(ids = ["bitcoin", "ethereum", "solana", "ripple"]) {
+  async fetchCorrelation(ids = ["bitcoin", "ethereum", "solana", "ripple"], onHealthUpdate, onLog, onToast) {
     try {
       const series = await Promise.all(
         ids.map(async (id) => {
-          const res = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=3&interval=hourly`);
-          if (!res.ok) throw new Error("coingecko failed");
-          const data = await res.json();
+          const data = await safeFetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=3&interval=hourly`, {
+            serviceName: "coingecko",
+            timeoutMs: 9000,
+            retries: 1,
+            onHealthUpdate,
+            onLog,
+            onToast,
+          });
           const prices = data?.prices?.map((p) => p[1]) ?? [];
           return { id, prices };
         })
@@ -204,6 +222,7 @@ const cryptoDataService = {
       return matrix;
     } catch (err) {
       console.error("correlation fallback", err);
+      onHealthUpdate?.("coingecko", "degraded", err.message);
       return [
         { pair: "bitcoin-bitcoin", value: 1 },
         { pair: "bitcoin-ethereum", value: 0.76 },
@@ -218,19 +237,25 @@ const cryptoDataService = {
       ];
     }
   },
-  async fetchFundingRates(symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]) {
+  async fetchFundingRates(symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"], onHealthUpdate, onLog, onToast) {
     try {
       const res = await Promise.all(
         symbols.map(async (sym) => {
-          const r = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym}`);
-          if (!r.ok) throw new Error("funding failed");
-          const d = await r.json();
+          const d = await safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym}`, {
+            serviceName: "binance",
+            timeoutMs: 8000,
+            retries: 1,
+            onHealthUpdate,
+            onLog,
+            onToast,
+          });
           return { symbol: sym, rate: Number(d.lastFundingRate), mark: Number(d.markPrice) };
         })
       );
       return res;
     } catch (err) {
       console.error("funding fallback", err);
+      onHealthUpdate?.("binance", "degraded", err.message);
       return [
         { symbol: "BTCUSDT", rate: 0.00021, mark: priceState.value || null },
         { symbol: "ETHUSDT", rate: 0.00015, mark: null },
@@ -834,9 +859,13 @@ function App() {
     binance: { status: "ok", ts: Date.now() },
     glassnode: { status: "ok", ts: Date.now() },
     santiment: { status: "ok", ts: Date.now() },
+    etfNews: { status: "ok", ts: Date.now() },
+    etfFlows: { status: "ok", ts: Date.now() },
+    lastUpdated: Date.now(),
   });
   const [toasts, setToasts] = useState([]);
   const toastTimers = useRef({});
+  const toastRecent = useRef(new Map());
   const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
   const [blink, setBlink] = useState(true);
   const { tier: contextTier, loading: tierLoading } = useUserTier();
@@ -859,8 +888,16 @@ function App() {
   };
 
   const addToast = (message, type = "error") => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setToasts((prev) => [{ id, message, type }, ...prev].slice(0, 6));
+    const now = Date.now();
+    const key = `${type}:${message}`;
+    const last = toastRecent.current.get(key);
+    if (last && now - last < 12000) return;
+    toastRecent.current.set(key, now);
+    const id = `${now}-${Math.random().toString(16).slice(2)}`;
+    setToasts((prev) => {
+      const next = [{ id, message, type }, ...prev];
+      return next.slice(0, 3);
+    });
     toastTimers.current[id] = setTimeout(() => removeToast(id), 5200);
   };
 
@@ -882,12 +919,16 @@ function App() {
   };
 
   const updateApiHealth = (source, status, message = "") => {
-    setApiHealth((prev) => ({ ...prev, [source]: { status, ts: Date.now(), message } }));
-    if (status === "fail") {
-      logEvent(source, "error", message || "API failure");
-    } else if (status === "warn") {
-      logEvent(source, "warn", message || "API warning");
-    }
+    setApiHealth((prev) => {
+      const prevStatus = prev[source]?.status || "ok";
+      const next = { ...prev, [source]: { status, ts: Date.now(), message }, lastUpdated: Date.now() };
+      if ((prevStatus === "error" || prevStatus === "degraded" || prevStatus === "fallback") && status === "ok") {
+        addToast(`${source} wiederhergestellt`, "info");
+      } else if (status === "error" || status === "degraded" || status === "fallback") {
+        logEvent(source, status === "error" ? "error" : "warn", message || "API issue");
+      }
+      return next;
+    });
   };
 
   const cacheRef = useRef(new Map());
@@ -932,51 +973,59 @@ function App() {
   };
 
   const fetchCoinGeckoPrice = async (assetId) => {
-    try {
-      const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${assetId}&vs_currencies=usd&include_24hr_change=true`);
-      if (!res.ok) throw new Error("CoinGecko failed");
-      const data = await res.json();
-      const price = data?.[assetId]?.usd;
-      const change = data?.[assetId]?.usd_24h_change;
-      if (price === undefined) throw new Error("CoinGecko malformed");
-      return { price, change, source: "CoinGecko" };
-    } catch (err) {
-      console.warn("CoinGecko fallback", err);
-      return { price: priceState.value ?? null, change: priceState.change24h ?? null, source: "CoinGecko-fallback" };
-    }
+    const data = await safeFetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${assetId}&vs_currencies=usd&include_24hr_change=true`,
+      {
+        serviceName: "coingecko",
+        timeoutMs: 8000,
+        retries: 1,
+        onHealthUpdate: updateApiHealth,
+        onLog: logEvent,
+        onToast: addToast,
+      }
+    );
+    const price = data?.[assetId]?.usd;
+    const change = data?.[assetId]?.usd_24h_change;
+    if (price === undefined) throw new Error("CoinGecko malformed");
+    return { price, change, source: "CoinGecko" };
   };
 
   const fetchCryptoComparePrice = async (fsym) => {
-    try {
-      const res = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=${fsym}&tsyms=USD`);
-      if (!res.ok) throw new Error("CryptoCompare failed");
-      const data = await res.json();
-      if (!data?.USD) throw new Error("CryptoCompare malformed");
-      return { price: data.USD, change: null, source: "CryptoCompare" };
-    } catch (err) {
-      console.warn("CryptoCompare fallback", err);
-      return { price: priceState.value ?? null, change: null, source: "CryptoCompare-fallback" };
-    }
+    const data = await safeFetch(`https://min-api.cryptocompare.com/data/price?fsym=${fsym}&tsyms=USD`, {
+      serviceName: "cryptocompare",
+      timeoutMs: 8000,
+      retries: 1,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      onToast: addToast,
+    });
+    if (!data?.USD) throw new Error("CryptoCompare malformed");
+    return { price: data.USD, change: null, source: "CryptoCompare" };
   };
 
   const fetchFearGreed = async () => {
-    try {
-      const res = await fetch("https://api.alternative.me/fng/?limit=1");
-      if (!res.ok) throw new Error("Fear & Greed failed");
-      const data = await res.json();
-      const item = data?.data?.[0];
-      if (!item) throw new Error("Fear & Greed malformed");
-      return { value: Number(item.value), classification: item.value_classification, updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now() };
-    } catch (err) {
-      console.warn("Fear & Greed fallback", err);
-      return { value: fearGreed?.value ?? 50, classification: fearGreed?.classification ?? "Neutral", updatedAt: Date.now() };
-    }
+    const data = await safeFetch("https://api.alternative.me/fng/?limit=1", {
+      serviceName: "coingecko",
+      timeoutMs: 8000,
+      retries: 1,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      onToast: addToast,
+    });
+    const item = data?.data?.[0];
+    if (!item) throw new Error("Fear & Greed malformed");
+    return { value: Number(item.value), classification: item.value_classification, updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now() };
   };
 
   const fetchKrakenOHLCV = async (pair, interval = 60) => {
-    const res = await fetch(`https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${interval}`);
-    if (!res.ok) throw new Error("Kraken OHLC failed");
-    const data = await res.json();
+    const data = await safeFetch(`https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${interval}`, {
+      serviceName: "kraken",
+      timeoutMs: 9000,
+      retries: 1,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      onToast: addToast,
+    });
     const key = Object.keys(data?.result || {}).find((k) => k !== "last");
     const series = data?.result?.[key] || [];
     return series.slice(-60).map((row) => {
@@ -1002,7 +1051,7 @@ function App() {
       updateApiHealth("coingecko", "ok");
     } catch (err) {
       console.error("Price primary failed", err);
-      updateApiHealth("coingecko", "fail", err.message);
+      updateApiHealth("coingecko", "error", err.message);
       try {
         const fallback = await fetchWithCache(`price:cryptocompare:${asset.cc}`, () => fetchCryptoComparePrice(asset.cc));
         setPriceState({ value: fallback.price, change24h: fallback.change, source: fallback.source, updatedAt: Date.now() });
@@ -1013,7 +1062,7 @@ function App() {
         console.error("Price fallback failed", err2);
         setLastError(t("fetchFailPrice"));
         setPriceState({ value: null, change24h: null, source: priceState.source, updatedAt: null });
-        updateApiHealth("cryptocompare", "fail", err2.message);
+        updateApiHealth("cryptocompare", "error", err2.message);
         logEvent("price", "error", t("fetchFailPrice"));
       }
     }
@@ -1032,7 +1081,7 @@ function App() {
     } catch (err) {
       console.error("Fear & Greed failed", err);
       setLastError((prev) => prev || t("fetchFailFearGreed"));
-      updateApiHealth("coingecko", "warn", t("fetchFailFearGreed"));
+      updateApiHealth("coingecko", "degraded", t("fetchFailFearGreed"));
       logEvent("fearGreed", "warn", t("fetchFailFearGreed"));
     }
   };
@@ -1045,15 +1094,20 @@ function App() {
     } catch (err) {
       console.error("Kraken OHLC failed", err);
       setLastError((prev) => prev || t("fetchFailOHLC"));
-      updateApiHealth("kraken", "fail", err.message);
+      updateApiHealth("kraken", "error", err.message);
       logEvent("kraken", "error", t("fetchFailOHLC"));
     }
   };
 
   const fetchEtfNews = async () => {
-    const res = await fetch("https://api.coinstats.app/public/v1/news?skip=0&limit=15");
-    if (!res.ok) throw new Error("ETF News failed");
-    const data = await res.json();
+    const data = await safeFetch("https://api.coinstats.app/public/v1/news?skip=0&limit=15", {
+      serviceName: "etfNews",
+      timeoutMs: 8000,
+      retries: 1,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      onToast: addToast,
+    });
     const raw = data?.news || data?.result || [];
     const normalized = raw
       .map((n) => ({
@@ -1094,9 +1148,14 @@ function App() {
   };
 
   const fetchFmpNews = async () => {
-    const res = await fetch("https://financialmodelingprep.com/api/v3/stock_news?limit=50&apikey=demo");
-    if (!res.ok) throw new Error("FMP News failed");
-    const data = await res.json();
+    const data = await safeFetch("https://financialmodelingprep.com/api/v3/stock_news?limit=50&apikey=demo", {
+      serviceName: "etfNews",
+      timeoutMs: 8000,
+      retries: 1,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      onToast: addToast,
+    });
     const list = (data || [])
       .map((n) => ({
         title: n.title || "Untitled",
@@ -1111,9 +1170,14 @@ function App() {
   };
 
   const fetchEtfFlows = async () => {
-    const res = await fetch("https://sosovalue.com/api/v1/etf/flow");
-    if (!res.ok) throw new Error("ETF Flows failed");
-    const data = await res.json();
+    const data = await safeFetch("https://sosovalue.com/api/v1/etf/flow", {
+      serviceName: "etfFlows",
+      timeoutMs: 8000,
+      retries: 1,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      onToast: addToast,
+    });
     const rows = data?.data || data?.result || data?.list || [];
     const normalized = rows
       .map((r) => ({
@@ -1503,7 +1567,7 @@ function App() {
         if (attempts <= 5) reconnectTimer.current = setTimeout(connect, 1500);
         else {
           setWsStatus("polling");
-          updateApiHealth("binance", "warn", "WS fallback -> polling");
+          updateApiHealth("binance", "fallback", "WS fallback -> polling");
           clearInterval(fallbackTimer.current);
           fallbackTimer.current = setInterval(loadPrice, 10000);
           if (!pollingReconnectTimer.current) {
@@ -1515,7 +1579,7 @@ function App() {
         }
       };
       ws.onerror = () => {
-        updateApiHealth("binance", "fail", "WebSocket error");
+        updateApiHealth("binance", "error", "WebSocket error");
         logEvent("websocket", "error", "WebSocket error");
         ws.close();
       };
@@ -1668,7 +1732,8 @@ function App() {
     { label: "Bollinger", value: "20 / 2 std", intent: "neutral" },
   ];
 
-  const healthColor = (status) => (status === "ok" ? "text-emerald-300" : status === "warn" ? "text-amber-300" : "text-red-300");
+  const healthColor = (status) =>
+    status === "ok" ? "text-emerald-300" : status === "degraded" || status === "fallback" ? "text-amber-300" : "text-red-300";
 
   const tpEntry = clampNumber(tpForm.entry ?? displayPrice, null);
   const tpPct = clampNumber(tpForm.tpPct, null);
@@ -1805,10 +1870,10 @@ function App() {
     let mounted = true;
     (async () => {
       const [onchain, sentiment, corr, funding] = await Promise.all([
-        cryptoDataService.fetchOnChainMetrics(),
-        cryptoDataService.fetchSentiment(),
-        cryptoDataService.fetchCorrelation(["bitcoin", "ethereum", "solana", "ripple"]),
-        cryptoDataService.fetchFundingRates(["BTCUSDT", "ETHUSDT", "SOLUSDT"]),
+        cryptoDataService.fetchOnChainMetrics(updateApiHealth, logEvent, addToast),
+        cryptoDataService.fetchSentiment(updateApiHealth, logEvent, addToast),
+        cryptoDataService.fetchCorrelation(["bitcoin", "ethereum", "solana", "ripple"], updateApiHealth, logEvent, addToast),
+        cryptoDataService.fetchFundingRates(["BTCUSDT", "ETHUSDT", "SOLUSDT"], updateApiHealth, logEvent, addToast),
       ]);
       if (!mounted) return;
       setOnChainMetrics(onchain);
@@ -1951,10 +2016,16 @@ function App() {
             <div
               key={t.id}
               className={`flex items-start gap-3 rounded-xl border px-3 py-2 shadow-lg ${
-                t.type === "warn" ? "border-amber-500/50 bg-amber-500/10 text-amber-50" : "border-red-500/50 bg-red-500/10 text-red-50"
+                t.type === "warn"
+                  ? "border-amber-500/50 bg-amber-500/10 text-amber-50"
+                  : t.type === "info"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-50"
+                  : "border-red-500/50 bg-red-500/10 text-red-50"
               }`}
             >
-              <span className="text-xs font-semibold uppercase tracking-wide">{t.type === "warn" ? "Warn" : "Error"}</span>
+              <span className="text-xs font-semibold uppercase tracking-wide">
+                {t.type === "warn" ? "Warn" : t.type === "info" ? "Info" : "Error"}
+              </span>
               <p className="text-sm leading-snug">{t.message}</p>
               <button onClick={() => removeToast(t.id)} className="text-xs text-slate-200/80 hover:text-white ml-auto">
                 ×
@@ -2759,12 +2830,14 @@ function App() {
                   <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
                 </div>
                 <div className="pt-2 space-y-1 text-xs">
-                  {Object.entries(apiHealth).map(([key, val]) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <span className="uppercase text-slate-400">{key}</span>
-                      <span className={`font-semibold ${healthColor(val.status)}`}>{val.status}</span>
-                    </div>
-                  ))}
+                  {Object.entries(apiHealth)
+                    .filter(([, val]) => val && typeof val === "object" && "status" in val)
+                    .map(([key, val]) => (
+                      <div key={key} className="flex items-center justify-between">
+                        <span className="uppercase text-slate-400">{key}</span>
+                        <span className={`font-semibold ${healthColor(val.status)}`}>{val.status}</span>
+                      </div>
+                    ))}
                 </div>
               </div>
             </Card>
@@ -3635,12 +3708,14 @@ function App() {
                   <span className="text-xs text-slate-400">{lastError || t("systemNone")}</span>
                 </div>
                 <div className="pt-2 space-y-1 text-xs">
-                  {Object.entries(apiHealth).map(([key, val]) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <span className="uppercase text-slate-400">{key}</span>
-                      <span className={`font-semibold ${healthColor(val.status)}`}>{val.status}</span>
-                    </div>
-                  ))}
+                  {Object.entries(apiHealth)
+                    .filter(([, val]) => val && typeof val === "object" && "status" in val)
+                    .map(([key, val]) => (
+                      <div key={key} className="flex items-center justify-between">
+                        <span className="uppercase text-slate-400">{key}</span>
+                        <span className={`font-semibold ${healthColor(val.status)}`}>{val.status}</span>
+                      </div>
+                    ))}
                 </div>
               </div>
             </Card>
