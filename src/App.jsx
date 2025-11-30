@@ -4149,6 +4149,71 @@ function App() {
                 </section>
               </Paywall>
 
+              <Card title="ETF Zuflüsse" icon={TrendingUp}>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={etfSymbol}
+                      onChange={(e) => setEtfSymbol(e.target.value)}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                    >
+                      {["IBIT", "FBTC", "ARKB", "BTCO", "BITB", "HODL"].map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                    {etfAumLoading ? <span className="text-xs text-slate-400">Lade...</span> : null}
+                    {etfAumError ? <span className="text-xs text-amber-300">{etfAumError}</span> : null}
+                  </div>
+                  <LazyRender
+                    placeholder={
+                      <div className="h-64 flex items-center justify-center">
+                        <Skeleton className="h-56 w-full" />
+                      </div>
+                    }
+                  >
+                    {etfFlowSeries.length ? (
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={etfFlowSeries.slice(-30)}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                            <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                            <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => `${v >= 0 ? "+" : ""}${(v / 1_000_000).toFixed(1)}M`} />
+                            <Tooltip
+                              contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }}
+                              labelStyle={{ color: "#e2e8f0" }}
+                              formatter={(val) => `${Number(val) >= 0 ? "+" : ""}${Number(val).toLocaleString()}`}
+                            />
+                            <Bar dataKey="flow" fill="#22c55e" radius={[4, 4, 0, 0]} isAnimationActive opacity={0.85}>
+                              {etfFlowSeries.slice(-30).map((entry, idx) => (
+                                <Cell key={`cell-${idx}`} fill={entry.flow >= 0 ? "#22c55e" : "#ef4444"} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
+                    )}
+                  </LazyRender>
+                  <div className="grid grid-cols-2 gap-2 text-sm text-slate-200">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Summe 7 Tage</p>
+                      <p className={`text-lg font-semibold ${sumFlows(etfFlowSeries, 7) >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+                        {formatUSD(sumFlows(etfFlowSeries, 7))}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Summe 30 Tage</p>
+                      <p className={`text-lg font-semibold ${sumFlows(etfFlowSeries, 30) >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+                        {formatUSD(sumFlows(etfFlowSeries, 30))}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
               <section
                 className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
                 aria-label="Sentiment Analysis"
