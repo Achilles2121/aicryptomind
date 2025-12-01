@@ -1,4 +1,5 @@
 import { safeFetch, AppError } from "../lib/safeFetch";
+import { getCachedUserTier } from "../firebase";
 import type { ApiHealthStatus } from "../lib/safeFetch";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
@@ -57,6 +58,20 @@ export const fetchDerivativesLive = async (
   onLog?: LogCb,
   onToast?: ToastCb
 ) => {
+  const tier = getCachedUserTier();
+  if (tier !== "pro" && tier !== "elite") {
+    onHealthUpdate?.("DERIVATIVES_PRIMARY", "degraded", "Tier required");
+    return {
+      fundingSeries: [],
+      oiSeries: [],
+      fundingZ: 0,
+      oiZ: 0,
+      composite: 0,
+      score: 0.5,
+      riskLevel: "neutral",
+      updatedAt: Date.now(),
+    };
+  }
   try {
     const [fundingRaw, oiRaw] = await Promise.all([
       fetchMetric("DERIVATIVES_FUNDING_RATE_CURRENT", symbolId, onHealthUpdate, onLog, onToast),

@@ -31,9 +31,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { auth, db } from "./firebase";
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, login as fbLogin, signup as fbSignup, logout as fbLogout, saveUserTier } from "./firebase";
 import { useUserTier } from "./context/UserTierContext";
 import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
@@ -64,6 +62,7 @@ import {
 } from "./lib/indicators";
 import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
+import useAuthStatus from "./lib/useAuthStatus";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const POLL_INTERVAL = 30 * 1000; // 30 seconds
@@ -1161,6 +1160,11 @@ function App() {
   const resolveCoinApiSymbol = (cc) => `KRAKEN_SPOT_${(cc || "").toUpperCase()}_USD`;
 
   const loadHTF = async () => {
+    if (userTier !== "pro" && userTier !== "elite") {
+      setHtfOhlcv({ h4: [], d1: [] });
+      updateApiHealth("MARKET_HTF_PRIMARY", "degraded", "Tier required");
+      return;
+    }
     try {
       const symbolId = resolveCoinApiSymbol(asset.cc);
       const data = await fetchWithCache(`htf:${asset.kraken}:${symbolId}`, () =>
@@ -1179,6 +1183,11 @@ function App() {
   const resolveDerivativesSymbol = (cc) => `DERIBIT_PERPETUAL_${(cc || "").toUpperCase()}_USD`;
 
   const loadDerivatives = async () => {
+    if (userTier !== "pro" && userTier !== "elite") {
+      setDerivativesRisk({ score: null, riskLevel: "neutral", updatedAt: null });
+      updateApiHealth("DERIVATIVES_PRIMARY", "degraded", "Tier required");
+      return;
+    }
     try {
       const symbolId = resolveDerivativesSymbol(asset.cc);
       const res = await fetchWithCache(`derivatives:${symbolId}`, () =>
@@ -1564,55 +1573,57 @@ function App() {
   }, [consentGeo]);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUserEmail(user.email || t("demoUser"));
-        if (user.email === "oemeralpay@hotmail.com") {
-          setUserTier("elite");
-          return;
-        }
-        const trial = localStorage.getItem(`trial:${user.uid}`);
-        if (trial && Number(trial) > Date.now()) setUserTier("elite");
-        else {
-          try {
-            const snap = await getDoc(doc(db, "userTiers", user.uid));
-            if (snap.exists()) setUserTier(snap.data().tier || "basic");
-            else setUserTier(localStorage.getItem(`tier:${user.uid}`) || "basic");
-          } catch {
-            setUserTier(localStorage.getItem(`tier:${user.uid}`) || "basic");
-          }
-        }
+    if (authUser) {
+      setUserEmail(authUser.email || t("demoUser"));
+      const trial = localStorage.getItem(`trial:${authUser.uid}`);
+      if (authUser.email === "oemeralpay@hotmail.com") {
+        setUserTier("elite");
+      } else if (trial && Number(trial) > Date.now()) {
+        setUserTier("elite");
       } else {
-        setUserEmail("");
-        setUserTier("basic");
+        setUserTier(authTier || "basic");
       }
-    });
-    return () => unsub();
-  }, [lang]);
+    } else {
+      setUserEmail("");
+      setUserTier("basic");
+    }
+  }, [authUser, authTier, lang, t]);
 
   const handleSignin = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     setAuthError("");
+    if (!auth) {
+      setAuthError("Firebase nicht konfiguriert");
+      return;
+    }
     try {
-      await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+      await fbLogin(authForm.email, authForm.password);
     } catch (err) {
-      setAuthError(err?.message || "Login failed");
+      setAuthError(err?.message || "Login fehlgeschlagen");
     }
   };
 
   const handleSignup = async () => {
     setAuthError("");
+    if (!auth) {
+      setAuthError("Firebase nicht konfiguriert");
+      return;
+    }
     try {
-      await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
+      await fbSignup(authForm.email, authForm.password);
     } catch (err) {
-      setAuthError(err?.message || "Signup failed");
+      setAuthError(err?.message || "Signup fehlgeschlagen");
     }
   };
 
   const handleLogout = async () => {
     setAuthError("");
+    if (!auth) {
+      setAuthError("Firebase nicht konfiguriert");
+      return;
+    }
     try {
-      await signOut(auth);
+      await fbLogout();
     } catch (err) {
       setAuthError(err?.message || "Logout failed");
     }
@@ -1628,7 +1639,7 @@ function App() {
   const persistTier = async (tier) => {
     if (auth.currentUser) {
       try {
-        await setDoc(doc(db, "userTiers", auth.currentUser.uid), { tier }, { merge: true });
+        await saveUserTier(auth.currentUser.uid, tier);
         localStorage.setItem(`tier:${auth.currentUser.uid}`, tier);
         setSaveTierMessage(t("tierSaved"));
         setTimeout(() => setSaveTierMessage(""), 1200);
@@ -2039,6 +2050,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   const [correlations, setCorrelations] = useState([]);
   const [fundingRates, setFundingRates] = useState([]);
   const [derivativesRisk, setDerivativesRisk] = useState({ score: null, riskLevel: "neutral", updatedAt: null });
+  const { user: authUser, loading: authLoading, tier: authTier } = useAuthStatus();
 
   useEffect(() => {
     let mounted = true;

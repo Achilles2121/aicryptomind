@@ -1,4 +1,5 @@
 import { safeFetch, AppError } from "../lib/safeFetch";
+import { getCachedUserTier } from "../firebase";
 import type { ApiHealthStatus } from "../lib/safeFetch";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
@@ -84,6 +85,11 @@ export const fetchHtfOhlc = async (
   onLog?: LogCb,
   onToast?: ToastCb
 ) => {
+  const tier = getCachedUserTier();
+  if (tier !== "pro" && tier !== "elite") {
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", "degraded", "Tier required");
+    return { h4: [], d1: [] };
+  }
   try {
     const h4 = await fetchKrakenHtf(pair, 240, onHealthUpdate, onLog, onToast);
     const d1 = await fetchKrakenHtf(pair, 1440, onHealthUpdate, onLog, onToast);
