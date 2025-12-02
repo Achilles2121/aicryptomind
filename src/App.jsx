@@ -278,7 +278,7 @@ const cryptoDataService = {
       console.error("funding fallback", err);
       onHealthUpdate?.("binance", "degraded", err.message);
       return [
-        { symbol: "BTCUSDT", rate: 0.00021, mark: priceState.value || null },
+        { symbol: "BTCUSDT", rate: 0.00021, mark: null },
         { symbol: "ETHUSDT", rate: 0.00015, mark: null },
         { symbol: "SOLUSDT", rate: -0.0004, mark: null },
       ];
