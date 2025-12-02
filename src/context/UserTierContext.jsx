@@ -1,52 +1,31 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import React, { createContext, useContext } from "react";
+import PropTypes from "prop-types";
+import useAuthStatus from "../lib/useAuthStatus";
 
-const UserTierContext = createContext();
+const defaultValue = {
+  user: null,
+  loading: true,
+  tier: "basic",
+  effectiveTier: "basic",
+  trialStart: null,
+  trialEndsAt: null,
+  trialUsed: false,
+  isTrialActive: false,
+  trialExpired: false,
+  trialRemainingMs: 0,
+  trialRemainingDays: 0,
+  refreshUserTier: () => Promise.resolve(),
+};
+
+const UserTierContext = createContext(defaultValue);
 
 export const UserTierProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [tier, setTier] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        setUser(null);
-        setTier("basic");
-        setLoading(false);
-        return;
-      }
-
-      setUser(firebaseUser);
-
-      if (firebaseUser.email === "oemeralpay@hotmail.com") {
-        setTier("elite");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const ref = doc(db, "userTiers", firebaseUser.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          setTier(snap.data().tier || "basic");
-        } else {
-          setTier("basic");
-        }
-      } catch (e) {
-        console.error("Tier load error", e);
-        setTier("basic");
-      }
-
-      setLoading(false);
-    });
-
-    return () => unsub();
-  }, []);
-
-  return <UserTierContext.Provider value={{ user, tier, loading }}>{children}</UserTierContext.Provider>;
+  const authState = useAuthStatus();
+  return <UserTierContext.Provider value={authState}>{children}</UserTierContext.Provider>;
 };
 
 export const useUserTier = () => useContext(UserTierContext);
+
+UserTierProvider.propTypes = {
+  children: PropTypes.node.isRequired,
+};

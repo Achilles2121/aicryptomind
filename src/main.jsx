@@ -1,5 +1,6 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom/client";
+import PropTypes from "prop-types";
 import App from "./App";
 import "./index.css";
 import { UserTierProvider } from "./context/UserTierContext";
@@ -37,13 +38,15 @@ class ErrorBoundary extends Component {
   }
 }
 
+ErrorBoundary.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <UserTierProvider>
-        <App />
-      </UserTierProvider>
-    </ErrorBoundary>
-  </React.StrictMode>
+  <ErrorBoundary>
+    <UserTierProvider>
+      <App />
+    </UserTierProvider>
+  </ErrorBoundary>
 );
