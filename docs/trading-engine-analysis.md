@@ -1,4 +1,4 @@
-# Vision AI Mind – Trading & ETF Dashboard (Stand Dez 2025)
+﻿# Vision AI Mind – Trading & ETF Dashboard (Stand Dez 2025)
 
 ## Aktuelle Änderungen
 
