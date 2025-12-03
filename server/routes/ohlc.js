@@ -16,18 +16,28 @@ router.get("/", async (req, res) => {
   const interval = clampNumber(req.query.interval || 60, { min: 1, max: 1440 });
   const limit = clampNumber(req.query.limit || 160, { min: 30, max: 720 });
   const cacheMs = clampNumber(req.query.cacheMs || 500, { min: 0, max: 5000 });
-  const respond = (payload, status = 200, health = []) =>
-    res.status(status).json({ ...payload, health, generatedAt: new Date().toISOString() });
+
+  const buildResponse = (tracker, { data = null, status = "ok", error = null, provider = null } = {}) => ({
+    ok: status === "ok" && !error,
+    status,
+    error,
+    data,
+    provider,
+    health: tracker?.toArray() || [],
+    generatedAt: new Date().toISOString(),
+  });
 
   try {
     const result = await withCache(`ohlc:${pair}:${binanceSymbol}:${interval}:${limit}`, cacheMs, async () => {
       const tracker = createHealthTracker();
+      const fail = (status = "upstream_error", message = "Failed to fetch OHLC") =>
+        buildResponse(tracker, { status, error: message, data: null });
 
       try {
         const kraken = await fetchKrakenOhlc(pair, interval, limit);
         if (kraken.length >= MIN_POINTS) {
           tracker.set("kraken", "ok");
-          return { payload: { data: normalizeCandles(kraken), provider: "kraken" }, status: 200, health: tracker.toArray() };
+          return buildResponse(tracker, { data: normalizeCandles(kraken), provider: "kraken" });
         }
         tracker.set("kraken", kraken.length ? "degraded" : "error", kraken.length ? "low sample" : "empty response");
       } catch (err) {
@@ -38,7 +48,7 @@ router.get("/", async (req, res) => {
         const rows = await fetchBinanceKlines(binanceSymbol, { limit, interval: mapBinanceInterval(interval) });
         if (rows.length >= MIN_POINTS) {
           tracker.set("binance", "ok");
-          return { payload: { data: normalizeCandles(rows), provider: "binance" }, status: 200, health: tracker.toArray() };
+          return buildResponse(tracker, { data: normalizeCandles(rows), provider: "binance" });
         }
         tracker.set("binance", rows.length ? "degraded" : "error", rows.length ? "low sample" : "empty response");
       } catch (err) {
@@ -52,19 +62,23 @@ router.get("/", async (req, res) => {
         const rows = await fetchCoingeckoOhlc(cgId, { days: interval >= 1440 ? 30 : 7 });
         if (rows.length >= MIN_POINTS) {
           tracker.set("coingecko", "ok");
-          return { payload: { data: normalizeCandles(rows), provider: "coingecko" }, status: 200, health: tracker.toArray() };
+          return buildResponse(tracker, { data: normalizeCandles(rows), provider: "coingecko" });
         }
         tracker.set("coingecko", rows.length ? "degraded" : "error", rows.length ? "low sample" : "empty response");
       } catch (err) {
         tracker.set("coingecko", "error", err?.message || "coingecko failed");
       }
 
-      return { payload: { error: "Failed to fetch OHLC" }, status: 502, health: tracker.toArray() };
+      return fail("upstream_error");
     });
 
-    return respond(result.payload, result.status, result.health);
+    return res.status(200).json(result);
   } catch (err) {
-    return respond({ error: err?.message || "unknown error" }, 500);
+    const tracker = createHealthTracker();
+    const status = err?.name === "AbortError" ? "timeout" : "upstream_error";
+    return res
+      .status(200)
+      .json(buildResponse(tracker, { status, error: err?.message || "unknown error", data: null }));
   }
 });
 

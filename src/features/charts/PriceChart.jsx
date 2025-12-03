@@ -12,12 +12,12 @@ import { Card } from "../../components/Card";
 import { Skeleton } from "../../components/Skeleton";
 import { ErrorMessage } from "../../components/ErrorMessage";
 import { useDataFetch } from "../../hooks/useDataFetch";
-import { api } from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/formatters";
+import { marketService } from "../../services/marketService";
 
 export function PriceChart({ symbol = "BTCUSDT" }) {
   const { data, loading, error } = useDataFetch(
-    () => api.get("/ohlc", { symbol, interval: "1h", limit: 80 }),
+    () => marketService.getOhlc(symbol, "1h", 80),
     [symbol],
     { initialData: { candles: [] }, refreshMs: 15_000 }
   );
@@ -27,12 +27,16 @@ export function PriceChart({ symbol = "BTCUSDT" }) {
       time: formatDate(candle.time),
       close: candle.close,
     })) ?? [];
+  const dataError = !error && data?.error ? data.error : null;
+  const noData = !loading && !error && !dataError && chartData.length === 0;
 
   return (
     <Card title={`${symbol} Price`}>
       {loading ? <Skeleton className="h-44 w-full" /> : null}
       {error ? <ErrorMessage message={error} /> : null}
-      {!loading && !error ? (
+      {!error && dataError ? <ErrorMessage message={dataError} /> : null}
+      {noData ? <p className="text-sm text-slate-400">Price feed temporarily unavailable</p> : null}
+      {!loading && !error && !dataError && !noData ? (
         <div className="h-52">
           <ResponsiveContainer>
             <LineChart data={chartData}>

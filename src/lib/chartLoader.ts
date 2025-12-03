@@ -25,15 +25,27 @@ const normalizeSeries = (rows: any[] = [], fallbackProvider = "proxy"): Candle[]
 
 const hasEnoughData = (series: Candle[] | null | undefined) => Array.isArray(series) && series.length >= MIN_POINTS;
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type OhlcApiResponse = {
+  ok?: boolean;
+  status?: "ok" | "upstream_error" | "timeout" | "invalid_params";
+  error?: string | null;
+  data?: Candle[] | null;
+};
+
 const fetchCandles = async (url: string, providerKey: string, options: SafeFetchOptions): Promise<Candle[]> => {
   const fetchOptions: SafeFetchOptions = {
     ...options,
     serviceName: options.serviceName ? `${options.serviceName}:${providerKey}` : providerKey,
   };
-  const response = await safeFetch<{ data?: Candle[]; error?: string } | Candle[]>(url, fetchOptions);
-  if ((response as any)?.error) throw new Error((response as any).error);
-  const rows = Array.isArray((response as any)?.data) ? (response as any).data : response;
-  const normalized = normalizeSeries(rows as any[], providerKey);
+  const response = await safeFetch<OhlcApiResponse | Candle[]>(url, fetchOptions);
+  const apiRes = response as OhlcApiResponse;
+  if (apiRes?.ok === false) {
+    throw new Error(apiRes.error || `${providerKey} ${apiRes.status || "error"}`);
+  }
+  const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(response as any) ? (response as any) : []);
+  const normalized = normalizeSeries(rows as any[], (response as any)?.provider || providerKey);
   if (!hasEnoughData(normalized)) {
     throw new Error(`${providerKey} returned insufficient data`);
   }
@@ -66,16 +78,29 @@ export async function loadChart(
       url: `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=${limit}`,
     },
   ];
-  for (const attempt of attempts) {
-    try {
-      const candles = await fetchCandles(attempt.url, attempt.key, options);
-      if (hasEnoughData(candles)) {
-        return candles;
+  // Hedge requests: start primary, then fallbacks a few hundred ms later to avoid long sequential waits.
+  const staggerMs = 350;
+  const loaders = attempts.map((attempt, idx) =>
+    delay(idx * staggerMs).then(async () => {
+      try {
+        const candles = await fetchCandles(attempt.url, attempt.key, options);
+        if (hasEnoughData(candles)) return { provider: attempt.key, candles };
+        throw new Error(`${attempt.key} returned insufficient data`);
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.warn(`[chartLoader] ${attempt.key} failed`, err);
+        }
+        throw err;
       }
-    } catch (err) {
-      if (import.meta.env.DEV) {
-        console.warn(`[chartLoader] ${attempt.key} failed`, err);
-      }
+    })
+  );
+
+  try {
+    const winner = await Promise.any(loaders);
+    return winner.candles;
+  } catch (aggregateErr) {
+    if (import.meta.env.DEV) {
+      console.warn("[chartLoader] all providers failed, using fallback", aggregateErr);
     }
   }
   // Last resort: return a synthetic fallback to keep charts rendering and avoid crashes

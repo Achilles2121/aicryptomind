@@ -1035,7 +1035,9 @@ function App() {
     const cached = cacheRef.current.get(key);
     if (cached && Date.now() - cached.time < CACHE_TTL) return cached.value;
     const value = await fetcher();
-    cacheRef.current.set(key, { value, time: Date.now() });
+    if (value !== null && value !== undefined) {
+      cacheRef.current.set(key, { value, time: Date.now() });
+    }
     return value;
   };
 
@@ -1058,8 +1060,18 @@ function App() {
       onToast: addToast,
     });
     relayProxyHealth(response?.health);
-    if (response?.error) throw new Error(response.error);
-    if (!response?.data) throw new Error("Price payload missing");
+    if (response?.ok === false) {
+      const status = response.status || "upstream_error";
+      const message = response.error || "Live price temporarily unavailable";
+      updateApiHealth("price_proxy", status === "timeout" ? "degraded" : "error", message);
+      addToast(`${message} (${status})`, "warn");
+      return null;
+    }
+    if (!response?.data) {
+      updateApiHealth("price_proxy", "degraded", "Price payload missing");
+      return null;
+    }
+    updateApiHealth("price_proxy", "ok");
     return response.data;
   };
 
@@ -1096,6 +1108,13 @@ function App() {
     try {
       const symbol = asset?.cc || asset?.label?.split(" ")?.[0] || "BTC";
       const payload = await fetchWithCache(`price:proxy:${symbol}`, () => fetchPriceProxy(symbol));
+      if (!payload) {
+        setPriceState({ value: null, change24h: null, source: "Proxy", updatedAt: null });
+        setLastError((prev) => prev || t("fetchFailPrice"));
+        updateApiHealth("price_proxy", "degraded", "No price data");
+        logEvent("price", "warn", "price proxy empty");
+        return;
+      }
       const parsedUpdatedAt = payload?.updatedAt ? Date.parse(payload.updatedAt) : Date.now();
       const safeUpdatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now();
       setPriceState({

@@ -33,6 +33,13 @@ const mapOhlcSeries = (rows: any[] = []): OhlcRow[] =>
       };
     });
 
+type OhlcApiResponse = {
+  ok?: boolean;
+  status?: "ok" | "upstream_error" | "timeout" | "invalid_params";
+  error?: string | null;
+  data?: any[] | null;
+};
+
 const fetchProxyHtf = async (
   pair: string,
   binanceSymbol: string,
@@ -42,7 +49,7 @@ const fetchProxyHtf = async (
   onToast?: ToastCb
 ) => {
   const url = `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=240`;
-  const res = await safeFetch<{ data?: any[] } | any[]>(url, {
+  const res = await safeFetch<OhlcApiResponse | any[]>(url, {
     serviceName: "MARKET_HTF_PRIMARY",
     timeoutMs: 10000,
     retries: 1,
@@ -50,7 +57,15 @@ const fetchProxyHtf = async (
     onLog,
     onToast,
   });
-  const rows = Array.isArray((res as any)?.data) ? (res as any).data : (Array.isArray(res) ? res : []);
+  const apiRes = res as OhlcApiResponse;
+  if (apiRes?.ok === false) {
+    const status = apiRes.status || "upstream_error";
+    const message = apiRes.error || "OHLC feed unavailable";
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", status === "timeout" ? "degraded" : "error", message);
+    onToast?.(status === "timeout" ? "OHLC feed timeout, retrying soon" : `OHLC feed unavailable (${status})`, "warn");
+    return [];
+  }
+  const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(res) ? res : []);
   return mapOhlcSeries(rows);
 };
 
