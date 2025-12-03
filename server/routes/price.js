@@ -16,17 +16,27 @@ router.get("/", async (req, res) => {
   const cgId = assetSources[asset]?.cg || "bitcoin";
   const binanceSymbol = assetSources[asset]?.binance || `${asset}USDT`;
 
-  const buildResponse = (tracker, { data = null, status = "ok", error = null } = {}) => {
+  const tracker = createHealthTracker();
+  const isAssetValid = /^[A-Z0-9]{2,15}$/.test(asset);
+  const isVsValid = /^[A-Z]{2,10}$/.test(vs);
+
+  const buildResponse = (healthTracker, { data = null, status = "ok", error = null, provider = null } = {}) => {
     const payload = {
       ok: status === "ok" && !error,
       status,
       error,
       data,
-      health: tracker?.toArray() || [],
+      provider,
+      health: healthTracker?.toArray() || [],
       generatedAt: new Date().toISOString(),
     };
     return payload;
   };
+
+  if (!isAssetValid || !isVsValid) {
+    const invalid = buildResponse(tracker, { status: "invalid_params", error: "Invalid asset or vs parameter", data: null });
+    return res.status(200).json(invalid);
+  }
 
   try {
     const result = await withCache(`price:${asset}:${vs}`, cacheMs, async () => {
@@ -47,10 +57,11 @@ router.get("/", async (req, res) => {
             source: "CoinGecko",
             updatedAt: new Date().toISOString(),
           };
-          return buildResponse(tracker, { data });
+          return buildResponse(tracker, { data, provider: "coingecko" });
         }
         tracker.set("coingecko", "degraded", "missing price");
       } catch (err) {
+        console.error("[price] coingecko failed", err);
         tracker.set("coingecko", "error", err?.message || "coingecko failed");
       }
 
@@ -66,10 +77,11 @@ router.get("/", async (req, res) => {
             source: "Binance",
             updatedAt: new Date().toISOString(),
           };
-          return buildResponse(tracker, { data });
+          return buildResponse(tracker, { data, provider: "binance" });
         }
         tracker.set("binance", "degraded", "missing price");
       } catch (err) {
+        console.error("[price] binance failed", err);
         tracker.set("binance", "error", err?.message || "binance failed");
       }
 
@@ -85,10 +97,11 @@ router.get("/", async (req, res) => {
             source: "CryptoCompare",
             updatedAt: new Date().toISOString(),
           };
-          return buildResponse(tracker, { data });
+          return buildResponse(tracker, { data, provider: "cryptocompare" });
         }
         tracker.set("cryptocompare", "error", "missing price");
       } catch (err) {
+        console.error("[price] cryptocompare failed", err);
         tracker.set("cryptocompare", "error", err?.message || "cryptocompare failed");
       }
 
@@ -97,6 +110,7 @@ router.get("/", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
+    console.error("[price] unexpected error", err);
     const tracker = createHealthTracker();
     const status = err?.name === "AbortError" ? "timeout" : "upstream_error";
     return res

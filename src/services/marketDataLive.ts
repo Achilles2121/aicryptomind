@@ -40,6 +40,15 @@ type OhlcApiResponse = {
   data?: any[] | null;
 };
 
+const toastCooldown = new Map<string, number>();
+const shouldToast = (key: string, cooldownMs = 180000) => {
+  const now = Date.now();
+  const last = toastCooldown.get(key) || 0;
+  if (now - last < cooldownMs) return false;
+  toastCooldown.set(key, now);
+  return true;
+};
+
 const fetchProxyHtf = async (
   pair: string,
   binanceSymbol: string,
@@ -49,24 +58,40 @@ const fetchProxyHtf = async (
   onToast?: ToastCb
 ) => {
   const url = `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=240`;
-  const res = await safeFetch<OhlcApiResponse | any[]>(url, {
-    serviceName: "MARKET_HTF_PRIMARY",
-    timeoutMs: 10000,
-    retries: 1,
-    onHealthUpdate,
-    onLog,
-    onToast,
-  });
-  const apiRes = res as OhlcApiResponse;
-  if (apiRes?.ok === false) {
-    const status = apiRes.status || "upstream_error";
-    const message = apiRes.error || "OHLC feed unavailable";
-    onHealthUpdate?.("MARKET_HTF_PRIMARY", status === "timeout" ? "degraded" : "error", message);
-    onToast?.(status === "timeout" ? "OHLC feed timeout, retrying soon" : `OHLC feed unavailable (${status})`, "warn");
+  try {
+    const res = await safeFetch<OhlcApiResponse | any[]>(url, {
+      serviceName: "MARKET_HTF_PRIMARY",
+      timeoutMs: 10000,
+      retries: 1,
+      onHealthUpdate,
+      onLog,
+      onToast,
+    });
+    const apiRes = res as OhlcApiResponse;
+    if (apiRes?.ok === false) {
+      const status = apiRes.status || "upstream_error";
+      const message = apiRes.error || "Price data temporarily unavailable";
+      const healthStatus: ApiHealthStatus = status === "timeout" ? "degraded" : "error";
+      onHealthUpdate?.("MARKET_HTF_PRIMARY", healthStatus, message);
+      if (shouldToast("MARKET_HTF_PRIMARY")) {
+        onToast?.("Price data temporarily unavailable, retrying...", "warn");
+      }
+      return [];
+    }
+    const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(res) ? res : []);
+    if (!rows.length) {
+      onHealthUpdate?.("MARKET_HTF_PRIMARY", "degraded", "Empty OHLC response");
+      return [];
+    }
+    return mapOhlcSeries(rows);
+  } catch (err: any) {
+    onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", "degraded", err?.message || "primary HTF failed");
+    if (shouldToast("MARKET_HTF_PRIMARY")) {
+      onToast?.("Price data temporarily unavailable, retrying...", "warn");
+    }
     return [];
   }
-  const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(res) ? res : []);
-  return mapOhlcSeries(rows);
 };
 
 export const fetchHtfOhlc = async (
@@ -82,13 +107,19 @@ export const fetchHtfOhlc = async (
     return { h4: [], d1: [] };
   }
   try {
-    const h4 = await fetchProxyHtf(pair, symbolId, 240, onHealthUpdate, onLog, onToast);
-    const d1 = await fetchProxyHtf(pair, symbolId, 1440, onHealthUpdate, onLog, onToast);
-    onHealthUpdate?.("MARKET_HTF_PRIMARY", "ok");
+    const [h4, d1] = await Promise.all([
+      fetchProxyHtf(pair, symbolId, 240, onHealthUpdate, onLog, onToast),
+      fetchProxyHtf(pair, symbolId, 1440, onHealthUpdate, onLog, onToast),
+    ]);
+    const hasData = (h4?.length || d1?.length) ? "ok" : "degraded";
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", hasData, hasData === "ok" ? "" : "HTF data empty");
     return { h4, d1 };
   } catch (err: any) {
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     onHealthUpdate?.("MARKET_HTF_PRIMARY", "error", err?.message || "primary HTF failed");
+    if (shouldToast("MARKET_HTF_PRIMARY")) {
+      onToast?.("Price data temporarily unavailable, retrying...", "warn");
+    }
     return { h4: [], d1: [] };
   }
 };

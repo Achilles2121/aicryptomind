@@ -17,15 +17,24 @@ router.get("/", async (req, res) => {
   const limit = clampNumber(req.query.limit || 160, { min: 30, max: 720 });
   const cacheMs = clampNumber(req.query.cacheMs || 500, { min: 0, max: 5000 });
 
-  const buildResponse = (tracker, { data = null, status = "ok", error = null, provider = null } = {}) => ({
+  const tracker = createHealthTracker();
+  const isPairValid = /^[A-Z0-9]{3,20}$/.test(pair);
+  const isBinanceValid = /^[A-Z0-9]{3,20}$/.test(binanceSymbol);
+
+  const buildResponse = (healthTracker, { data = null, status = "ok", error = null, provider = null } = {}) => ({
     ok: status === "ok" && !error,
     status,
     error,
     data,
     provider,
-    health: tracker?.toArray() || [],
+    health: healthTracker?.toArray() || [],
     generatedAt: new Date().toISOString(),
   });
+
+  if (!isPairValid || !isBinanceValid) {
+    const invalid = buildResponse(tracker, { status: "invalid_params", error: "Invalid pair or symbol", data: null });
+    return res.status(200).json(invalid);
+  }
 
   try {
     const result = await withCache(`ohlc:${pair}:${binanceSymbol}:${interval}:${limit}`, cacheMs, async () => {
@@ -41,6 +50,7 @@ router.get("/", async (req, res) => {
         }
         tracker.set("kraken", kraken.length ? "degraded" : "error", kraken.length ? "low sample" : "empty response");
       } catch (err) {
+        console.error("[ohlc] kraken failed", err);
         tracker.set("kraken", "error", err?.message || "kraken failed");
       }
 
@@ -52,6 +62,7 @@ router.get("/", async (req, res) => {
         }
         tracker.set("binance", rows.length ? "degraded" : "error", rows.length ? "low sample" : "empty response");
       } catch (err) {
+        console.error("[ohlc] binance failed", err);
         tracker.set("binance", "error", err?.message || "binance failed");
       }
 
@@ -66,6 +77,7 @@ router.get("/", async (req, res) => {
         }
         tracker.set("coingecko", rows.length ? "degraded" : "error", rows.length ? "low sample" : "empty response");
       } catch (err) {
+        console.error("[ohlc] coingecko failed", err);
         tracker.set("coingecko", "error", err?.message || "coingecko failed");
       }
 
@@ -74,6 +86,7 @@ router.get("/", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
+    console.error("[ohlc] unexpected error", err);
     const tracker = createHealthTracker();
     const status = err?.name === "AbortError" ? "timeout" : "upstream_error";
     return res

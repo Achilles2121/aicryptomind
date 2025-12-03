@@ -1,4 +1,4 @@
-import { safeFetch, type SafeFetchOptions } from "./safeFetch";
+import { safeFetch, type SafeFetchOptions, type ApiHealthStatus } from "./safeFetch";
 
 export type Candle = {
   time: number;
@@ -39,17 +39,24 @@ const fetchCandles = async (url: string, providerKey: string, options: SafeFetch
     ...options,
     serviceName: options.serviceName ? `${options.serviceName}:${providerKey}` : providerKey,
   };
-  const response = await safeFetch<OhlcApiResponse | Candle[]>(url, fetchOptions);
-  const apiRes = response as OhlcApiResponse;
-  if (apiRes?.ok === false) {
-    throw new Error(apiRes.error || `${providerKey} ${apiRes.status || "error"}`);
+  try {
+    const response = await safeFetch<OhlcApiResponse | Candle[]>(url, fetchOptions);
+    const apiRes = response as OhlcApiResponse;
+    const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(response as any) ? (response as any) : []);
+    const normalized = normalizeSeries(rows as any[], (response as any)?.provider || providerKey);
+    if (apiRes?.ok === false || !hasEnoughData(normalized)) {
+      const status = apiRes?.status || "upstream_error";
+      const error = apiRes?.error || `${providerKey} unavailable`;
+      const healthStatus: ApiHealthStatus = status === "timeout" ? "degraded" : "error";
+      fetchOptions.onHealthUpdate?.(fetchOptions.serviceName || providerKey, healthStatus, error);
+      return [];
+    }
+    return normalized;
+  } catch (err: any) {
+    fetchOptions.onHealthUpdate?.(fetchOptions.serviceName || providerKey, "degraded", err?.message || `${providerKey} failed`);
+    fetchOptions.onLog?.(fetchOptions.serviceName || providerKey, "warn", err?.message || `${providerKey} failed`);
+    return [];
   }
-  const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(response as any) ? (response as any) : []);
-  const normalized = normalizeSeries(rows as any[], (response as any)?.provider || providerKey);
-  if (!hasEnoughData(normalized)) {
-    throw new Error(`${providerKey} returned insufficient data`);
-  }
-  return normalized;
 };
 
 export type ChartLoadConfig = {
@@ -82,16 +89,12 @@ export async function loadChart(
   const staggerMs = 350;
   const loaders = attempts.map((attempt, idx) =>
     delay(idx * staggerMs).then(async () => {
-      try {
-        const candles = await fetchCandles(attempt.url, attempt.key, options);
-        if (hasEnoughData(candles)) return { provider: attempt.key, candles };
-        throw new Error(`${attempt.key} returned insufficient data`);
-      } catch (err) {
-        if (import.meta.env.DEV) {
-          console.warn(`[chartLoader] ${attempt.key} failed`, err);
-        }
-        throw err;
+      const candles = await fetchCandles(attempt.url, attempt.key, options);
+      if (hasEnoughData(candles)) return { provider: attempt.key, candles };
+      if (import.meta.env.DEV) {
+        console.warn(`[chartLoader] ${attempt.key} failed or returned insufficient data`);
       }
+      throw new Error(`${attempt.key} unavailable`);
     })
   );
 

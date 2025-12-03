@@ -915,14 +915,26 @@ function App() {
   };
 
   const addToast = (message, type = "error") => {
+    const normalizeToastMessage = (text = "") => {
+      const lower = text.toLowerCase();
+      if (lower.includes("price") && (lower.includes("http") || lower.includes("proxy"))) {
+        return "Price data temporarily unavailable (retrying)";
+      }
+      if (lower.includes("ohlc") && lower.includes("http")) {
+        return "Chart data temporarily unavailable (retrying)";
+      }
+      return text;
+    };
+    const normalized = normalizeToastMessage(message || "");
     const now = Date.now();
-    const key = `${type}:${message}`;
+    const windowMs = type === "error" || type === "warn" ? 180000 : 12000;
+    const key = `${type}:${normalized}`;
     const last = toastRecent.current.get(key);
-    if (last && now - last < 12000) return;
+    if (last && now - last < windowMs) return;
     toastRecent.current.set(key, now);
     const id = `${now}-${Math.random().toString(16).slice(2)}`;
     setToasts((prev) => {
-      const next = [{ id, message, type }, ...prev];
+      const next = [{ id, message: normalized, type }, ...prev];
       return next.slice(0, 3);
     });
     toastTimers.current[id] = setTimeout(() => removeToast(id), 5200);
@@ -1061,10 +1073,11 @@ function App() {
     });
     relayProxyHealth(response?.health);
     if (response?.ok === false) {
-      const status = response.status || "upstream_error";
-      const message = response.error || "Live price temporarily unavailable";
-      updateApiHealth("price_proxy", status === "timeout" ? "degraded" : "error", message);
-      addToast(`${message} (${status})`, "warn");
+      const _status = response.status || "upstream_error";
+      const message = response.error || "Price data temporarily unavailable";
+      const healthStatus = "degraded";
+      updateApiHealth("price_proxy", healthStatus, message);
+      addToast("Price data temporarily unavailable (retrying)", "warn");
       return null;
     }
     if (!response?.data) {
@@ -1127,10 +1140,11 @@ function App() {
       updateApiHealth("price_proxy", "ok");
     } catch (err) {
       console.error("Price proxy failed", err);
-      setLastError(t("fetchFailPrice"));
+      setLastError((prev) => prev || t("fetchFailPrice"));
       setPriceState({ value: null, change24h: null, source: priceState.source, updatedAt: null });
-      updateApiHealth("price_proxy", "error", err?.message);
-      logEvent("price", "error", err?.message || "price proxy failed");
+      updateApiHealth("price_proxy", "degraded", err?.message || "Price data temporarily unavailable");
+      addToast("Price data temporarily unavailable (retrying)", "warn");
+      logEvent("price", "warn", err?.message || "price proxy failed");
     }
   };
 
@@ -1179,8 +1193,8 @@ function App() {
     } catch (err) {
       console.error("Chart load failed", err);
       setLastError((prev) => prev || t("fetchFailOHLC"));
-      updateApiHealth("kraken", "error", err?.message);
-      logEvent("ohlcv", "error", err?.message || "chart loader failed");
+      updateApiHealth("kraken", "degraded", err?.message || "Chart data temporarily unavailable");
+      logEvent("ohlcv", "warn", "Chart data temporarily unavailable");
       const fallbackSeries = decorateCandles(buildFallbackChart(48), intervalMinutes);
       setOhlcv(fallbackSeries);
     }

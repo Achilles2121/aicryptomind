@@ -1,25 +1,77 @@
 import { api } from "../lib/api";
 
-const normalizePrice = (res) => {
-  if (res?.ok === false) {
-    return { value: null, change24h: null, source: "Proxy", updatedAt: null, status: res.status, error: res.error };
+const normalizePriceEnvelope = (envelope) => {
+  if (!envelope || envelope.ok === false || !envelope.data) {
+    const status = envelope?.status || "upstream_error";
+    const error = envelope?.error || "Price data temporarily unavailable";
+    return {
+      ok: false,
+      value: null,
+      price: null,
+      change24h: null,
+      source: envelope?.provider || "Proxy",
+      updatedAt: null,
+      status,
+      error,
+    };
   }
-  return res?.data ?? res ?? null;
+  const data = envelope.data;
+  return {
+    ok: true,
+    value: data.value ?? data.price ?? null,
+    price: data.value ?? data.price ?? null,
+    change24h: data.change24h ?? null,
+    source: data.source || envelope.provider || "Proxy",
+    updatedAt: data.updatedAt || envelope.generatedAt || new Date().toISOString(),
+    status: envelope.status || "ok",
+    error: null,
+  };
 };
 
-const normalizeOhlc = (res) => {
-  if (res?.ok === false) {
-    return { candles: [], status: res.status, error: res.error };
+const normalizeOhlcEnvelope = (envelope) => {
+  const rows = Array.isArray(envelope?.data)
+    ? envelope.data
+    : Array.isArray(envelope?.candles)
+      ? envelope.candles
+      : Array.isArray(envelope)
+        ? envelope
+        : [];
+  if (!envelope || envelope.ok === false || rows.length === 0) {
+    return {
+      ok: false,
+      candles: [],
+      status: envelope?.status || "upstream_error",
+      error: envelope?.error || "OHLC data temporarily unavailable",
+      provider: envelope?.provider || null,
+    };
   }
-  const rows = Array.isArray(res?.data) ? res.data : res?.candles || res || [];
-  return { candles: rows };
+  return {
+    ok: true,
+    candles: rows,
+    status: envelope.status || "ok",
+    error: null,
+    provider: envelope.provider || rows[0]?.provider || null,
+  };
 };
 
 export const marketService = {
-  getPrice: (symbol) => api.get("/price", { symbol }).then(normalizePrice),
-  getOhlc: (symbol, interval = "1h", limit = 120) => api.get("/ohlc", { symbol, interval, limit }).then(normalizeOhlc),
-  getIndicators: (symbol, interval = "1h", limit = 180) =>
-    api.get("/indicators", { symbol, interval, limit }),
+  getPrice: async (symbol, vs = "USD") => {
+    try {
+      const envelope = await api.get("/price", { asset: symbol, vs });
+      return normalizePriceEnvelope(envelope);
+    } catch (err) {
+      return normalizePriceEnvelope({ ok: false, status: "upstream_error", error: err?.message || "Price unavailable" });
+    }
+  },
+  getOhlc: async (symbol, interval = "1h", limit = 120) => {
+    try {
+      const envelope = await api.get("/ohlc", { symbol, interval, limit });
+      return normalizeOhlcEnvelope(envelope);
+    } catch (err) {
+      return normalizeOhlcEnvelope({ ok: false, status: "upstream_error", error: err?.message || "OHLC unavailable" });
+    }
+  },
+  getIndicators: (symbol, interval = "1h", limit = 180) => api.get("/indicators", { symbol, interval, limit }),
   getEtfNews: () => api.get("/etfNews"),
   getEtfFlows: () => api.get("/etfFlows"),
   getEtfHoldings: (symbol) => api.get("/etfHoldings", { symbol }),
