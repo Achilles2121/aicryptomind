@@ -4,6 +4,11 @@
 
 /* Dezente Pulse-Animationen fuer letzte Ticks/Badges */
 
+html,
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
 body {
   @apply bg-slate-950 text-slate-200 antialiased;
   margin: 0;
