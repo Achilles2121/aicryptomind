@@ -1130,11 +1130,23 @@ function App() {
       }
       const parsedUpdatedAt = payload?.updatedAt ? Date.parse(payload.updatedAt) : Date.now();
       const safeUpdatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now();
-      setPriceState({
+      const nextState = {
         value: payload?.value ?? null,
         change24h: payload?.change24h ?? null,
         source: payload?.source || "Proxy",
         updatedAt: safeUpdatedAt,
+      };
+      setPriceState((prev) => {
+        if (
+          prev &&
+          prev.value === nextState.value &&
+          prev.change24h === nextState.change24h &&
+          prev.source === nextState.source &&
+          prev.updatedAt === nextState.updatedAt
+        ) {
+          return prev;
+        }
+        return nextState;
       });
       setLastError("");
       updateApiHealth("price_proxy", "ok");
@@ -1188,7 +1200,16 @@ function App() {
         }
         return loaded;
       });
-      setOhlcv(decorateCandles(candles, intervalMinutes));
+      const decorated = decorateCandles(candles, intervalMinutes);
+      setOhlcv((prev) => {
+        const prevLast = prev?.length ? prev[prev.length - 1]?.time : null;
+        const nextLast = decorated?.length ? decorated[decorated.length - 1]?.time : null;
+        const sameLength = (prev?.length || 0) === (decorated?.length || 0);
+        if (sameLength && prevLast && nextLast && prevLast === nextLast) {
+          return prev;
+        }
+        return decorated;
+      });
       setLastError("");
     } catch (err) {
       console.error("Chart load failed", err);
@@ -1475,9 +1496,28 @@ function App() {
 };
 
   useEffect(() => {
-    refreshAll();
+    let ohlcTimer;
+    let htfTimer;
+    setIsRefreshing(true);
+    const kickOff = async () => {
+      await loadPrice();
+      ohlcTimer = setTimeout(() => {
+        loadFearGreed();
+        loadOHLC();
+      }, 250);
+      htfTimer = setTimeout(() => {
+        loadHTF();
+        loadDerivatives();
+        setIsRefreshing(false);
+      }, 400);
+    };
+    kickOff();
     pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
-    return () => clearInterval(pollTimer.current);
+    return () => {
+      clearInterval(pollTimer.current);
+      if (ohlcTimer) clearTimeout(ohlcTimer);
+      if (htfTimer) clearTimeout(htfTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset]);
 
@@ -2630,9 +2670,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                           <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
                           <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
+                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
+                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive={false} />
                         <Line
                           type="monotone"
                           dataKey="close"
@@ -2641,12 +2681,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           yAxisId="y"
                           strokeWidth={2}
                           name="Close"
-                          isAnimationActive
-                          animationDuration={650}
-                          animationEasing="ease-out"
+                          isAnimationActive={false}
                         />
-                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive={false} />
+                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive={false} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -2697,9 +2735,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                             dot={renderLastDot(indicatorSeries.length, "#22c55e")}
                             strokeWidth={2}
                             name="Close"
-                            isAnimationActive
-                            animationDuration={650}
-                            animationEasing="ease-out"
+                            isAnimationActive={false}
                           />
                         </ComposedChart>
                       </ResponsiveContainer>
@@ -3593,14 +3629,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       strokeWidth={2}
                       dot={renderLastDot(indicatorSeries.length, "#22c55e")}
                       name="RSI"
-                      isAnimationActive
-                      animationDuration={550}
-                      animationEasing="ease-out"
+                      isAnimationActive={false}
                     />
                     <Line type="monotone" dataKey={() => 70} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
                     <Line type="monotone" dataKey={() => 30} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-                    <Line type="monotone" dataKey="stochK" stroke="#38bdf8" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%K" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                    <Line type="monotone" dataKey="stochD" stroke="#a855f7" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%D" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="stochK" stroke="#38bdf8" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%K" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="stochD" stroke="#a855f7" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%D" isAnimationActive={false} />
                   </ComposedChart>
                   </ResponsiveContainer>
                 ) : (
@@ -3619,9 +3653,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} width={60} />
                     <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                     <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                    <Line type="monotone" dataKey="macd" stroke="#22c55e" dot={false} name="MACD" isAnimationActive animationDuration={550} animationEasing="ease-out" />
-                    <Line type="monotone" dataKey="macdSignal" stroke="#f59e0b" dot={false} name="Signal" isAnimationActive animationDuration={550} animationEasing="ease-out" />
-                    <Bar dataKey="macdHist" fill="#60a5fa" barSize={8} name="Histogram" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="macd" stroke="#22c55e" dot={false} name="MACD" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="macdSignal" stroke="#f59e0b" dot={false} name="Signal" isAnimationActive={false} />
+                    <Bar dataKey="macdHist" fill="#60a5fa" barSize={8} name="Histogram" isAnimationActive={false} />
                   </ComposedChart>
                   </ResponsiveContainer>
                 ) : (
@@ -3640,9 +3674,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} width={70} />
                     <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} formatter={(v, n) => [formatUSD(v), n]} />
                     <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                    <Bar dataKey="buy" stackId="vol" fill="#22c55e" barSize={10} name="Buy Vol" isAnimationActive animationDuration={520} animationEasing="ease-out" />
-                    <Bar dataKey="sell" stackId="vol" fill="#ef4444" barSize={10} name="Sell Vol" isAnimationActive animationDuration={520} animationEasing="ease-out" />
-                    <Line type="monotone" dataKey="net" stroke="#38bdf8" dot={renderLastDot(volumeBuckets.length, "#38bdf8")} name="Net" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                    <Bar dataKey="buy" stackId="vol" fill="#22c55e" barSize={10} name="Buy Vol" isAnimationActive={false} />
+                    <Bar dataKey="sell" stackId="vol" fill="#ef4444" barSize={10} name="Sell Vol" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="net" stroke="#38bdf8" dot={renderLastDot(volumeBuckets.length, "#38bdf8")} name="Net" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
@@ -3890,7 +3924,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                             name={s.symbol}
                             fill={etfColors[idx % etfColors.length]}
                             radius={[4, 4, 0, 0]}
-                            isAnimationActive
+                            isAnimationActive={false}
                             opacity={0.9}
                           />
                         ))}
@@ -4320,12 +4354,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                           <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
                           <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
-                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
+                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
+                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive={false} />
+                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive={false} />
+                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive={false} />
+                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive={false} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -4369,7 +4403,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
                           {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
                           {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
-                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive={false} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -4698,7 +4732,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                                 name={s.symbol}
                                 fill={etfColors[idx % etfColors.length]}
                                 radius={[4, 4, 0, 0]}
-                                isAnimationActive
+                                isAnimationActive={false}
                                 opacity={0.9}
                               />
                             ))}

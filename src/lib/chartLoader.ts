@@ -11,6 +11,7 @@ export type Candle = {
 };
 
 const MIN_POINTS = 5;
+const inFlight = new Map<string, { ts: number; promise: Promise<Candle[]> }>();
 
 const normalizeSeries = (rows: any[] = [], fallbackProvider = "proxy"): Candle[] =>
   rows.map((row) => ({
@@ -39,23 +40,43 @@ const fetchCandles = async (url: string, providerKey: string, options: SafeFetch
     ...options,
     serviceName: options.serviceName ? `${options.serviceName}:${providerKey}` : providerKey,
   };
-  try {
-    const response = await safeFetch<OhlcApiResponse | Candle[]>(url, fetchOptions);
-    const apiRes = response as OhlcApiResponse;
-    const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(response as any) ? (response as any) : []);
-    const normalized = normalizeSeries(rows as any[], (response as any)?.provider || providerKey);
-    if (apiRes?.ok === false || !hasEnoughData(normalized)) {
-      const status = apiRes?.status || "upstream_error";
-      const error = apiRes?.error || `${providerKey} unavailable`;
-      const healthStatus: ApiHealthStatus = status === "timeout" ? "degraded" : "error";
-      fetchOptions.onHealthUpdate?.(fetchOptions.serviceName || providerKey, healthStatus, error);
+  const key = `${providerKey}:${url}`;
+  const now = Date.now();
+  const existing = inFlight.get(key);
+  if (existing && now - existing.ts < 500) {
+    return existing.promise;
+  }
+
+  const task = (async () => {
+    try {
+      const response = await safeFetch<OhlcApiResponse | Candle[]>(url, fetchOptions);
+      const apiRes = response as OhlcApiResponse;
+      const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(response as any) ? (response as any) : []);
+      const normalized = normalizeSeries(rows as any[], (response as any)?.provider || providerKey);
+      if (apiRes?.ok === false || !hasEnoughData(normalized)) {
+        const status = apiRes?.status || "upstream_error";
+        const error = apiRes?.error || `${providerKey} unavailable`;
+        const healthStatus: ApiHealthStatus = status === "timeout" ? "degraded" : "error";
+        fetchOptions.onHealthUpdate?.(fetchOptions.serviceName || providerKey, healthStatus, error);
+        return [];
+      }
+      return normalized;
+    } catch (err: any) {
+      fetchOptions.onHealthUpdate?.(
+        fetchOptions.serviceName || providerKey,
+        "degraded",
+        err?.message || `${providerKey} failed`
+      );
+      fetchOptions.onLog?.(fetchOptions.serviceName || providerKey, "warn", err?.message || `${providerKey} failed`);
       return [];
     }
-    return normalized;
-  } catch (err: any) {
-    fetchOptions.onHealthUpdate?.(fetchOptions.serviceName || providerKey, "degraded", err?.message || `${providerKey} failed`);
-    fetchOptions.onLog?.(fetchOptions.serviceName || providerKey, "warn", err?.message || `${providerKey} failed`);
-    return [];
+  })();
+
+  inFlight.set(key, { ts: now, promise: task });
+  try {
+    return await task;
+  } finally {
+    inFlight.delete(key);
   }
 };
 
