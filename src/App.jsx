@@ -4449,7 +4449,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           ) : null}
           {mobileTab === "signals" ? (
             <div className="space-y-4">
-              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Sch��tzung + Confidence.">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Sch?tzung + Confidence.">
                 <div className="flex flex-col gap-3">
                   <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
                   <div className="flex items-center justify-between text-sm">
@@ -4600,12 +4600,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </Card>
               )}
 
-              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide fǬr erste Trades.">
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide f?r erste Trades.">
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
-                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fǬr m��gliche Rebounds.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone f?r m?gliche Rebounds.</li>
                   <li>Setze SL 3% unter Entry, TP 4-6% - siehe TP/SL Rechner.</li>
-                  <li>Beginner-Mode h��lt nur Kernkarten aktiv; pro View fǬr volle Tiefe.</li>
+                  <li>Beginner-Mode h?lt nur Kernkarten aktiv; pro View f?r volle Tiefe.</li>
                 </ul>
               </Card>
             </div>

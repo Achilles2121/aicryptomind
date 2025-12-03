@@ -19,6 +19,7 @@ const normalizeNews = (rows = []) =>
     .filter((item) => /etf/i.test(item.title) || /etf/i.test(item.description));
 
 router.get("/", async (req, res) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const limit = Math.min(Math.max(Number(req.query.limit) || 8, 1), 20);
   const tracker = createHealthTracker();
   const attempts = [

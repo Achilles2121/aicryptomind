@@ -112,6 +112,7 @@ async function fetchSeries(symbol, tracker) {
 }
 
 router.get("/", async (_req, res) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const tracker = createHealthTracker();
   try {
     const result = await withCache("etf:correlations", 120_000, async () => {

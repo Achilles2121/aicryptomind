@@ -11,6 +11,7 @@ const MIN_POINTS = 5;
 const router = Router();
 
 router.get("/", async (req, res) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const pair = String(req.query.pair || "XXBTZUSD").toUpperCase();
   const binanceSymbol = String(req.query.binance || "BTCUSDT").toUpperCase();
   const interval = clampNumber(req.query.interval || 60, { min: 1, max: 1440 });

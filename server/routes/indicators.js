@@ -55,6 +55,7 @@ const fetchCandles = async ({ pair, binanceSymbol, interval, limit, cacheMs }) =
 const router = Router();
 
 router.get("/", async (req, res, next) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const pair = String(req.query.pair || "XXBTZUSD").toUpperCase();
   const binanceSymbol = String(req.query.symbol || req.query.binance || "BTCUSDT").toUpperCase();
   const interval = clampNumber(req.query.interval || 60, { min: 1, max: 1440 });

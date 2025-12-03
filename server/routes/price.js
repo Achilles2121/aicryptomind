@@ -10,6 +10,7 @@ import { withCache } from "../utils/cache.js";
 const router = Router();
 
 router.get("/", async (req, res) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const asset = String(req.query.asset || "BTC").toUpperCase();
   const vs = String(req.query.vs || "USD").toUpperCase();
   const cacheMs = clampNumber(req.query.cacheMs || 500, { min: 0, max: 5000 });

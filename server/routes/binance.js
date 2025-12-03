@@ -5,6 +5,7 @@ import { clampNumber, mapBinanceInterval } from "../../api/_lib/utils.js";
 const router = Router();
 
 router.get("/klines", async (req, res, next) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     const symbol = String(req.query.symbol || "BTCUSDT").toUpperCase();
     const minutes = clampNumber(req.query.interval || 60, { min: 1, max: 1440 });

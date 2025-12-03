@@ -19,7 +19,7 @@ body {
   box-sizing: border-box;
 }
 
-/* Dezente Pulse-Animationen f�r letzte Ticks/Badges */
+/* Dezente Pulse-Animationen für letzte Ticks/Badges */
 @keyframes pulseSoft {
   0% {
     opacity: 0.45;

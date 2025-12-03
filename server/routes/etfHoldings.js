@@ -110,6 +110,7 @@ async function buildHolding(symbol, tracker, fetchSoso, fetchCoinstats) {
 }
 
 router.get("/", async (req, res) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const symbols = parseSymbols(req.query.symbols);
   const tracker = createHealthTracker();
   const fetchSoso = createLazy(() => fetchSosoHoldingsSnapshot());

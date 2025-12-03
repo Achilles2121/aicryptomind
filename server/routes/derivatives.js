@@ -72,6 +72,7 @@ const fetchMetric = async ({ symbol, period, limit, metric, apiKey }) => {
 };
 
 router.get("/", async (req, res, _next) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const tracker = createHealthTracker();
   const symbol = String(req.query.symbol || "BITSTAMP_SPOT_BTC_USD").toUpperCase();
   const period = String(req.query.period || "1HRS").toUpperCase();

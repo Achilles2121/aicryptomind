@@ -37,7 +37,7 @@ const symbolToId: Record<string, string> = {
 };
 
 const send = (res: Res, status: number, body: unknown) => {
-  if (res.setHeader) res.setHeader("Content-Type", "application/json");
+  if (res.setHeader) res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (typeof res.json === "function") {
     res.status(status).json(body);
   } else if (res.end) {

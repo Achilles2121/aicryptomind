@@ -5,6 +5,7 @@ import { clampNumber } from "../../api/_lib/utils.js";
 const router = Router();
 
 router.get("/ohlc", async (req, res, next) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     const pair = String(req.query.pair || "XXBTZUSD").toUpperCase();
     const interval = clampNumber(req.query.interval || 60, { min: 1, max: 1440 });
