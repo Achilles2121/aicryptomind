@@ -1,4 +1,4 @@
-import { safeFetch, timeout } from "./safeFetch";
+import { safeFetch } from "./safeFetch";
 
 type CacheEntry<T> = { value: T; expires: number };
 
@@ -59,16 +59,11 @@ async function request<T>(
   if (cached !== undefined) return cached;
 
   const query = toQuery(params);
-  const response = await retry(
-    () => timeout(safeFetch(`/api${path}${query}`, init), 5500),
+  const data = await retry(
+    () => safeFetch<T>(`/api${path}${query}`, { ...(init || {}), timeoutMs: 5500 }),
     3,
     150
   );
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
-  }
-  const data = (await response.json()) as T;
   return setCache(key, data);
 }
 

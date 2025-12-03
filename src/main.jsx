@@ -4,6 +4,8 @@ import PropTypes from "prop-types";
 import App from "./App";
 import "./index.css";
 import { UserTierProvider } from "./context/UserTierContext";
+import { SubscriptionProvider } from "./context/SubscriptionContext";
+import { useUserTier } from "./context/UserTierContext";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -44,10 +46,35 @@ ErrorBoundary.propTypes = {
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
+
+function SubscriptionBridge({ children }) {
+  const tierState = useUserTier();
+  const backendSnapshot = {
+    plan: tierState?.tier || "basic",
+    tier: tierState?.tier || "basic",
+    trialStartedAt: tierState?.trialStart || null,
+    trialStart: tierState?.trialStart || null,
+    trialEndsAt: tierState?.trialEndsAt || null,
+    isTrialActive: tierState?.isTrialActive || false,
+    loading: tierState?.loading || false,
+  };
+  return (
+    <SubscriptionProvider backendState={backendSnapshot} env={import.meta.env?.MODE || "development"}>
+      {children}
+    </SubscriptionProvider>
+  );
+}
+
+SubscriptionBridge.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
 root.render(
   <ErrorBoundary>
     <UserTierProvider>
-      <App />
+      <SubscriptionBridge>
+        <App />
+      </SubscriptionBridge>
     </UserTierProvider>
   </ErrorBoundary>
 );

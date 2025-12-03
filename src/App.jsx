@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Activity,
@@ -18,7 +18,6 @@ import {
   Area,
   Bar,
   BarChart,
-  Cell,
   CartesianGrid,
   ComposedChart,
   Customized,
@@ -47,6 +46,7 @@ import { safeFetch, subscribeToSourceHealth, getSourceHealthSnapshot } from "./l
 import { loadChart, buildFallbackChart } from "./lib/chartLoader";
 import { fetchHtfOhlc } from "./services/marketDataLive";
 import { fetchDerivativesLive } from "./services/derivativesLive";
+import { SubscriptionContext } from "./context/SubscriptionContext";
 import {
   calculateEMA,
   calculateRSISeries,
@@ -62,7 +62,7 @@ import {
   calculateOBV,
   calculatePearson,
 } from "./lib/indicators";
-import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
+import { buildAISignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -83,40 +83,12 @@ const ASSETS = [
   { id: "polkadot", label: "DOT / USD", binance: "dotusdt", kraken: "DOTUSD", cc: "DOT" },
 ];
 
-const API_SOURCES_OLD = [
-  {
-    name: "DeFiLlama",
-    desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.",
-    limit: "Unlimited free",
-  },
-  {
-    name: "Santiment",
-    desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).",
-    limit: "100 Calls/Monat free",
-  },
-  {
-    name: "HuggingFace",
-    desc: "AI-Predictions (Inference für Price-Forecast).",
-    limit: "Free Inference",
-  },
-  {
-    name: "Alpha Vantage",
-    desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).",
-    limit: "25 Calls/Tag free",
-  },
-  {
-    name: "FMP",
-    desc: "Cross-Asset Data (Stocks/Crypto Corr).",
-    limit: "250 Calls/Tag free",
-  },
-];
-
 const API_SOURCES = [
-  { name: "DeFiLlama", desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.", limit: "Unlimited free" },
-  { name: "Santiment", desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: "100 Calls/Monat free" },
-  { name: "HuggingFace", desc: "AI-Predictions (Inference für Price-Forecast).", limit: "Free Inference" },
-  { name: "Alpha Vantage", desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
-  { name: "FMP", desc: "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
+  { name: "DeFiLlama", desc: "DeFi yields, TVL and chains for yield tracking.", limit: "Unlimited free" },
+  { name: "Santiment", desc: "On-chain plus sentiment (whale alerts, social volume).", limit: "100 calls/month free" },
+  { name: "HuggingFace", desc: "AI predictions for price forecasts.", limit: "Free inference" },
+  { name: "Alpha Vantage", desc: "Volatility forecasts and technical indicators.", limit: "25 calls/day free" },
+  { name: "FMP", desc: "Cross-asset data (stocks/crypto correlations).", limit: "250 calls/day free" },
 ];
 
 const TIER_ORDER = ["basic", "pro", "elite"];
@@ -290,7 +262,7 @@ const formatClock = (ts) => {
   if (!ts) return "--:--";
   try {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch (err) {
+  } catch {
     return "--:--";
   }
 };
@@ -795,12 +767,11 @@ LazyRender.propTypes = {
   rootMargin: PropTypes.string,
 };
 
+// eslint-disable-next-line react/display-name
 const renderLastDot = (count, color = "#22c55e") => (props) => {
   if (props.index !== count - 1) return null;
   return <circle cx={props.cx} cy={props.cy} r={4} fill={color} className="pulse-soft" />;
 };
-const sumFlows = (flows = [], days = 7) =>
-  flows.slice(-days).reduce((acc, f) => acc + (Number.isFinite(f.flow ?? f.netFlowUsd) ? (f.flow ?? f.netFlowUsd) : 0), 0);
 function App() {
   const isDevBuild = import.meta.env?.DEV ?? false;
   const {
@@ -814,6 +785,7 @@ function App() {
     loading: tierLoading,
     refreshUserTier,
   } = useUserTier();
+  const subscription = useContext(SubscriptionContext);
   const [asset, setAsset] = useState(ASSETS[0]);
   const [priceState, setPriceState] = useState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
   const [fearGreed, setFearGreed] = useState(null);
@@ -848,10 +820,10 @@ function App() {
   const [lang, setLang] = useState("de");
   const [apiStatuses, setApiStatuses] = useState({});
   const [userEmail, setUserEmail] = useState("");
-  const [geoInfo, setGeoInfo] = useState(null);
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [isStartingTrial, setIsStartingTrial] = useState(false);
+  const [trialDisabledReason, setTrialDisabledReason] = useState("");
   const [highlightAuthCard, setHighlightAuthCard] = useState(false);
   const [consentGeo, setConsentGeo] = useState(() => localStorage.getItem("consent:geo") === "true");
   const [saveTierMessage, setSaveTierMessage] = useState("");
@@ -860,6 +832,7 @@ function App() {
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
   const [mobileTab, setMobileTab] = useState("overview");
+  const [nowTs, setNowTs] = useState(() => Date.now());
   const [apiHealth, setApiHealth] = useState({
     coingecko: { status: "ok", ts: Date.now() },
     cryptocompare: { status: "ok", ts: Date.now() },
@@ -895,7 +868,7 @@ function App() {
   const mobileAuthRef = useRef(null);
   const desktopEmailRef = useRef(null);
   const mobileEmailRef = useRef(null);
-  const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
+  const t = useCallback((key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key, [lang]);
   const [blink, setBlink] = useState(true);
   const trialActive = Boolean(isTrialActive);
   const hasProAccess = useMemo(() => TIER_ORDER.indexOf(effectiveTier) >= TIER_ORDER.indexOf("pro"), [effectiveTier]);
@@ -913,13 +886,24 @@ function App() {
       : `Trial · ${trialRemainingDays}d left`;
   }, [trialActive, trialRemainingDays, lang]);
 
+  const trialBlockMessage = useMemo(() => {
+    if (!trialDisabledReason) return "";
+    if (trialDisabledReason === "NO_UID") return lang === "de" ? "Bitte einloggen, um den Trial zu starten." : "Please log in to start the trial.";
+    if (trialDisabledReason === "NO_DB") return lang === "de" ? "Firebase/DB nicht konfiguriert." : "Firebase/DB not configured.";
+    if (trialDisabledReason === "TRIAL_ALREADY_USED") return lang === "de" ? "Testversion wurde bereits genutzt." : "Trial already used.";
+    return lang === "de" ? "Trial konnte nicht gestartet werden." : "Could not start trial.";
+  }, [trialDisabledReason, lang]);
+
+  const isTrialBlocked = isStartingTrial || trialActive || Boolean(trialStart) || Boolean(trialDisabledReason);
+
+
   const tierLabels = useMemo(
     () => ({
       basic: t("tierBasic"),
       pro: t("tierPro"),
       elite: t("tierElite"),
     }),
-    [lang]
+    [t]
   );
 
   const removeToast = (id) => {
@@ -950,6 +934,11 @@ function App() {
     },
     []
   );
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToSourceHealth((snapshot) => setSourceHealth(snapshot || {}));
@@ -1456,12 +1445,14 @@ function App() {
     refreshAll();
     pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
     return () => clearInterval(pollTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset]);
 
   useEffect(() => {
     loadEtfNews();
     newsTimer.current = setInterval(loadEtfNews, NEWS_REFRESH);
     return () => clearInterval(newsTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1474,6 +1465,7 @@ function App() {
         flowsTimer.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
@@ -1481,6 +1473,7 @@ function App() {
     loadEtfFlowData(etfSelection);
     const timer = setInterval(() => loadEtfFlowData(etfSelection), ETF_REFRESH);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
@@ -1488,10 +1481,12 @@ function App() {
     loadEtfHoldingsData(etfSelection);
     const timer = setInterval(() => loadEtfHoldingsData(etfSelection), HOLDING_REFRESH);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
     loadApiPlaybook();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const STRIPE_LINKS = {
@@ -1550,7 +1545,6 @@ function App() {
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (!data) return;
-          setGeoInfo({ country: data.country_name, city: data.city, ip: data.ip });
           const setMeta = (name, content) => {
             if (!name || !content) return;
             let tag = document.querySelector(`meta[name='${name}']`);
@@ -1638,7 +1632,9 @@ function App() {
   };
 
   const handleStartTrial = async () => {
+    setTrialDisabledReason("");
     if (!authUser) {
+      setTrialDisabledReason("NO_UID");
       addToast(lang === "de" ? "Bitte logge dich ein, um die Testversion zu starten." : "Please log in to start your trial.", "warn");
       setHighlightAuthCard(true);
       focusAuthSection();
@@ -1656,22 +1652,53 @@ function App() {
     try {
       const result = await startUserTrial(authUser.uid);
       if (!result?.ok) {
+        const reason = result?.reason || "UNKNOWN";
+        setTrialDisabledReason(reason);
+        const isUsed = reason === "TRIAL_ALREADY_USED";
+        const isConfig = reason === "NO_DB" || reason === "NO_UID";
         const message =
           lang === "de"
-            ? result?.reason === "TRIAL_ALREADY_USED"
+            ? isUsed
               ? "Testversion wurde bereits genutzt."
-              : "Trial konnte nicht gestartet werden."
-            : result?.reason === "TRIAL_ALREADY_USED"
+            : isConfig
+            ? "Trial erfordert ein korrekt konfiguriertes Login."
+            : "Trial konnte nicht gestartet werden."
+            : isUsed
             ? "Trial already used."
+            : isConfig
+            ? "Trial requires a valid login/config."
             : "Could not start trial.";
-        addToast(message, result?.reason === "TRIAL_ALREADY_USED" ? "info" : "error");
+        addToast(message, isUsed ? "info" : "error");
         return;
       }
+      setTrialDisabledReason("");
       addToast(lang === "de" ? "7-Tage-Testversion aktiviert." : "7-day trial activated.", "info");
+      subscription?.startTrial({
+        trialStartedAt: result.trialStart ?? result.trialStartedAt ?? null,
+        trialEndsAt: result.trialEndsAt ?? null,
+        plan: "trial",
+      });
+      subscription?.updateFromBackend({
+        plan: "trial",
+        trialStartedAt: result.trialStart ?? result.trialStartedAt ?? null,
+        trialEndsAt: result.trialEndsAt ?? null,
+        isTrialActive: true,
+      });
       await refreshUserTier();
     } catch (err) {
       console.error("start trial failed", err);
-      addToast(lang === "de" ? "Trial konnte nicht gestartet werden." : "Failed to start trial.", "error");
+      setTrialDisabledReason(err?.code || err?.reason || "TRIAL_START_FAILED");
+      const msg = String(err?.message || "").toLowerCase();
+      if (msg.includes("auth") || msg.includes("token")) {
+        addToast(
+          lang === "de" ? "Bitte logge dich ein, um die Testversion zu starten." : "Please log in to start your trial.",
+          "warn"
+        );
+        setHighlightAuthCard(true);
+        focusAuthSection();
+      } else {
+        addToast(lang === "de" ? "Trial konnte nicht gestartet werden." : "Failed to start trial.", "error");
+      }
     } finally {
       setIsStartingTrial(false);
     }
@@ -1695,6 +1722,7 @@ function App() {
 
   useEffect(() => {
     loadOHLC();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeFrame]);
 
   useEffect(() => {
@@ -1804,6 +1832,7 @@ function App() {
       clearInterval(pollingReconnectTimer.current);
       pollingReconnectTimer.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset]);
   const indicatorSeries = useMemo(() => {
     if (!ohlcv.length) return [];
@@ -2102,7 +2131,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     return { label: derived.label, intent: derived.intent };
   }, [htfOhlcv, marketRegime]);
   const smartMoney = useMemo(() => {
-    const horizon = Date.now() - 3 * 60 * 60 * 1000;
+    const horizon = nowTs - 3 * 60 * 60 * 1000;
     const filtered = trades.filter((t) => t.ts >= horizon);
     const big = filtered.filter((t) => t.usd >= 100000);
     const bucket = big.length ? big : filtered;
@@ -2114,10 +2143,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     const title = net >= 0 ? t("smartAccum") : t("smartDistr");
     const direction = net >= 0 ? t("smartDirBuy") : t("smartDirSell");
     return { title, net, pct, direction, buys, sells, count: bucket.length };
-  }, [trades, lang]);
+  }, [trades, nowTs, t]);
 
   const liquidity = useMemo(() => {
-    const horizon = Date.now() - 60 * 60 * 1000;
+    const horizon = nowTs - 60 * 60 * 1000;
     const recent = trades.filter((t) => t.ts >= horizon);
     const bids = recent.filter((t) => t.side === "buy").reduce((a, b) => a + b.usd, 0);
     const asks = recent.filter((t) => t.side === "sell").reduce((a, b) => a + b.usd, 0);
@@ -2133,7 +2162,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       imbalance: Math.abs(50 - dominance).toFixed(0),
       tone,
     };
-  }, [trades]);
+  }, [trades, nowTs]);
 
   const [onChainMetrics, setOnChainMetrics] = useState({ active: null, supplyWhales: null, supplyRetail: null, updatedAt: null });
   const [sentimentMetrics, setSentimentMetrics] = useState({ score: null, label: "Social Score", updatedAt: null });
@@ -2163,11 +2192,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     return () => {
       mounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const aiSignal = useMemo(() => {
     return buildAISignal({ indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice });
-  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice]);
+  }, [indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice]);
 
   const fibView = useMemo(() => {
     if (!indicatorSeries.length) {
@@ -2239,15 +2269,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     });
   }, [
     indicatorSeries,
-    indicators.macd,
-    indicators.signal,
-    indicators.rsi,
-    smartMoney.net,
-    marketRegime.label,
-    marketRegime.intent,
+    smartMoney,
+    marketRegime,
     sentimentMetrics,
-    backtestStats?.winRate,
-    backtestStats?.avgRR,
+    backtestStats,
     htfRegime,
     derivativesRisk,
   ]);
@@ -2263,7 +2288,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   };
 
   const volumeBuckets = useMemo(() => {
-    const now = Date.now();
+    const now = nowTs;
     const bucketCount = 24;
     const buckets = [];
     for (let i = bucketCount - 1; i >= 0; i -= 1) {
@@ -2280,7 +2305,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       });
     }
     return buckets;
-  }, [trades]);
+  }, [trades, nowTs]);
 
   if (tierLoading) {
     return <FullScreenLoader message="Session wird geladen..." />;
@@ -2411,21 +2436,20 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
                   <button
                     type="button"
-                    onClick={handleStartTrial}
-                    disabled={isStartingTrial || trialActive || Boolean(trialStart)}
-                    className={`rounded px-2 py-1 text-[11px] font-semibold text-amber-950 transition-colors ${
-                      isStartingTrial || trialActive || trialStart
-                        ? "bg-amber-500/40 cursor-not-allowed"
-                        : "bg-amber-500/80 hover:bg-amber-400"
-                    }`}
-                  >
-                    {trialActive ? t("trialActive") : t("startTrial")}
-                  </button>
-                  {trialExpired && trialStart ? (
-                    <span className="text-[11px] text-amber-300">
-                      {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
-                    </span>
-                  ) : null}
+                  onClick={handleStartTrial}
+                  disabled={isTrialBlocked}
+                  className={`rounded px-2 py-1 text-[11px] font-semibold text-amber-950 transition-colors ${
+                    isTrialBlocked ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
+                  }`}
+                >
+                  {trialActive ? t("trialActive") : t("startTrial")}
+                </button>
+                {trialBlockMessage ? <span className="text-[11px] text-amber-300">{trialBlockMessage}</span> : null}
+                {trialExpired && trialStart ? (
+                  <span className="text-[11px] text-amber-300">
+                    {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
+                  </span>
+                ) : null}
                 </form>
               </div>
             </div>
@@ -4053,11 +4077,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <button
                   type="button"
                   onClick={handleStartTrial}
-                  disabled={isStartingTrial || trialActive || Boolean(trialStart)}
+                  disabled={isTrialBlocked}
                   className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
-                    isStartingTrial || trialActive || trialStart
-                      ? "bg-amber-500/40 cursor-not-allowed"
-                      : "bg-amber-500/80 hover:bg-amber-400"
+                    isTrialBlocked ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
                   }`}
                 >
                   {trialActive ? t("trialActive") : t("startTrial")}
@@ -4065,6 +4087,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
               {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
               {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
+              {trialBlockMessage ? <span className="text-[11px] text-amber-300">{trialBlockMessage}</span> : null}
               {trialExpired && trialStart ? (
                 <span className="text-[11px] text-amber-300">
                   {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
@@ -4514,7 +4537,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
                   <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fǬr m��gliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% �?" siehe TP/SL Rechner.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% - siehe TP/SL Rechner.</li>
                   <li>Beginner-Mode h��lt nur Kernkarten aktiv; pro View fǬr volle Tiefe.</li>
                 </ul>
               </Card>

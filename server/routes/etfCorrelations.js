@@ -1,3 +1,4 @@
+/* eslint-env node */
 import { Router } from "express";
 import { createHealthTracker } from "../../api/_lib/health.js";
 import { safeFetchJson } from "../utils/safeFetch.js";
@@ -136,6 +137,7 @@ router.get("/", async (_req, res) => {
     });
 
     const payload = {
+      ok: true,
       data: result.data || [],
       health: result.health || tracker.toArray(),
       generatedAt: new Date().toISOString(),
@@ -151,7 +153,14 @@ router.get("/", async (_req, res) => {
     tracker.set("ETF_CORR_PRIMARY", "error", err?.message || "correlation failed");
     return res
       .status(200)
-      .json({ error: "ETF correlations unavailable", health: tracker.toArray(), generatedAt: new Date().toISOString(), data: [] });
+      .json({
+        ok: false,
+        error: "correlation_unavailable",
+        status: 502,
+        health: tracker.toArray(),
+        generatedAt: new Date().toISOString(),
+        data: [],
+      });
   }
 });
 

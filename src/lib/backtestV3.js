@@ -48,7 +48,7 @@
  * @property {number|null} profitFactor
  */
 
-const classifyResult = (direction, entryPrice, exitPrice, sl) => {
+const classifyResult = (direction, entryPrice, exitPrice, _sl) => {
   const delta = exitPrice - entryPrice;
   const thresh = entryPrice * 0.0005;
   if (Math.abs(delta) <= thresh) return "be";
@@ -158,8 +158,6 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5, sta
   }
 
   const wins = trades.filter((t) => t.result === "win").length;
-  const losses = trades.filter((t) => t.result === "loss").length;
-  const be = trades.filter((t) => t.result === "be").length;
   const rrVals = trades.map((t) => t.rr).filter((v) => Number.isFinite(v));
   const avgRR = rrVals.length ? rrVals.reduce((a, b) => a + b, 0) / rrVals.length : null;
   const profitPct = trades.reduce((acc, t) => {

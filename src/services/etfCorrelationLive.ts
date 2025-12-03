@@ -13,15 +13,14 @@ export type CorrelationResult = {
 };
 
 type HealthFn = (key: string, status: string, message?: string) => void;
-type ToastFn = (msg: string, type?: string) => void;
+type ToastFn = (msg: string, type?: "info" | "error" | "warn") => void;
 
 type ProxyHealth = { key: string; status: string; message?: string };
-type ProxyResponse = { data?: CorrelationPoint[]; health?: ProxyHealth[]; generatedAt?: string; error?: string };
+type ProxyResponse = { ok?: boolean; data?: CorrelationPoint[]; health?: ProxyHealth[]; generatedAt?: string; error?: string; status?: number };
 
 const relayHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: HealthFn) => {
   if (!entries?.length || !onHealthUpdate) return;
   for (const entry of entries) {
-
     onHealthUpdate(entry.key, entry.status, entry.message);
   }
 };
@@ -34,13 +33,12 @@ export async function fetchEtfCorrelationsLive(onHealthUpdate?: HealthFn, onToas
     onHealthUpdate,
   });
   relayHealth(response?.health, onHealthUpdate);
-  if (response?.error) {
+  if (response?.ok === false || response?.error) {
     onToast?.("ETF correlations currently unavailable", "warn");
-    return { data: [], lastUpdated: new Date().toISOString(), error: response.error };
+    return { data: [], lastUpdated: new Date().toISOString(), error: response.error || "correlation_unavailable" };
   }
   return {
     data: response?.data ?? [],
     lastUpdated: response?.generatedAt || new Date().toISOString(),
   };
 }
-  let denB = 0;

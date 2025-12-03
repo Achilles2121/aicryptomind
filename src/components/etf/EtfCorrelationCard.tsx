@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from "react";
-import PropTypes from "prop-types";
+import { useCallback, useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import { fetchEtfCorrelationsLive } from "../../services/etfCorrelationLive";
-import { setCorrelationCache } from "./EtfCorrelationHeatmapCard";
+import { setCorrelationCache, type CorrelationPoint } from "./EtfCorrelationHeatmapCard";
 
-const statusColor = (val) => {
+const statusColor = (val: number | null | undefined) => {
   if (val === null || val === undefined) return "text-slate-400";
   if (val >= 0.6) return "text-emerald-300";
   if (val >= 0.2) return "text-emerald-200";
@@ -13,34 +12,48 @@ const statusColor = (val) => {
   return "text-slate-300";
 };
 
-const formatCorr = (val) => (val === null || val === undefined ? "N/A" : val.toFixed(2));
+const formatCorr = (val: number | null | undefined) => {
+  if (val === null || val === undefined) return "N/A";
+  return Number.isFinite(val) ? val.toFixed(2) : "N/A";
+};
 
-const EtfCorrelationCard = ({ onHealthUpdate, onToast }) => {
-  const [data, setData] = useState([]);
+interface EtfCorrelationCardProps {
+  onHealthUpdate?: (service: string, status: string, message?: string) => void;
+  onToast?: (msg: string, type?: "info" | "error" | "warn") => void;
+}
+
+const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps) => {
+  const [data, setData] = useState<CorrelationPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetchEtfCorrelationsLive(onHealthUpdate, onToast);
-    setData(res.data || []);
-    setLastUpdated(res.lastUpdated);
-    setCorrelationCache(res.data || [], res.lastUpdated);
-    setError(res.error ? "Daten derzeit nicht verfügbar" : "");
-    setLoading(false);
-  };
+    try {
+      const res = await fetchEtfCorrelationsLive(onHealthUpdate, onToast);
+      setData(res.data || []);
+      setLastUpdated(res.lastUpdated);
+      setCorrelationCache(res.data || [], res.lastUpdated);
+      setError(res.error ? "Daten derzeit nicht verfuegbar" : "");
+    } catch (err) {
+      console.error("etf correlation fetch failed", err);
+      setError("Daten derzeit nicht verfuegbar");
+    } finally {
+      setLoading(false);
+    }
+  }, [onHealthUpdate, onToast]);
 
   useEffect(() => {
     load();
     const timer = setInterval(load, 10 * 60 * 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [load]);
 
   const assets = ["BTC", "ETH", "^GSPC", "XAU"];
   const etfs = ["IBIT", "FBTC", "ARKB", "BITB", "HODL"];
 
-  const lookup = (etf, asset) => data.find((d) => d.pair === `${etf}-${asset}`) || {};
+  const lookup = (etf: string, asset: string) => data.find((d) => d.pair === `${etf}-${asset}`) || null;
 
   return (
     <div className="w-full rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4 shadow-lg shadow-black/30 backdrop-blur">
@@ -58,22 +71,28 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }) => {
           <thead>
             <tr className="text-xs uppercase text-slate-400">
               <th className="py-1 pr-2">ETF</th>
-              {assets.map((a) => (
-                <th key={a} className="py-1 pr-2">{a}</th>
+              {assets.map((asset) => (
+                <th key={asset} className="py-1 pr-2">
+                  {asset}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {etfs.map((e) => (
-              <tr key={e} className="border-t border-slate-800">
-                <td className="py-2 pr-2 font-semibold">{e}</td>
-                {assets.map((a) => {
-                  const entry = lookup(e, a);
+            {etfs.map((etf) => (
+              <tr key={etf} className="border-t border-slate-800">
+                <td className="py-2 pr-2 font-semibold">{etf}</td>
+                {assets.map((asset) => {
+                  const entry = lookup(etf, asset);
                   return (
-                    <td key={`${e}-${a}`} className="py-2 pr-2">
+                    <td key={`${etf}-${asset}`} className="py-2 pr-2">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs ${statusColor(entry.corr30d)}`}>30d: {formatCorr(entry.corr30d)}</span>
-                        <span className={`text-[11px] ${statusColor(entry.corr7d)}`}>7d: {formatCorr(entry.corr7d)}</span>
+                        <span className={`text-xs ${statusColor(entry?.corr30d)}`}>
+                          30d: {formatCorr(entry?.corr30d)}
+                        </span>
+                        <span className={`text-[11px] ${statusColor(entry?.corr7d)}`}>
+                          7d: {formatCorr(entry?.corr7d)}
+                        </span>
                       </div>
                     </td>
                   );
@@ -85,16 +104,6 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }) => {
       </div>
     </div>
   );
-};
-
-EtfCorrelationCard.propTypes = {
-  onHealthUpdate: PropTypes.func,
-  onToast: PropTypes.func,
-};
-
-EtfCorrelationCard.defaultProps = {
-  onHealthUpdate: undefined,
-  onToast: undefined,
 };
 
 export default EtfCorrelationCard;

@@ -14,7 +14,10 @@ const INITIAL_STATE = {
 const ELITE_OVERRIDE_EMAILS = new Set(["oemeralpay@hotmail.com"]);
 
 export const useAuthStatus = () => {
-  const [state, setState] = useState(INITIAL_STATE);
+  const [state, setState] = useState(() =>
+    auth ? INITIAL_STATE : { ...INITIAL_STATE, loading: false }
+  );
+  const [now, setNow] = useState(() => Date.now());
 
   const loadUserTier = useCallback(async (uid, email = "") => {
     if (!uid) return;
@@ -67,7 +70,6 @@ export const useAuthStatus = () => {
   useEffect(() => {
     if (!auth) {
       setCachedUserTier("basic");
-      setState({ ...INITIAL_STATE, loading: false });
       return undefined;
     }
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
@@ -89,9 +91,12 @@ export const useAuthStatus = () => {
     return Promise.resolve();
   }, [state.user, loadUserTier]);
 
-  /* eslint-disable react-hooks/purity */
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const derived = useMemo(() => {
-    const now = Date.now();
     const trialEndsAt = state.trialEndsAt || (state.trialStart ? state.trialStart + TRIAL_WINDOW_MS : null);
     const isTrialActive = Boolean(trialEndsAt && now < trialEndsAt);
     const trialExpired = Boolean(state.trialStart && trialEndsAt && now >= trialEndsAt);
@@ -99,8 +104,7 @@ export const useAuthStatus = () => {
     const trialRemainingDays = trialEndsAt ? Math.max(0, Math.ceil(trialRemainingMs / (24 * 60 * 60 * 1000))) : 0;
     const effectiveTier = isTrialActive ? "elite" : state.tier;
     return { trialEndsAt, isTrialActive, trialExpired, trialRemainingMs, trialRemainingDays, effectiveTier };
-  }, [state.trialEndsAt, state.trialStart, state.tier]);
-  /* eslint-enable react-hooks/purity */
+  }, [now, state.trialEndsAt, state.trialStart, state.tier]);
 
   return useMemo(
     () => ({

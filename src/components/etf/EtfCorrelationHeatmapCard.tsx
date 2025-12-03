@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Activity } from "lucide-react";
-import EtfCorrelationCard from "./EtfCorrelationCard";
 
-type CorrelationPoint = {
+export interface CorrelationPoint {
   pair: string;
   corr7d: number | null;
   corr30d: number | null;
-};
+}
 
 type HeatCell = {
   etf: string;
@@ -28,34 +27,51 @@ const colorFor = (val: number | null) => {
 
 const formatVal = (v: number | null) => (v === null || v === undefined ? "N/A" : v.toFixed(2));
 
-// helper to reuse data already loaded in EtfCorrelationCard
 let lastCorrelationData: CorrelationPoint[] = [];
 let lastUpdated: string | null = null;
+const correlationCacheListeners = new Set<() => void>();
+
 export const setCorrelationCache = (data: CorrelationPoint[], updated: string) => {
   lastCorrelationData = data;
   lastUpdated = updated;
+  for (const listener of correlationCacheListeners) {
+    try {
+      listener();
+    } catch (err) {
+      console.warn("correlation cache listener failed", err);
+    }
+  }
 };
 
-const EtfCorrelationHeatmapCard: React.FC = () => {
+const EtfCorrelationHeatmapCard = () => {
   const [cells, setCells] = useState<HeatCell[]>([]);
   const [hasData, setHasData] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(lastUpdated);
 
   useEffect(() => {
-    if (lastCorrelationData.length) {
-      const mapped: HeatCell[] = [];
-      etfs.forEach((e) =>
-        assets.forEach((a) => {
-          const entry = lastCorrelationData.find((p) => p.pair === `${e}-${a}`);
-          mapped.push({ etf: e, asset: a, value: entry?.corr7d ?? null });
-        })
-      );
-      setCells(mapped);
-      setHasData(true);
-    } else {
-      setCells([]);
-      setHasData(false);
-    }
-  }, [lastCorrelationData]);
+    const sync = () => {
+      if (lastCorrelationData.length) {
+        const mapped: HeatCell[] = [];
+        etfs.forEach((e) =>
+          assets.forEach((a) => {
+            const entry = lastCorrelationData.find((p) => p.pair === `${e}-${a}`);
+            mapped.push({ etf: e, asset: a, value: entry?.corr7d ?? null });
+          })
+        );
+        setCells(mapped);
+        setHasData(true);
+      } else {
+        setCells([]);
+        setHasData(false);
+      }
+      setUpdatedAt(lastUpdated);
+    };
+    sync();
+    correlationCacheListeners.add(sync);
+    return () => {
+      correlationCacheListeners.delete(sync);
+    };
+  }, []);
 
   return (
     <div className="w-full rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4 shadow-lg shadow-black/30 backdrop-blur">
@@ -64,35 +80,35 @@ const EtfCorrelationHeatmapCard: React.FC = () => {
           <Activity className="h-5 w-5 text-emerald-400" />
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">ETF Correlation Heatmap (7d)</h3>
         </div>
-        <span className="text-[11px] text-slate-400">{lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "-"}</span>
+        <span className="text-[11px] text-slate-400">{updatedAt ? new Date(updatedAt).toLocaleTimeString() : "-"}</span>
       </div>
-      {!hasData ? <p className="text-sm text-slate-400">Noch keine Korrelationsdaten verfügbar</p> : null}
+      {!hasData ? <p className="text-sm text-slate-400">Noch keine Korrelationsdaten verfuegbar</p> : null}
       {hasData ? (
         <div className="overflow-x-auto">
           <div className="min-w-[320px]">
             <div className="grid grid-cols-[100px_repeat(5,minmax(60px,1fr))] gap-1 text-xs text-slate-200">
               <div className="text-slate-400">Asset \\ ETF</div>
-              {etfs.map((e) => (
-                <div key={e} className="text-center text-slate-400">
-                  {e}
+              {etfs.map((etf) => (
+                <div key={etf} className="text-center text-slate-400">
+                  {etf}
                 </div>
               ))}
-              {assets.map((a) => (
-                <React.Fragment key={a}>
-                  <div className="text-slate-400 py-1">{a}</div>
-                  {etfs.map((e) => {
-                    const cell = cells.find((c) => c.asset === a && c.etf === e);
+              {assets.map((asset) => (
+                <Fragment key={asset}>
+                  <div className="py-1 text-slate-400">{asset}</div>
+                  {etfs.map((etf) => {
+                    const cell = cells.find((c) => c.asset === asset && c.etf === etf);
                     return (
                       <div
-                        key={`${a}-${e}`}
+                        key={`${asset}-${etf}`}
                         className={`flex items-center justify-center rounded ${colorFor(cell?.value ?? null)} py-2 px-1 text-[11px]`}
-                        title={`${e} vs ${a}: ${formatVal(cell?.value ?? null)}`}
+                        title={`${etf} vs ${asset}: ${formatVal(cell?.value ?? null)}`}
                       >
                         {formatVal(cell?.value ?? null)}
                       </div>
                     );
                   })}
-                </React.Fragment>
+                </Fragment>
               ))}
             </div>
           </div>

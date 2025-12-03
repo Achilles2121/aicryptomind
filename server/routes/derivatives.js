@@ -1,3 +1,4 @@
+/* eslint-env node */
 import { Router } from "express";
 import { createHealthTracker } from "../../api/_lib/health.js";
 import { clampNumber } from "../../api/_lib/utils.js";
@@ -70,7 +71,7 @@ const fetchMetric = async ({ symbol, period, limit, metric, apiKey }) => {
   return parseMetricSeries(rows, metric);
 };
 
-router.get("/", async (req, res, next) => {
+router.get("/", async (req, res, _next) => {
   const tracker = createHealthTracker();
   const symbol = String(req.query.symbol || "BITSTAMP_SPOT_BTC_USD").toUpperCase();
   const period = String(req.query.period || "1HRS").toUpperCase();

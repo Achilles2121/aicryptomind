@@ -5,7 +5,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
-import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
+import { doc, getDoc, getFirestore, setDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -67,8 +67,11 @@ export const fetchUserTier = async (uid) => {
     const snap = await getDoc(doc(db, "userTiers", uid));
     const data = snap.exists() ? snap.data() : {};
     const tier = data?.tier || "basic";
-    const trialStart = data?.trialStart || null;
-    const trialEndsAt = data?.trialEndsAt || (trialStart ? Number(trialStart) + TRIAL_WINDOW_MS : null);
+    const trialStart =
+      data?.trialStart instanceof Timestamp ? data.trialStart.toMillis() : Number(data?.trialStart) || null;
+    const trialEndsAtRaw =
+      data?.trialEndsAt instanceof Timestamp ? data.trialEndsAt.toMillis() : Number(data?.trialEndsAt) || null;
+    const trialEndsAt = trialEndsAtRaw || (trialStart ? trialStart + TRIAL_WINDOW_MS : null);
     const trialUsed = Boolean(data?.trialUsed || trialStart);
     setCachedUserTier(tier);
     return { tier, trialStart, trialEndsAt, trialUsed, source: "firebase" };
@@ -93,19 +96,38 @@ export const signup = async (email, password) => {
 };
 
 export const startUserTrial = async (uid, windowMs = TRIAL_WINDOW_MS) => {
-  if (!uid || !db) throw new Error("Trial start requires authenticated user");
+  if (!uid) return { ok: false, reason: "NO_UID" };
+  if (!db) return { ok: false, reason: "NO_DB" };
   const ref = doc(db, "userTiers", uid);
-  const snap = await getDoc(ref);
-  const data = snap.exists() ? snap.data() : {};
-  if (data?.trialStart) {
-    const trialStart = Number(data.trialStart);
-    const trialEndsAt = data?.trialEndsAt || (Number.isFinite(trialStart) ? trialStart + windowMs : null);
-    return { ok: false, reason: "TRIAL_ALREADY_USED", trialStart, trialEndsAt };
+  try {
+    const snap = await getDoc(ref);
+    const data = snap.exists() ? snap.data() : {};
+    if (data?.trialStart) {
+      const trialStart = data.trialStart instanceof Timestamp ? data.trialStart.toMillis() : Number(data.trialStart);
+      const trialEndsAtRaw =
+        data.trialEndsAt instanceof Timestamp ? data.trialEndsAt.toMillis() : Number(data.trialEndsAt);
+      const trialEndsAt = trialEndsAtRaw || (Number.isFinite(trialStart) ? trialStart + windowMs : null);
+      return { ok: false, reason: "TRIAL_ALREADY_USED", trialStart, trialEndsAt };
+    }
+    const nowTs = Timestamp.now();
+    const payload = {
+      tier: "trial",
+      trialStart: serverTimestamp(),
+      trialEndsAt: nowTs.toMillis() + windowMs,
+      trialUsed: true,
+    };
+    await setDoc(ref, payload, { merge: true });
+    const fresh = await getDoc(ref);
+    const stored = fresh.exists() ? fresh.data() : {};
+    const trialStart =
+      stored.trialStart instanceof Timestamp ? stored.trialStart.toMillis() : Number(stored.trialStart) || nowTs.toMillis();
+    const trialEndsAt =
+      stored.trialEndsAt instanceof Timestamp ? stored.trialEndsAt.toMillis() : Number(stored.trialEndsAt) || payload.trialEndsAt;
+    return { ok: true, trialStart, trialEndsAt, tier: stored.tier || "trial" };
+  } catch (err) {
+    console.warn("startUserTrial failed", err);
+    return { ok: false, reason: err?.code || "TRIAL_START_FAILED", message: err?.message };
   }
-  const now = Date.now();
-  const payload = { trialStart: now, trialEndsAt: now + windowMs, trialUsed: true };
-  await setDoc(ref, payload, { merge: true });
-  return { ok: true, ...payload };
 };
 
 export const login = async (email, password) => {

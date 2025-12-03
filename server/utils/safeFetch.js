@@ -1,3 +1,4 @@
+/* eslint-env node */
 const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_RETRIES = 2;
 
@@ -49,7 +50,7 @@ export async function safeFetchJson(url, options = {}) {
         const raw = await response.text();
         try {
           return JSON.parse(raw);
-        } catch (err) {
+        } catch {
           throw new Error(`[${label}] Expected JSON payload`);
         }
       }

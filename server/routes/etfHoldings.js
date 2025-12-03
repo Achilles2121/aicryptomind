@@ -1,3 +1,4 @@
+/* eslint-env node */
 import { Router } from "express";
 import { fetchEtfHoldingsSeries } from "../../api/_lib/providers/fmp.js";
 import { fetchSosoHoldingsSnapshot } from "../../api/_lib/providers/sosovalue.js";
@@ -79,6 +80,7 @@ async function buildHolding(symbol, tracker, fetchSoso, fetchCoinstats) {
       tracker.set(attempt.key, "ok");
       const latest = series.at(-1) || {};
       return {
+        ok: true,
         symbol,
         aumUsd: latest.aumUsd ?? null,
         shares: latest.shares ?? null,
@@ -96,6 +98,7 @@ async function buildHolding(symbol, tracker, fetchSoso, fetchCoinstats) {
   tracker.set("ETF_HOLDINGS_SAMPLE", "degraded", "using sample data");
   const sample = fillSeries(buildSampleSeries(symbol), 30);
   return {
+    ok: false,
     symbol,
     aumUsd: sample.at(-1)?.aumUsd ?? null,
     shares: sample.at(-1)?.shares ?? null,
@@ -120,11 +123,13 @@ router.get("/", async (req, res) => {
       }
       return { items: upsertMarketShare(items), health: tracker.toArray() };
     });
-    return res.json({ data: result.items, health: result.health, generatedAt: new Date().toISOString() });
+    return res.json({ ok: true, data: result.items, health: result.health, generatedAt: new Date().toISOString() });
   } catch (err) {
     tracker.set("ETF_HOLDINGS", "error", err?.message || "holdings failed");
     return res.status(200).json({
+      ok: false,
       error: "holdings_unavailable",
+      status: 502,
       data: [],
       health: tracker.toArray(),
       generatedAt: new Date().toISOString(),

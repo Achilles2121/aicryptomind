@@ -1,3 +1,4 @@
+/* eslint-env node */
 import { Router } from "express";
 import { fetchHistoricalMarketCap } from "../../api/_lib/providers/fmp.js";
 import { fetchSosoEtfFlow } from "../../api/_lib/providers/sosovalue.js";
@@ -78,6 +79,7 @@ async function buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats) {
       tracker.set(attempt.key, "ok");
       const normalized = fillFlowSeries(rows.slice(-30), 30);
       return {
+        ok: true,
         symbol,
         points: normalized,
         sum7dUsd: sumRange(normalized, 7),
@@ -94,6 +96,7 @@ async function buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats) {
   tracker.set("ETF_FLOWS_SAMPLE", "degraded", "using sample data");
   const sample = fillFlowSeries(buildSampleFlow(symbol), 30);
   return {
+    ok: false,
     symbol,
     points: sample,
     sum7dUsd: sumRange(sample, 7),
@@ -117,11 +120,13 @@ router.get("/", async (req, res) => {
       }
       return { data, health: tracker.toArray() };
     });
-    return res.json({ data: result.data, health: result.health, generatedAt: new Date().toISOString() });
+    return res.json({ ok: true, data: result.data, health: result.health, generatedAt: new Date().toISOString() });
   } catch (err) {
     tracker.set("ETF_FLOWS", "error", err?.message || "flows failed");
     return res.status(200).json({
+      ok: false,
       error: "flows_unavailable",
+      status: 502,
       data: [],
       health: tracker.toArray(),
       generatedAt: new Date().toISOString(),

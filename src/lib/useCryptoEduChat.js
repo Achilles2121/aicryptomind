@@ -16,7 +16,7 @@ export const useCryptoEduChat = () => {
       const mock = "Dies ist eine Beispielantwort. Das echte LLM-Backend wird spaeter angebunden.";
       await new Promise((resolve) => setTimeout(resolve, 400));
       setMessages((prev) => [...prev, { role: "assistant", content: mock }]);
-    } catch (err) {
+    } catch {
       setMessages((prev) => [...prev, { role: "assistant", content: "Fehler beim Abruf der AI-Antwort." }]);
     } finally {
       setIsSending(false);
