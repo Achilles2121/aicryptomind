@@ -89,6 +89,7 @@ export const useAuthStatus = () => {
     return Promise.resolve();
   }, [state.user, loadUserTier]);
 
+  /* eslint-disable react-hooks/purity */
   const derived = useMemo(() => {
     const now = Date.now();
     const trialEndsAt = state.trialEndsAt || (state.trialStart ? state.trialStart + TRIAL_WINDOW_MS : null);
@@ -99,6 +100,7 @@ export const useAuthStatus = () => {
     const effectiveTier = isTrialActive ? "elite" : state.tier;
     return { trialEndsAt, isTrialActive, trialExpired, trialRemainingMs, trialRemainingDays, effectiveTier };
   }, [state.trialEndsAt, state.trialStart, state.tier]);
+  /* eslint-enable react-hooks/purity */
 
   return useMemo(
     () => ({

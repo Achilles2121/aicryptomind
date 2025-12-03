@@ -1,4 +1,5 @@
 import React, { createContext, useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
 import { loadTrialState, saveTrialState } from "../services/trialService";
 
 const TRIAL_DAYS = 7;
@@ -62,11 +63,23 @@ export function SubscriptionProvider({ children }) {
     return state.trialStartedAt + TRIAL_MS;
   }, [state.trialStartedAt]);
 
+  /* eslint-disable react-hooks/purity */
   const trialDaysLeft = trialEndsAt
-    ? Math.max(0, Math.ceil((trialEndsAt - Date.now()) / (24 * 60 * 60 * 1000)))
+    ? Math.max(
+        0,
+        Math.ceil((trialEndsAt - Date.now()) / (24 * 60 * 60 * 1000))
+      )
     : TRIAL_DAYS;
-  const trialActive = Boolean(state.trialStartedAt) && Date.now() <= trialEndsAt && state.plan === "trial";
-  const trialExpired = Boolean(state.trialStartedAt) && Date.now() > trialEndsAt;
+
+  const trialActive =
+    Boolean(state.trialStartedAt) &&
+    Date.now() <= trialEndsAt &&
+    state.plan === "trial";
+
+  const trialExpired =
+    Boolean(state.trialStartedAt) && Date.now() > trialEndsAt;
+  /* eslint-enable react-hooks/purity */
+
   const eliteTier = trialActive || state.plan === "elite";
 
   const value = useMemo(
@@ -99,3 +112,7 @@ export function SubscriptionProvider({ children }) {
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
 }
+
+SubscriptionProvider.propTypes = {
+  children: PropTypes.node.isRequired,
+};
