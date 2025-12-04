@@ -277,7 +277,7 @@ const formatClock = (ts) => {
 const TRANSLATIONS = {
   de: {
     action: "Aktion",
-    reasonLabel: "Begruendung",
+    reasonLabel: "Begründung",
     confidence: "Konfidenz",
     tp: "TP",
     sl: "SL",
@@ -321,14 +321,14 @@ const TRANSLATIONS = {
     logout: "Logout",
     liveCheck: "Live-Check",
     liveLabel: "Live",
-    keyNeeded: "Key nÃ¶tig",
+    keyNeeded: "Key nötig",
     errorLabel: "Fehler",
     liveData: "Live Data",
     reachable: "Erreichbar",
     unavailable: "Unavailable",
     proRequired: "Pro erforderlich",
     eliteRequired: "Elite erforderlich",
-    apiKeyNeeded: "API Key nÃ¶tig",
+    apiKeyNeeded: "API Key nötig",
     demoUser: "trader@demo.app",
     aiTags: "AI-Tags",
     heroSubtitle: "Live Daten mit Multi-Source Fallback, Indikatoren & WebSocket Autoreconnect.",
@@ -347,10 +347,10 @@ const TRANSLATIONS = {
     signalsLive: "Live Checks",
     signalsOversold: "RSI < 30 -> Oversold Alert",
     signalsOverbought: "RSI > 70 -> Overbought Alert",
-    signalsFallback: "Fallback aktiv bei Primaerfehler",
+    signalsFallback: "Fallback aktiv bei Primärfehler",
     loadingCandles: "Candles werden geladen...",
     loadingFib: "Fib Map wird geladen...",
-    noBubbles: "Keine Bubbles verfÃ¼gbar.",
+    noBubbles: "Keine Bubbles verfügbar.",
     loadingRSI: "RSI wird geladen...",
     loadingMACD: "MACD wird geladen...",
     loadingFlows: "Volumen wird gesammelt...",
@@ -365,7 +365,7 @@ const TRANSLATIONS = {
     apiReachable: "Erreichbar",
     apiUnavailable: "Unavailable",
     marketRegimeDesc: "Basierend auf EMA200, ADX & Bollinger Band Width.",
-    liquidityDesc: "Orderbuch-StÃ¤rke â€“ Bids vs. Asks (letzte 1h).",
+    liquidityDesc: "Orderbuch-Stärke – Bids vs. Asks (letzte 1h).",
     onchainDesc: "Active Addresses & Supply Split.",
     sentimentDesc: "Social Score (CryptoCompare).",
     correlationDesc: "Coin-Korrelationen (CoinGecko).",
@@ -373,7 +373,7 @@ const TRANSLATIONS = {
     dataIntegrity1: "CoinGecko to CryptoCompare, Polling Backup 30s, Cache 5m.",
     dataIntegrity2: "WebSocket Auto-Reconnect bis 5x, Volume & Candles von Kraken.",
     dataIntegrity3: "RSI (14), MACD (12/26/9), Bollinger (20, 2 std) live berechnet.",
-    backtestNote: "Backtest V3: TP/SL, Fees & Slippage beruecksichtigt. Historische Trefferquote ist keine Garantie.",
+    backtestNote: "Backtest V3: TP/SL, Fees & Slippage berücksichtigt. Historische Trefferquote ist keine Garantie.",
     netFlowsLabel: "Net Flows",
     newsLabel: "News",
     smartAccum: "Smart Money: Accumulation Phase",
@@ -394,14 +394,14 @@ const TRANSLATIONS = {
     backtestTrades: "Trades (Lookahead 5)",
     backtestWinRate: "Win Rate",
     backtestWinsLosses: "Wins / Losses",
-    backtestAvgRR: "Ã˜ RR",
+    backtestAvgRR: "Ø RR",
     cardMarketRegime: "Market Regime Detector",
     cardSmartMoney: "Smart Money Flow",
     cardLiquidity: "Liquidity Heatmap",
     cardManualControls: "Manual Controls",
     cardDataIntegrity: "Data Integrity",
     fibGolden: "Golden Zone, TP/SL",
-    liveMarketMeta: "Kraken OHLC Â· TF",
+    liveMarketMeta: "Kraken OHLC · TF",
     tpEntryLabel: "Entry Price",
     tpQtyLabel: "Menge",
     tpTpLabel: "Take Profit %",
@@ -411,23 +411,23 @@ const TRANSLATIONS = {
     profitAtTp: "Gewinn @TP",
     lossAtSl: "Verlust @SL",
     rrLabel: "Risk/Reward",
-    aiHint: "Hinweis: Heuristik basiert auf RSI/MACD/Bollinger. Keine Garantie; Maerkte sind volatil.",
+    aiHint: "Hinweis: Heuristik basiert auf RSI/MACD/Bollinger. Keine Garantie; Märkte sind volatil.",
     fibTp: "TP",
     fibSl: "SL",
     fibNow: "Now",
     bubblesTop: "Top 10 Extrem RSI",
     tpAlarm: "TP Alarm",
     slAlarm: "SL Alarm",
-    noEntries: "Noch keine EintrÃ¤ge.",
+    noEntries: "Noch keine Einträge.",
     diarySave: "Speichern",
-    diaryAutosave: "Autosave (local) Â· max 50 EintrÃ¤ge",
+    diaryAutosave: "Autosave (local) · max 50 Einträge",
     loadingTrades: "Warte auf Trades...",
     fetchFailPricePrimary: "Primaere Quelle ausgefallen - Fallback aktiv (CryptoCompare).",
     fetchFailPrice: "Preisquellen derzeit nicht erreichbar.",
     fetchFailFearGreed: "Fear & Greed Quelle nicht erreichbar.",
     fetchFailOHLC: "Kraken OHLCV konnte nicht geladen werden.",
-    fetchFailETF: "ETF News derzeit nicht verfÃ¼gbar.",
-    fetchFailETFFlows: "ETF Flows derzeit nicht verfÃ¼gbar.",
+    fetchFailETF: "ETF News derzeit nicht verfügbar.",
+    fetchFailETFFlows: "ETF Flows derzeit nicht verfügbar.",
     tpSlTitle: "TP / SL Rechner (AI Assist)",
     aiSignalTitle: "AI Signal (Heuristik, Open-Source Stil)",
     proSignalsTitle: "Pro Signals",
@@ -911,37 +911,49 @@ function App() {
   const t = useCallback((key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key, [lang]);
   const [blink, setBlink] = useState(true);
   const isElite = tier === "elite" || tier === "elite_trial";
+  const isEliteTrial = tier === "elite_trial" || effectiveTier === "elite_trial";
   const resolvedTier = isElite ? "elite" : tier;
-  const trialActive = Boolean(isTrialActive || tier === "elite_trial");
+  const trialActive = Boolean(isTrialActive || isEliteTrial);
   const resolvedTrialEnd = trialInfo?.trialEnd || trialEndsAt;
+  const isTrialExpired = useMemo(
+    () => Boolean((trialInfo?.expired || trialExpired) && !isEliteTrial),
+    [trialExpired, trialInfo?.expired, isEliteTrial]
+  );
   const hasProAccess = useMemo(() => TIER_ORDER.indexOf(resolvedTier) >= TIER_ORDER.indexOf("pro"), [resolvedTier]);
   const trialEnd = useMemo(() => {
     if (!resolvedTrialEnd) return null;
     return new Date(resolvedTrialEnd).toLocaleDateString();
   }, [resolvedTrialEnd]);
   const trialDaysLeft = useMemo(() => {
+    if (isTrialExpired) return 0;
     if (trialInfo?.trialEnd) {
       const diff = Math.max(0, trialInfo.trialEnd - Date.now());
       return Math.ceil(diff / (24 * 60 * 60 * 1000));
     }
     return trialRemainingDays;
-  }, [trialInfo?.trialEnd, trialRemainingDays]);
+  }, [isTrialExpired, trialInfo?.trialEnd, trialRemainingDays]);
   const trialBadgeText = useMemo(() => {
-    if (!trialActive) return null;
+    if (!trialActive || isTrialExpired) return null;
     if (!trialDaysLeft) {
-      return lang === "de" ? "Trial Â· <1 Tag" : "Trial Â· <1d";
+      return lang === "de" ? "Trial · <1 Tag" : "Trial · <1d";
     }
     return lang === "de"
-      ? `Trial Â· noch ${trialDaysLeft} Tag${trialDaysLeft === 1 ? "" : "e"}`
-      : `Trial Â· ${trialDaysLeft}d left`;
-  }, [trialActive, trialDaysLeft, lang]);
+      ? `Trial · noch ${trialDaysLeft} Tag${trialDaysLeft === 1 ? "" : "e"}`
+      : `Trial · ${trialDaysLeft}d left`;
+  }, [isTrialExpired, trialActive, trialDaysLeft, lang]);
 
   const trialBlockMessage = useMemo(() => {
-    if (trialInfo?.expired) return lang === "de" ? "Trial abgelaufen." : "Trial expired.";
-    return "";
-  }, [trialInfo?.expired, lang]);
+    if (isEliteTrial) return lang === "de" ? "7 Tage Elite-Trial aktiv." : "7-day Elite trial active.";
+    if (isTrialExpired) return lang === "de" ? "Trial abgelaufen." : "Trial expired.";
+    return lang === "de" ? "Jetzt kostenlosen Elite-Trial starten." : "Start free 7-day Elite trial now.";
+  }, [isEliteTrial, isTrialExpired, lang]);
 
-
+  const trialButtonLabel = useMemo(() => {
+    if (isTrialLoading) return lang === "de" ? "Lädt..." : "Loading...";
+    if (isEliteTrial) return lang === "de" ? "7 Tage Elite-Trial aktiv" : "7-day Elite trial active";
+    if (isTrialExpired) return lang === "de" ? "Trial abgelaufen" : "Trial expired";
+    return lang === "de" ? "7 Tage Elite-Test" : "Start free 7-day Elite trial now";
+  }, [isEliteTrial, isTrialExpired, isTrialLoading, lang]);
   const tierLabels = useMemo(
     () => ({
       basic: t("tierBasic"),
@@ -2441,7 +2453,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       {trialBadgeText}
                     </span>
                   </div>
-                ) : trialExpired && trialStart ? (
+                ) : isTrialExpired && trialStart ? (
                   <div className="mt-1">
                     <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
                       {lang === "de" ? "Trial abgelaufen" : "Trial expired"}
@@ -2503,13 +2515,13 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       isTrialLoading ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
                     }`}
                   >
-                    {isTrialLoading ? "Laedt..." : "7 Tage Elite-Test"}
+                    {trialButtonLabel}
                   </button>
                   {trialBlockMessage ? <span className="text-[11px] text-amber-300">{trialBlockMessage}</span> : null}
                   {tier === "elite_trial" && trialInfo?.trialEnd ? (
                     <span className="text-[11px] text-slate-400">Restzeit: {formatTrialCountdown(trialInfo.trialEnd)}</span>
                   ) : null}
-                {trialExpired && trialStart ? (
+                {isTrialExpired && trialStart ? (
                   <span className="text-[11px] text-amber-300">
                     {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
                   </span>
@@ -2774,7 +2786,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-SchÃ¤tzung + Confidence.">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schätzung + Confidence.">
                 <div className="flex flex-col gap-3">
                   <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
                   <div className="flex items-center justify-between text-sm">
@@ -2981,11 +2993,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : trialExpired
+                      : isTrialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between gap-4 overflow-hidden"
@@ -3050,11 +3062,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : trialExpired
+                      : isTrialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between overflow-hidden"
@@ -3096,11 +3108,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : trialExpired
+                      : isTrialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
@@ -3151,11 +3163,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : trialExpired
+                      : isTrialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
@@ -3426,11 +3438,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               trialEndText={
                 trialActive
                   ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                  : trialExpired
+                  : isTrialExpired
                   ? "Test abgelaufen. Bitte upgraden."
                   : t("proRequired")
               }
-              lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+              lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
             >
               <Card title={t("proSignalsTitle")} icon={TrendingUp}>
                 <div className="space-y-2 text-sm text-slate-200">
@@ -3532,11 +3544,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               trialEndText={
                 trialActive
                   ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                  : trialExpired
+                  : isTrialExpired
                   ? "Test abgelaufen. Bitte upgraden."
                   : t("proRequired")
               }
-              lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+              lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
             >
               <Card
                 title={t("apiPlaybook")}
@@ -4078,7 +4090,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <span className="mt-1 inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
                     {trialBadgeText}
                   </span>
-                ) : trialExpired && trialStart ? (
+                ) : isTrialExpired && trialStart ? (
                   <span className="mt-1 inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
                     {lang === "de" ? "Trial abgelaufen" : "Trial expired"}
                   </span>
@@ -4138,12 +4150,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   type="button"
                   onClick={handleStartTrialClick}
                   disabled={isTrialLoading}
-                  className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
-                    isTrialLoading ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
-                  }`}
-                >
-                  {isTrialLoading ? "Laedt..." : "7 Tage Elite-Test"}
-                </button>
+                className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
+                  isTrialLoading ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
+                }`}
+              >
+                  {trialButtonLabel}
+              </button>
               </div>
               {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
               {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
@@ -4151,7 +4163,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               {tier === "elite_trial" && trialInfo?.trialEnd ? (
                 <span className="text-[11px] text-slate-400">Restzeit: {formatTrialCountdown(trialInfo.trialEnd)}</span>
               ) : null}
-              {trialExpired && trialStart ? (
+              {isTrialExpired && trialStart ? (
                 <span className="text-[11px] text-amber-300">
                   {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
                 </span>
@@ -4445,7 +4457,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           ) : null}
           {mobileTab === "signals" ? (
             <div className="space-y-4">
-              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Sch?tzung + Confidence.">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schätzung + Confidence.">
                 <div className="flex flex-col gap-3">
                   <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
                   <div className="flex items-center justify-between text-sm">
@@ -4475,11 +4487,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 trialEndText={
                   trialActive
                     ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                    : trialExpired
+                    : isTrialExpired
                     ? "Test abgelaufen. Bitte upgraden."
                     : t("eliteRequired")
                 }
-                lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("eliteRequired")}
+                lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("eliteRequired")}
               >
                 <Card title={t("aiSignalTitle")} icon={Signal}>
                   <div className="space-y-2 text-sm text-slate-200">
@@ -4517,11 +4529,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 trialEndText={
                   trialActive
                     ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                    : trialExpired
+                    : isTrialExpired
                     ? "Test abgelaufen. Bitte upgraden."
                     : t("proRequired")
                 }
-                lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
               >
                 <Card title={t("proSignalsTitle")} icon={TrendingUp}>
                   <div className="space-y-2 text-sm text-slate-200">
@@ -4615,11 +4627,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 trialEndText={
                   trialActive
                     ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                    : trialExpired
+                    : isTrialExpired
                     ? "Test abgelaufen. Bitte upgraden."
                     : t("proRequired")
                 }
-                lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
               >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
