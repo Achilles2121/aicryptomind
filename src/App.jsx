@@ -2548,7 +2548,6 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             >
               {isBeginner ? "Beginner-Mode" : "Pro-View"}
             </button>
-            <LiveClock />
             <IndicatorBadge label="WebSocket" value={wsStatus === "live" ? "Live" : wsStatus} intent={wsStatus === "live" ? "ok" : "warn"} />
             <button
               onClick={refreshAll}
@@ -4061,6 +4060,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               {t("refresh")}
             </button>
+            <LiveClock />
           </div>
         </header>
 
