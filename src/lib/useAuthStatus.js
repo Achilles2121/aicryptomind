@@ -11,7 +11,10 @@ const INITIAL_STATE = {
   trialUsed: false,
 };
 
-const ELITE_OVERRIDE_EMAILS = new Set(["oemeralpay@hotmail.com"]);
+const ELITE_OVERRIDE_EMAILS = new Set([
+  "oemeralpay@hotmail.com",
+  "francesco_gentile@icloud.com",
+]);
 
 export const useAuthStatus = () => {
   const [state, setState] = useState(() =>

@@ -4590,12 +4590,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </Card>
               )}
 
-              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide f?r erste Trades.">
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide für erste Trades.">
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
-                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone f?r m?gliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% ? siehe TP/SL Rechner.</li>
-                  <li>Beginner-Mode h?lt nur Kernkarten aktiv; pro View f?r volle Tiefe.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone für mögliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% – siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode hält nur Kernkarten aktiv; pro View für volle Tiefe.</li>
                 </ul>
               </Card>
             </div>
