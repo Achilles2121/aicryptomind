@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  signInAnonymously,
 } from "firebase/auth";
 import { doc, getDoc, getFirestore, setDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 
@@ -95,10 +96,24 @@ export const signup = async (email, password) => {
   return cred;
 };
 
+export const ensureUserOrAnonymous = async () => {
+  if (!auth) throw new Error("Firebase nicht initialisiert");
+  if (auth.currentUser) return auth.currentUser;
+  const cred = await signInAnonymously(auth);
+  return cred.user;
+};
+
 export const startUserTrial = async (uid, windowMs = TRIAL_WINDOW_MS) => {
-  if (!uid) return { ok: false, reason: "NO_UID" };
   if (!db) return { ok: false, reason: "NO_DB" };
-  const ref = doc(db, "userTiers", uid);
+  let user = null;
+  try {
+    user = await ensureUserOrAnonymous();
+  } catch (err) {
+    return { ok: false, reason: err?.code || "NO_AUTH", message: err?.message };
+  }
+  const effectiveUid = uid || user?.uid;
+  if (!effectiveUid) return { ok: false, reason: "NO_UID" };
+  const ref = doc(db, "userTiers", effectiveUid);
   try {
     const snap = await getDoc(ref);
     const data = snap.exists() ? snap.data() : {};

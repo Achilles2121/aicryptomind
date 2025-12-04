@@ -1723,12 +1723,12 @@ function App() {
     }
     setIsStartingTrial(true);
     try {
-      const result = await startUserTrial(authUser.uid);
+      const result = await startUserTrial(authUser?.uid);
       if (!result?.ok) {
         const reason = result?.reason || "UNKNOWN";
         setTrialDisabledReason(reason);
         const isUsed = reason === "TRIAL_ALREADY_USED";
-        const isConfig = reason === "NO_DB" || reason === "NO_UID";
+        const isConfig = reason === "NO_DB";
         const message =
           lang === "de"
             ? isUsed
@@ -1761,17 +1761,7 @@ function App() {
     } catch (err) {
       console.error("start trial failed", err);
       setTrialDisabledReason(err?.code || err?.reason || "TRIAL_START_FAILED");
-      const msg = String(err?.message || "").toLowerCase();
-      if (msg.includes("auth") || msg.includes("token")) {
-        addToast(
-          lang === "de" ? "Bitte logge dich ein, um die Testversion zu starten." : "Please log in to start your trial.",
-          "warn"
-        );
-        setHighlightAuthCard(true);
-        focusAuthSection();
-      } else {
-        addToast(lang === "de" ? "Trial konnte nicht gestartet werden." : "Failed to start trial.", "error");
-      }
+      addToast(lang === "de" ? "Trial konnte nicht gestartet werden." : "Failed to start trial.", "error");
     } finally {
       setIsStartingTrial(false);
     }
@@ -4604,7 +4594,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
                   <li>RSI &lt; 30? Beobachte Fib-Golden-Zone f?r m?gliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% - siehe TP/SL Rechner.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% ? siehe TP/SL Rechner.</li>
                   <li>Beginner-Mode h?lt nur Kernkarten aktiv; pro View f?r volle Tiefe.</li>
                 </ul>
               </Card>
