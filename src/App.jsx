@@ -2558,6 +2558,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               {t("refresh")}
             </button>
+            <LiveClock />
           </div>
         </header>
 
