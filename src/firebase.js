@@ -155,6 +155,52 @@ export const logout = async () => {
   return signOut(auth);
 };
 
+export async function ensureAnonymousUser() {
+  if (!auth) throw new Error("Firebase nicht initialisiert");
+  if (auth.currentUser) return auth.currentUser;
+  const cred = await signInAnonymously(auth);
+  return cred.user;
+}
+
+export async function startOrResumeTrial(uid) {
+  if (!uid || !db) return { active: false, expired: true, reason: "NO_UID_OR_DB" };
+  const ref = doc(db, "trials", uid);
+  const now = Date.now();
+
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data() || {};
+      const trialStart =
+        data.trialStart instanceof Timestamp ? data.trialStart.toMillis() : Number(data.trialStart) || now;
+      const trialEndRaw =
+        data.trialEnd instanceof Timestamp ? data.trialEnd.toMillis() : Number(data.trialEnd) || null;
+      const trialEnd = trialEndRaw || trialStart + TRIAL_WINDOW_MS;
+      if (trialEnd <= now) {
+        return { active: false, expired: true, trialStart, trialEnd };
+      }
+      return { active: true, expired: false, trialStart, trialEnd };
+    }
+
+    const trialStart = now;
+    const trialEnd = now + TRIAL_WINDOW_MS;
+    await setDoc(
+      ref,
+      {
+        trialStart,
+        trialEnd,
+        createdAt: serverTimestamp(),
+        source: "anonymous",
+      },
+      { merge: true }
+    );
+    return { active: true, expired: false, trialStart, trialEnd };
+  } catch (err) {
+    console.warn("startOrResumeTrial failed", err);
+    return { active: false, expired: true, reason: err?.code || "TRIAL_START_FAILED" };
+  }
+}
+
 export const saveWinrateSnapshot = async () => null; // placeholder
 export const loadWinrateSnapshot = async () => null; // placeholder
 
