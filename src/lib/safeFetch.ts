@@ -82,12 +82,11 @@ const toUrlString = (input: RequestInfo | URL) => {
   if (input instanceof URL) return input.toString();
   if (typeof Request !== "undefined" && input instanceof Request) return input.url;
   if (typeof input === "object" && input) {
-    const candidate = input as unknown as Record<string, unknown>;
-    if ("url" in candidate && typeof candidate.url === "string") {
-      return String(candidate.url);
+    if ("url" in input && typeof (input as Record<string, unknown>).url === "string") {
+      return String((input as Record<string, unknown>).url);
     }
-    if ("href" in candidate && typeof candidate.href === "string") {
-      return String(candidate.href);
+    if ("href" in input && typeof (input as Record<string, unknown>).href === "string") {
+      return String((input as Record<string, unknown>).href);
     }
   }
   return "";
@@ -190,7 +189,7 @@ const ensureSourceEnabled = (
   throw disabledError;
 };
 
-export async function safeFetch<T = any>(input: RequestInfo | URL, init: SafeFetchOptions = {}): Promise<T> {
+export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOptions = {}): Promise<T> {
   const {
     retries = 0,
     retryDelayMs = 400,

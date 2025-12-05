@@ -1,5 +1,5 @@
 ﻿// Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Activity,
@@ -18,6 +18,7 @@ import {
   Area,
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   ComposedChart,
   Customized,
@@ -30,15 +31,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  auth,
-  login as fbLogin,
-  signup as fbSignup,
-  logout as fbLogout,
-  saveUserTier,
-  ensureAnonymousUser,
-  startOrResumeTrial,
-} from "./firebase";
+import { auth, login as fbLogin, signup as fbSignup, logout as fbLogout, saveUserTier, startUserTrial } from "./firebase";
 import { useUserTier } from "./context/UserTierContext";
 import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
@@ -69,7 +62,7 @@ import {
   calculateOBV,
   calculatePearson,
 } from "./lib/indicators";
-import { buildAISignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
+import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -90,12 +83,40 @@ const ASSETS = [
   { id: "polkadot", label: "DOT / USD", binance: "dotusdt", kraken: "DOTUSD", cc: "DOT" },
 ];
 
+const API_SOURCES_OLD = [
+  {
+    name: "DeFiLlama",
+    desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.",
+    limit: "Unlimited free",
+  },
+  {
+    name: "Santiment",
+    desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).",
+    limit: "100 Calls/Monat free",
+  },
+  {
+    name: "HuggingFace",
+    desc: "AI-Predictions (Inference für Price-Forecast).",
+    limit: "Free Inference",
+  },
+  {
+    name: "Alpha Vantage",
+    desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).",
+    limit: "25 Calls/Tag free",
+  },
+  {
+    name: "FMP",
+    desc: "Cross-Asset Data (Stocks/Crypto Corr).",
+    limit: "250 Calls/Tag free",
+  },
+];
+
 const API_SOURCES = [
-  { name: "DeFiLlama", desc: "DeFi yields, TVL and chains for yield tracking.", limit: "Unlimited free" },
-  { name: "Santiment", desc: "On-chain plus sentiment (whale alerts, social volume).", limit: "100 calls/month free" },
-  { name: "HuggingFace", desc: "AI predictions for price forecasts.", limit: "Free inference" },
-  { name: "Alpha Vantage", desc: "Volatility forecasts and technical indicators.", limit: "25 calls/day free" },
-  { name: "FMP", desc: "Cross-asset data (stocks/crypto correlations).", limit: "250 calls/day free" },
+  { name: "DeFiLlama", desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.", limit: "Unlimited free" },
+  { name: "Santiment", desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: "100 Calls/Monat free" },
+  { name: "HuggingFace", desc: "AI-Predictions (Inference für Price-Forecast).", limit: "Free Inference" },
+  { name: "Alpha Vantage", desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
+  { name: "FMP", desc: "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
 ];
 
 const TIER_ORDER = ["basic", "pro", "elite"];
@@ -152,40 +173,39 @@ const clampNumber = (value, fallback = null) => (Number.isFinite(value) ? value 
 const cryptoDataService = {
   async fetchOnChainMetrics(onHealthUpdate, onLog, onToast) {
     try {
-      const price = await safeFetch("/api/price?asset=BTC&vs=USD", {
-        serviceName: "glassnode-proxy",
-        timeoutMs: 7000,
+      const data = await safeFetch("https://api.glassnode.com/v1/metrics/addresses/active_count?a=BTC&i=24h", {
+        serviceName: "glassnode",
+        timeoutMs: 9000,
         retries: 1,
         onHealthUpdate,
         onLog,
         onToast,
       });
-      onHealthUpdate?.("glassnode", "ok");
+      const last = Array.isArray(data) ? data.at(-1) : null;
       return {
-        active: 125000,
+        active: last?.v ?? null,
         supplyWhales: 0.62,
         supplyRetail: 0.38,
-        updatedAt: Date.now(),
-        price: price?.data?.value ?? null,
+        updatedAt: last?.t ? Number(last.t) * 1000 : Date.now(),
       };
     } catch (err) {
       console.error("on-chain fallback", err);
       onHealthUpdate?.("glassnode", "degraded", err.message);
-      return { active: 125000, supplyWhales: 0.6, supplyRetail: 0.4, updatedAt: Date.now(), price: null };
+      return { active: 125000, supplyWhales: 0.6, supplyRetail: 0.4, updatedAt: Date.now() };
     }
   },
   async fetchSentiment(onHealthUpdate, onLog, onToast) {
     try {
-      await safeFetch("/api/price?asset=ETH&vs=USD", {
-        serviceName: "santiment-proxy",
-        timeoutMs: 7000,
+      const data = await safeFetch("https://min-api.cryptocompare.com/data/social/coin/latest?fsym=BTC", {
+        serviceName: "santiment",
+        timeoutMs: 8000,
         retries: 1,
         onHealthUpdate,
         onLog,
         onToast,
       });
-      onHealthUpdate?.("santiment", "ok");
-      return { score: 72, label: "Social Score", updatedAt: Date.now(), tweets: 150_000 };
+      const score = data?.Data?.General?.SocialScore ?? null;
+      return { score, label: "Social Score", updatedAt: Date.now() };
     } catch (err) {
       console.error("sentiment fallback", err);
       onHealthUpdate?.("santiment", "degraded", err.message);
@@ -196,20 +216,18 @@ const cryptoDataService = {
     try {
       const series = await Promise.all(
         ids.map(async (id) => {
-          const asset = ASSETS.find((a) => a.id === id) || ASSETS[0];
-          const data = await safeFetch(`/api/ohlc?pair=${encodeURIComponent(asset.kraken)}&binance=${encodeURIComponent(asset.binance.toUpperCase())}&interval=60&limit=50`, {
-            serviceName: "coingecko-proxy",
+          const data = await safeFetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=3&interval=hourly`, {
+            serviceName: "coingecko",
             timeoutMs: 9000,
             retries: 1,
             onHealthUpdate,
             onLog,
             onToast,
           });
-          const prices = Array.isArray(data?.data) ? data.data.map((c) => c.close) : [];
+          const prices = data?.prices?.map((p) => p[1]) ?? [];
           return { id, prices };
         })
       );
-      onHealthUpdate?.("coingecko", "ok");
       const matrix = [];
       for (let i = 0; i < series.length; i += 1) {
         for (let j = i; j < series.length; j += 1) {
@@ -237,22 +255,20 @@ const cryptoDataService = {
   },
   async fetchFundingRates(symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"], onHealthUpdate, onLog, onToast) {
     try {
-      const derivative = await safeFetch("/api/derivatives?symbol=DERIBIT_PERPETUAL_BTC_USD&period=1HRS&limit=120", {
-        serviceName: "binance",
-        timeoutMs: 8000,
-        retries: 1,
-        onHealthUpdate,
-        onLog,
-        onToast,
-      });
-      const latestFunding = derivative?.data?.funding?.at(-1)?.value ?? 0.0002;
-      const mark = derivative?.data?.openInterest?.at(-1)?.value ?? null;
-      onHealthUpdate?.("binance", "ok");
-      return symbols.map((sym, idx) => ({
-        symbol: sym,
-        rate: latestFunding * (1 - idx * 0.2),
-        mark,
-      }));
+      const res = await Promise.all(
+        symbols.map(async (sym) => {
+          const d = await safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym}`, {
+            serviceName: "binance",
+            timeoutMs: 8000,
+            retries: 1,
+            onHealthUpdate,
+            onLog,
+            onToast,
+          });
+          return { symbol: sym, rate: Number(d.lastFundingRate), mark: Number(d.markPrice) };
+        })
+      );
+      return res;
     } catch (err) {
       console.error("funding fallback", err);
       onHealthUpdate?.("binance", "degraded", err.message);
@@ -269,9 +285,28 @@ const formatClock = (ts) => {
   if (!ts) return "--:--";
   try {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
+  } catch (err) {
     return "--:--";
   }
+};
+
+function LiveClock({ className = "" }) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000 * 60);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span className={`text-xs text-slate-400 tabular-nums ${className}`}>
+      {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+    </span>
+  );
+}
+
+LiveClock.propTypes = {
+  className: PropTypes.string,
 };
 
 const TRANSLATIONS = {
@@ -284,7 +319,7 @@ const TRANSLATIONS = {
     tradesLookahead: "Trades (Lookahead 5)",
     winRate: "Win Rate",
     winsLosses: "Wins / Losses",
-    avgRR: "Ã˜ RR",
+    avgRR: "Ø RR",
     status: "Status",
     loading: "Lade Daten...",
     livePrice: "Live Price",
@@ -422,7 +457,7 @@ const TRANSLATIONS = {
     diarySave: "Speichern",
     diaryAutosave: "Autosave (local) · max 50 Einträge",
     loadingTrades: "Warte auf Trades...",
-    fetchFailPricePrimary: "Primaere Quelle ausgefallen - Fallback aktiv (CryptoCompare).",
+    fetchFailPricePrimary: "Primäre Quelle ausgefallen – Fallback aktiv (CryptoCompare).",
     fetchFailPrice: "Preisquellen derzeit nicht erreichbar.",
     fetchFailFearGreed: "Fear & Greed Quelle nicht erreichbar.",
     fetchFailOHLC: "Kraken OHLCV konnte nicht geladen werden.",
@@ -441,8 +476,8 @@ const TRANSLATIONS = {
     signup: "Signup",
     startTrial: "7 Tage Elite-Test",
     trialActive: "Elite Trial aktiv",
-    madeBy: "Made by Ã–mer Alpay",
-    consentText: "Wir verwenden optionale GeoIP-Tags fÃ¼r Meta/AI. Zustimmen?",
+    madeBy: "Made by Ömer Alpay",
+    consentText: "Wir verwenden optionale GeoIP-Tags für Meta/AI. Zustimmen?",
     consentAllow: "Erlauben",
     consentDeny: "Ablehnen",
     consentRevoke: "Opt-out",
@@ -453,7 +488,7 @@ const TRANSLATIONS = {
     checkTrend: "Trend",
     checkMomentum: "Momentum",
     checkFlow: "Flow",
-    checkVol: "VolatilitÃ¤t",
+    checkVol: "Volatilität",
     rrTarget: "Ziel-RR",
     setupTrend: "Trendfolge",
     setupBreakout: "Breakout",
@@ -550,7 +585,7 @@ const TRANSLATIONS = {
     apiReachable: "Reachable",
     apiUnavailable: "Unavailable",
     marketRegimeDesc: "Based on EMA200, ADX & Bollinger Band Width.",
-    liquidityDesc: "Orderbook strength â€“ bids vs. asks (last 1h).",
+    liquidityDesc: "Orderbook strength – bids vs. asks (last 1h).",
     onchainDesc: "Active addresses & supply split.",
     sentimentDesc: "Social Score (CryptoCompare).",
     correlationDesc: "Coin correlations (CoinGecko).",
@@ -586,7 +621,7 @@ const TRANSLATIONS = {
     cardManualControls: "Manual Controls",
     cardDataIntegrity: "Data Integrity",
     fibGolden: "Golden Zone, TP/SL",
-    liveMarketMeta: "Kraken OHLC Â· TF",
+    liveMarketMeta: "Kraken OHLC · TF",
     tpEntryLabel: "Entry Price",
     tpQtyLabel: "Quantity",
     tpTpLabel: "Take Profit %",
@@ -605,7 +640,7 @@ const TRANSLATIONS = {
     slAlarm: "SL Alarm",
     noEntries: "No entries yet.",
     diarySave: "Save",
-    diaryAutosave: "Autosave (local) Â· max 50 entries",
+    diaryAutosave: "Autosave (local) · max 50 entries",
     loadingTrades: "Waiting for trades...",
     fetchFailPricePrimary: "Primary source failed - fallback active (CryptoCompare).",
     fetchFailPrice: "Price sources not reachable.",
@@ -626,7 +661,7 @@ const TRANSLATIONS = {
     signup: "Signup",
     startTrial: "7-day Elite Trial",
     trialActive: "Elite trial active",
-    madeBy: "Made by Ã–mer Alpay",
+    madeBy: "Made by Ömer Alpay",
     consentText: "We use optional GeoIP tags for Meta/AI. Allow?",
     consentAllow: "Allow",
     consentDeny: "Deny",
@@ -722,7 +757,10 @@ const Card = ({ title, icon: Icon, children, actions, tooltip }) => (
         {Icon ? <Icon className="h-5 w-5 text-emerald-400" /> : null}
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">{title}</h3>
       </div>
-      {actions}
+      <div className="flex items-center gap-2">
+        {actions}
+        <LiveClock className="text-[11px]" />
+      </div>
     </div>
     {children}
   </div>
@@ -774,40 +812,16 @@ LazyRender.propTypes = {
   rootMargin: PropTypes.string,
 };
 
-// eslint-disable-next-line react/display-name
-const renderLastDot = (count, color = "#22c55e") => (props) => {
-  if (props.index !== count - 1) return null;
-  return <circle cx={props.cx} cy={props.cy} r={4} fill={color} className="pulse-soft" />;
+const renderLastDot = (count, color = "#22c55e") => {
+  const LastDot = (props) => {
+    if (props.index !== count - 1) return null;
+    return <circle cx={props.cx} cy={props.cy} r={4} fill={color} className="pulse-soft" />;
+  };
+  LastDot.displayName = "LastDot";
+  return LastDot;
 };
-
-function LiveClock() {
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <span className="text-xs text-muted">
-      {now.toLocaleTimeString("de-DE", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })}
-    </span>
-  );
-}
-
-function formatTrialCountdown(trialEnd) {
-  if (!trialEnd) return "";
-  const diff = trialEnd - Date.now();
-  if (diff <= 0) return "Trial abgelaufen";
-  const days = Math.floor(diff / (24 * 60 * 60 * 1000));
-  const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-  return `${days} Tage ${hours} Std`;
-}
-
+const sumFlows = (flows = [], days = 7) =>
+  flows.slice(-days).reduce((acc, f) => acc + (Number.isFinite(f.flow ?? f.netFlowUsd) ? (f.flow ?? f.netFlowUsd) : 0), 0);
 function App() {
   const isDevBuild = import.meta.env?.DEV ?? false;
   const {
@@ -855,11 +869,10 @@ function App() {
   const [lang, setLang] = useState("de");
   const [apiStatuses, setApiStatuses] = useState({});
   const [userEmail, setUserEmail] = useState("");
+  const [geoInfo, setGeoInfo] = useState(null);
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
-  const [trialInfo, setTrialInfo] = useState(null);
-  const [isTrialLoading, setIsTrialLoading] = useState(false);
-  const [tier, setTier] = useState(effectiveTier);
+  const [isStartingTrial, setIsStartingTrial] = useState(false);
   const [highlightAuthCard, setHighlightAuthCard] = useState(false);
   const [consentGeo, setConsentGeo] = useState(() => localStorage.getItem("consent:geo") === "true");
   const [saveTierMessage, setSaveTierMessage] = useState("");
@@ -868,7 +881,6 @@ function App() {
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
   const [mobileTab, setMobileTab] = useState("overview");
-  const [nowTs, setNowTs] = useState(() => Date.now());
   const [apiHealth, setApiHealth] = useState({
     coingecko: { status: "ok", ts: Date.now() },
     cryptocompare: { status: "ok", ts: Date.now() },
@@ -904,63 +916,35 @@ function App() {
   const mobileAuthRef = useRef(null);
   const desktopEmailRef = useRef(null);
   const mobileEmailRef = useRef(null);
-  useEffect(() => {
-    if (tier === "elite_trial" && effectiveTier !== "elite") return;
-    setTier(effectiveTier);
-  }, [effectiveTier, tier]);
-  const t = useCallback((key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key, [lang]);
+  const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
   const [blink, setBlink] = useState(true);
-  const isElite = tier === "elite" || tier === "elite_trial";
-  const isEliteTrial = tier === "elite_trial" || effectiveTier === "elite_trial";
-  const resolvedTier = isElite ? "elite" : tier;
-  const trialActive = Boolean(isTrialActive || isEliteTrial);
-  const resolvedTrialEnd = trialInfo?.trialEnd || trialEndsAt;
-  const isTrialExpired = useMemo(
-    () => Boolean((trialInfo?.expired || trialExpired) && !isEliteTrial),
-    [trialExpired, trialInfo?.expired, isEliteTrial]
-  );
-  const hasProAccess = useMemo(() => TIER_ORDER.indexOf(resolvedTier) >= TIER_ORDER.indexOf("pro"), [resolvedTier]);
+  const trialActive = Boolean(isTrialActive);
+  const hasProAccess = useMemo(() => TIER_ORDER.indexOf(effectiveTier) >= TIER_ORDER.indexOf("pro"), [effectiveTier]);
   const trialEnd = useMemo(() => {
-    if (!resolvedTrialEnd) return null;
-    return new Date(resolvedTrialEnd).toLocaleDateString();
-  }, [resolvedTrialEnd]);
-  const trialDaysLeft = useMemo(() => {
-    if (isTrialExpired) return 0;
-    if (trialInfo?.trialEnd) {
-      const diff = Math.max(0, trialInfo.trialEnd - Date.now());
-      return Math.ceil(diff / (24 * 60 * 60 * 1000));
-    }
-    return trialRemainingDays;
-  }, [isTrialExpired, trialInfo?.trialEnd, trialRemainingDays]);
+    if (!trialEndsAt) return null;
+    return new Date(trialEndsAt).toLocaleDateString();
+  }, [trialEndsAt]);
   const trialBadgeText = useMemo(() => {
-    if (!trialActive || isTrialExpired) return null;
-    if (!trialDaysLeft) {
-      return lang === "de" ? "Trial · <1 Tag" : "Trial · <1d";
-    }
+    if (!trialActive) return null;
+    const daysSuffix =
+      Number.isFinite(trialRemainingDays) && trialRemainingDays >= 0
+        ? lang === "de"
+          ? ` (${trialRemainingDays} Tag${trialRemainingDays === 1 ? "" : "e"})`
+          : ` (${trialRemainingDays}d left)`
+        : "";
+    const endSuffix = trialEnd ? (lang === "de" ? ` Ende: ${trialEnd}` : ` Ends: ${trialEnd}`) : "";
     return lang === "de"
-      ? `Trial · noch ${trialDaysLeft} Tag${trialDaysLeft === 1 ? "" : "e"}`
-      : `Trial · ${trialDaysLeft}d left`;
-  }, [isTrialExpired, trialActive, trialDaysLeft, lang]);
+      ? `7-Tage-Test aktiv${daysSuffix}${endSuffix ? `.${endSuffix}` : ""}`
+      : `7-day trial active${daysSuffix}${endSuffix ? `. ${endSuffix}` : ""}`;
+  }, [trialActive, trialRemainingDays, trialEnd, lang]);
 
-  const trialBlockMessage = useMemo(() => {
-    if (isEliteTrial) return lang === "de" ? "7 Tage Elite-Trial aktiv." : "7-day Elite trial active.";
-    if (isTrialExpired) return lang === "de" ? "Trial abgelaufen." : "Trial expired.";
-    return lang === "de" ? "Jetzt kostenlosen Elite-Trial starten." : "Start free 7-day Elite trial now.";
-  }, [isEliteTrial, isTrialExpired, lang]);
-
-  const trialButtonLabel = useMemo(() => {
-    if (isTrialLoading) return lang === "de" ? "Lädt..." : "Loading...";
-    if (isEliteTrial) return lang === "de" ? "7 Tage Elite-Trial aktiv" : "7-day Elite trial active";
-    if (isTrialExpired) return lang === "de" ? "Trial abgelaufen" : "Trial expired";
-    return lang === "de" ? "7 Tage Elite-Test" : "Start free 7-day Elite trial now";
-  }, [isEliteTrial, isTrialExpired, isTrialLoading, lang]);
   const tierLabels = useMemo(
     () => ({
       basic: t("tierBasic"),
       pro: t("tierPro"),
       elite: t("tierElite"),
     }),
-    [t]
+    [lang]
   );
 
   const removeToast = (id) => {
@@ -972,26 +956,14 @@ function App() {
   };
 
   const addToast = (message, type = "error") => {
-    const normalizeToastMessage = (text = "") => {
-      const lower = text.toLowerCase();
-      if (lower.includes("price") && (lower.includes("http") || lower.includes("proxy"))) {
-        return "Price data temporarily unavailable (retrying)";
-      }
-      if (lower.includes("ohlc") && lower.includes("http")) {
-        return "Chart data temporarily unavailable (retrying)";
-      }
-      return text;
-    };
-    const normalized = normalizeToastMessage(message || "");
     const now = Date.now();
-    const windowMs = type === "error" || type === "warn" ? 180000 : 12000;
-    const key = `${type}:${normalized}`;
+    const key = `${type}:${message}`;
     const last = toastRecent.current.get(key);
-    if (last && now - last < windowMs) return;
+    if (last && now - last < 12000) return;
     toastRecent.current.set(key, now);
     const id = `${now}-${Math.random().toString(16).slice(2)}`;
     setToasts((prev) => {
-      const next = [{ id, message: normalized, type }, ...prev];
+      const next = [{ id, message, type }, ...prev];
       return next.slice(0, 3);
     });
     toastTimers.current[id] = setTimeout(() => removeToast(id), 5200);
@@ -1003,11 +975,6 @@ function App() {
     },
     []
   );
-
-  useEffect(() => {
-    const timer = setInterval(() => setNowTs(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToSourceHealth((snapshot) => setSourceHealth(snapshot || {}));
@@ -1104,9 +1071,7 @@ function App() {
     const cached = cacheRef.current.get(key);
     if (cached && Date.now() - cached.time < CACHE_TTL) return cached.value;
     const value = await fetcher();
-    if (value !== null && value !== undefined) {
-      cacheRef.current.set(key, { value, time: Date.now() });
-    }
+    cacheRef.current.set(key, { value, time: Date.now() });
     return value;
   };
 
@@ -1129,19 +1094,8 @@ function App() {
       onToast: addToast,
     });
     relayProxyHealth(response?.health);
-    if (response?.ok === false) {
-      const _status = response.status || "upstream_error";
-      const message = response.error || "Price data temporarily unavailable";
-      const healthStatus = "degraded";
-      updateApiHealth("price_proxy", healthStatus, message);
-      addToast("Price data temporarily unavailable (retrying)", "warn");
-      return null;
-    }
-    if (!response?.data) {
-      updateApiHealth("price_proxy", "degraded", "Price payload missing");
-      return null;
-    }
-    updateApiHealth("price_proxy", "ok");
+    if (response?.error) throw new Error(response.error);
+    if (!response?.data) throw new Error("Price payload missing");
     return response.data;
   };
 
@@ -1178,42 +1132,22 @@ function App() {
     try {
       const symbol = asset?.cc || asset?.label?.split(" ")?.[0] || "BTC";
       const payload = await fetchWithCache(`price:proxy:${symbol}`, () => fetchPriceProxy(symbol));
-      if (!payload) {
-        setPriceState({ value: null, change24h: null, source: "Proxy", updatedAt: null });
-        setLastError((prev) => prev || t("fetchFailPrice"));
-        updateApiHealth("price_proxy", "degraded", "No price data");
-        logEvent("price", "warn", "price proxy empty");
-        return;
-      }
       const parsedUpdatedAt = payload?.updatedAt ? Date.parse(payload.updatedAt) : Date.now();
       const safeUpdatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now();
-      const nextState = {
+      setPriceState({
         value: payload?.value ?? null,
         change24h: payload?.change24h ?? null,
         source: payload?.source || "Proxy",
         updatedAt: safeUpdatedAt,
-      };
-      setPriceState((prev) => {
-        if (
-          prev &&
-          prev.value === nextState.value &&
-          prev.change24h === nextState.change24h &&
-          prev.source === nextState.source &&
-          prev.updatedAt === nextState.updatedAt
-        ) {
-          return prev;
-        }
-        return nextState;
       });
       setLastError("");
       updateApiHealth("price_proxy", "ok");
     } catch (err) {
       console.error("Price proxy failed", err);
-      setLastError((prev) => prev || t("fetchFailPrice"));
+      setLastError(t("fetchFailPrice"));
       setPriceState({ value: null, change24h: null, source: priceState.source, updatedAt: null });
-      updateApiHealth("price_proxy", "degraded", err?.message || "Price data temporarily unavailable");
-      addToast("Price data temporarily unavailable (retrying)", "warn");
-      logEvent("price", "warn", err?.message || "price proxy failed");
+      updateApiHealth("price_proxy", "error", err?.message);
+      logEvent("price", "error", err?.message || "price proxy failed");
     }
   };
 
@@ -1257,22 +1191,13 @@ function App() {
         }
         return loaded;
       });
-      const decorated = decorateCandles(candles, intervalMinutes);
-      setOhlcv((prev) => {
-        const prevLast = prev?.length ? prev[prev.length - 1]?.time : null;
-        const nextLast = decorated?.length ? decorated[decorated.length - 1]?.time : null;
-        const sameLength = (prev?.length || 0) === (decorated?.length || 0);
-        if (sameLength && prevLast && nextLast && prevLast === nextLast) {
-          return prev;
-        }
-        return decorated;
-      });
+      setOhlcv(decorateCandles(candles, intervalMinutes));
       setLastError("");
     } catch (err) {
       console.error("Chart load failed", err);
       setLastError((prev) => prev || t("fetchFailOHLC"));
-      updateApiHealth("kraken", "degraded", err?.message || "Chart data temporarily unavailable");
-      logEvent("ohlcv", "warn", "Chart data temporarily unavailable");
+      updateApiHealth("kraken", "error", err?.message);
+      logEvent("ohlcv", "error", err?.message || "chart loader failed");
       const fallbackSeries = decorateCandles(buildFallbackChart(48), intervalMinutes);
       setOhlcv(fallbackSeries);
     }
@@ -1418,7 +1343,7 @@ function App() {
     } catch (err) {
       console.error("ETF flows failed", err);
       setEtfFlowSeries([]);
-      setEtfAumError("Daten derzeit nicht verfÃ¼gbar");
+      setEtfAumError("Daten derzeit nicht verfügbar");
       updateApiHealth("etfFlows", "error", err.message);
     } finally {
       setEtfAumLoading(false);
@@ -1440,7 +1365,7 @@ function App() {
     } catch (err) {
       console.error("ETF holdings failed", err);
       setEtfHoldings([]);
-      setEtfHoldingsError("Daten derzeit nicht verfÃ¼gbar");
+      setEtfHoldingsError("Daten derzeit nicht verfügbar");
       updateApiHealth("ETF_HOLDINGS_FMP", "error", err.message);
     } finally {
       setEtfHoldingsLoading(false);
@@ -1472,7 +1397,7 @@ function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: "{ projectBySlug(slug:\"bitcoin\"){slug} }" }),
         });
-        if (res.status === 401) throw new Error("API Key benÃ¶tigt (401)");
+        if (res.status === 401) throw new Error("API Key benötigt (401)");
         if (!res.ok) throw new Error("santiment failed");
         const data = await res.json();
         const slug = data?.data?.projectBySlug?.slug || "ok";
@@ -1484,7 +1409,7 @@ function App() {
       name: "HuggingFace",
       run: async () => {
         const res = await fetch("https://huggingface.co/api/models/facebook/prophet-net");
-        if (res.status === 401) throw new Error("HF Token benÃ¶tigt (401)");
+        if (res.status === 401) throw new Error("HF Token benötigt (401)");
         if (!res.ok) throw new Error("huggingface failed");
         const data = await res.json();
         const downloads = data?.downloads ?? null;
@@ -1513,7 +1438,7 @@ function App() {
       name: "FMP",
       run: async () => {
         const res = await fetch("https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=demo");
-        if (res.status === 403) throw new Error("FMP Key benÃ¶tigt");
+        if (res.status === 403) throw new Error("FMP Key benötigt");
         if (!res.ok) throw new Error("fmp failed");
         const data = await res.json();
         return { status: "ok", detail: `${data.length || 0} Ticker`, data: data?.[0]?.symbol ? `Top: ${data[0].symbol}` : "Aktive geladen" };
@@ -1553,36 +1478,15 @@ function App() {
 };
 
   useEffect(() => {
-    let ohlcTimer;
-    let htfTimer;
-    setIsRefreshing(true);
-    const kickOff = async () => {
-      await loadPrice();
-      ohlcTimer = setTimeout(() => {
-        loadFearGreed();
-        loadOHLC();
-      }, 250);
-      htfTimer = setTimeout(() => {
-        loadHTF();
-        loadDerivatives();
-        setIsRefreshing(false);
-      }, 400);
-    };
-    kickOff();
+    refreshAll();
     pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
-    return () => {
-      clearInterval(pollTimer.current);
-      if (ohlcTimer) clearTimeout(ohlcTimer);
-      if (htfTimer) clearTimeout(htfTimer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => clearInterval(pollTimer.current);
   }, [asset]);
 
   useEffect(() => {
     loadEtfNews();
     newsTimer.current = setInterval(loadEtfNews, NEWS_REFRESH);
     return () => clearInterval(newsTimer.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1595,7 +1499,6 @@ function App() {
         flowsTimer.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
@@ -1603,7 +1506,6 @@ function App() {
     loadEtfFlowData(etfSelection);
     const timer = setInterval(() => loadEtfFlowData(etfSelection), ETF_REFRESH);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
@@ -1611,12 +1513,10 @@ function App() {
     loadEtfHoldingsData(etfSelection);
     const timer = setInterval(() => loadEtfHoldingsData(etfSelection), HOLDING_REFRESH);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
     loadApiPlaybook();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const STRIPE_LINKS = {
@@ -1665,7 +1565,7 @@ function App() {
       document.head.appendChild(script);
     }
     script.textContent = JSON.stringify(ld);
-  }, [asset.label, resolvedTier, timeFrame]);
+  }, [asset.label, effectiveTier, timeFrame]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1675,6 +1575,7 @@ function App() {
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (!data) return;
+          setGeoInfo({ country: data.country_name, city: data.city, ip: data.ip });
           const setMeta = (name, content) => {
             if (!name || !content) return;
             let tag = document.querySelector(`meta[name='${name}']`);
@@ -1752,34 +1653,58 @@ function App() {
     }
   };
 
-  const handleStartTrialClick = async () => {
+  const focusAuthSection = () => {
+    if (typeof window === "undefined") return;
+    const prefersDesktop = window.matchMedia("(min-width: 768px)").matches;
+    const sectionRef = (prefersDesktop ? desktopAuthRef.current : mobileAuthRef.current) || desktopAuthRef.current || mobileAuthRef.current;
+    const inputRef = (prefersDesktop ? desktopEmailRef.current : mobileEmailRef.current) || desktopEmailRef.current || mobileEmailRef.current;
+    sectionRef?.scrollIntoView({ behavior: "smooth", block: "center" });
+    inputRef?.focus({ preventScroll: true });
+  };
+
+  const handleStartTrial = async () => {
+    if (!authUser) {
+      addToast(lang === "de" ? "Bitte logge dich ein, um die Testversion zu starten." : "Please log in to start your trial.", "warn");
+      setHighlightAuthCard(true);
+      focusAuthSection();
+      return;
+    }
+    if (trialActive) {
+      addToast(lang === "de" ? "Testversion bereits aktiv." : "Trial already active.", "info");
+      return;
+    }
+    if (trialStart) {
+      addToast(lang === "de" ? "Die Testversion wurde bereits genutzt." : "Trial already used.", "warn");
+      return;
+    }
+    setIsStartingTrial(true);
     try {
-      setIsTrialLoading(true);
-      const user = await ensureAnonymousUser();
-      if (!user) {
-        addToast("Trial konnte nicht gestartet werden.", "error");
+      const result = await startUserTrial(authUser.uid);
+      if (!result?.ok) {
+        const message =
+          lang === "de"
+            ? result?.reason === "TRIAL_ALREADY_USED"
+              ? "Testversion wurde bereits genutzt."
+              : "Trial konnte nicht gestartet werden."
+            : result?.reason === "TRIAL_ALREADY_USED"
+            ? "Trial already used."
+            : "Could not start trial.";
+        addToast(message, result?.reason === "TRIAL_ALREADY_USED" ? "info" : "error");
         return;
       }
-      const result = await startOrResumeTrial(user.uid);
-      setTrialInfo(result);
-      if (result.expired) {
-        addToast("Deine 7-Tage-Testphase ist schon abgelaufen.", "warn");
-        setTier("basic");
-        return;
-      }
-      setTier("elite_trial");
-      addToast("7-Tage-Elite-Test aktiviert.", "info");
+      addToast(lang === "de" ? "7-Tage-Testversion aktiviert." : "7-day trial activated.", "info");
+      await refreshUserTier();
     } catch (err) {
-      console.error("Trial error", err);
-      addToast("Trial konnte nicht gestartet werden.", "error");
+      console.error("start trial failed", err);
+      addToast(lang === "de" ? "Trial konnte nicht gestartet werden." : "Failed to start trial.", "error");
     } finally {
-      setIsTrialLoading(false);
+      setIsStartingTrial(false);
     }
   };
 
   const persistTier = async (tier) => {
     if (!auth || !auth.currentUser) {
-      addToast(lang === "de" ? "Login nÃ¶tig, um den Plan zu Ã¤ndern." : "Login required to change plan.", "warn");
+      addToast(lang === "de" ? "Login nötig, um den Plan zu ändern." : "Login required to change plan.", "warn");
       return;
     }
     try {
@@ -1795,7 +1720,6 @@ function App() {
 
   useEffect(() => {
     loadOHLC();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeFrame]);
 
   useEffect(() => {
@@ -1905,7 +1829,6 @@ function App() {
       clearInterval(pollingReconnectTimer.current);
       pollingReconnectTimer.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset]);
   const indicatorSeries = useMemo(() => {
     if (!ohlcv.length) return [];
@@ -2204,7 +2127,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     return { label: derived.label, intent: derived.intent };
   }, [htfOhlcv, marketRegime]);
   const smartMoney = useMemo(() => {
-    const horizon = nowTs - 3 * 60 * 60 * 1000;
+    const horizon = Date.now() - 3 * 60 * 60 * 1000;
     const filtered = trades.filter((t) => t.ts >= horizon);
     const big = filtered.filter((t) => t.usd >= 100000);
     const bucket = big.length ? big : filtered;
@@ -2216,10 +2139,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     const title = net >= 0 ? t("smartAccum") : t("smartDistr");
     const direction = net >= 0 ? t("smartDirBuy") : t("smartDirSell");
     return { title, net, pct, direction, buys, sells, count: bucket.length };
-  }, [trades, nowTs, t]);
+  }, [trades, lang]);
 
   const liquidity = useMemo(() => {
-    const horizon = nowTs - 60 * 60 * 1000;
+    const horizon = Date.now() - 60 * 60 * 1000;
     const recent = trades.filter((t) => t.ts >= horizon);
     const bids = recent.filter((t) => t.side === "buy").reduce((a, b) => a + b.usd, 0);
     const asks = recent.filter((t) => t.side === "sell").reduce((a, b) => a + b.usd, 0);
@@ -2235,7 +2158,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       imbalance: Math.abs(50 - dominance).toFixed(0),
       tone,
     };
-  }, [trades, nowTs]);
+  }, [trades]);
 
   const [onChainMetrics, setOnChainMetrics] = useState({ active: null, supplyWhales: null, supplyRetail: null, updatedAt: null });
   const [sentimentMetrics, setSentimentMetrics] = useState({ score: null, label: "Social Score", updatedAt: null });
@@ -2265,12 +2188,11 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const aiSignal = useMemo(() => {
     return buildAISignal({ indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice });
-  }, [indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice]);
+  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice]);
 
   const fibView = useMemo(() => {
     if (!indicatorSeries.length) {
@@ -2342,10 +2264,15 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     });
   }, [
     indicatorSeries,
-    smartMoney,
-    marketRegime,
+    indicators.macd,
+    indicators.signal,
+    indicators.rsi,
+    smartMoney.net,
+    marketRegime.label,
+    marketRegime.intent,
     sentimentMetrics,
-    backtestStats,
+    backtestStats?.winRate,
+    backtestStats?.avgRR,
     htfRegime,
     derivativesRisk,
   ]);
@@ -2361,7 +2288,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   };
 
   const volumeBuckets = useMemo(() => {
-    const now = nowTs;
+    const now = Date.now();
     const bucketCount = 24;
     const buckets = [];
     for (let i = bucketCount - 1; i >= 0; i -= 1) {
@@ -2378,7 +2305,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       });
     }
     return buckets;
-  }, [trades, nowTs]);
+  }, [trades]);
 
   if (tierLoading) {
     return <FullScreenLoader message="Session wird geladen..." />;
@@ -2387,7 +2314,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
       {trialActive ? (
         <div className="bg-emerald-500/10 border-b border-emerald-500/40 text-emerald-100 text-sm px-4 py-2 text-center">
-          7-Tage-Testversion aktiv. LÃ¤uft ab am {trialEnd || "-"}
+          7-Tage-Testversion aktiv. Läuft ab am {trialEnd || "-"}
         </div>
       ) : null}
       {toasts.length ? (
@@ -2408,7 +2335,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </span>
               <p className="text-sm leading-snug">{t.message}</p>
               <button onClick={() => removeToast(t.id)} className="text-xs text-slate-200/80 hover:text-white ml-auto">
-                Ã—
+                ×
               </button>
             </div>
           ))}
@@ -2445,7 +2372,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               }`}
             >
               <div>
-                <div className="font-semibold text-slate-100">{tierLabels[resolvedTier] || tierLabels.basic}</div>
+                <div className="font-semibold text-slate-100">{tierLabels[effectiveTier] || tierLabels.basic}</div>
                 <div className="text-[11px] text-slate-400">{userEmail || t("login")}</div>
                 {trialBadgeText ? (
                   <div className="mt-1">
@@ -2453,7 +2380,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       {trialBadgeText}
                     </span>
                   </div>
-                ) : isTrialExpired && trialStart ? (
+                ) : trialExpired && trialStart ? (
                   <div className="mt-1">
                     <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
                       {lang === "de" ? "Trial abgelaufen" : "Trial expired"}
@@ -2509,23 +2436,21 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
                   <button
                     type="button"
-                    onClick={handleStartTrialClick}
-                    disabled={isTrialLoading}
+                    onClick={handleStartTrial}
+                    disabled={isStartingTrial || trialActive || Boolean(trialStart)}
                     className={`rounded px-2 py-1 text-[11px] font-semibold text-amber-950 transition-colors ${
-                      isTrialLoading ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
+                      isStartingTrial || trialActive || trialStart
+                        ? "bg-amber-500/40 cursor-not-allowed"
+                        : "bg-amber-500/80 hover:bg-amber-400"
                     }`}
                   >
-                    {trialButtonLabel}
+                    {trialActive ? t("trialActive") : t("startTrial")}
                   </button>
-                  {trialBlockMessage ? <span className="text-[11px] text-amber-300">{trialBlockMessage}</span> : null}
-                  {tier === "elite_trial" && trialInfo?.trialEnd ? (
-                    <span className="text-[11px] text-slate-400">Restzeit: {formatTrialCountdown(trialInfo.trialEnd)}</span>
+                  {trialExpired && trialStart ? (
+                    <span className="text-[11px] text-amber-300">
+                      {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
+                    </span>
                   ) : null}
-                {isTrialExpired && trialStart ? (
-                  <span className="text-[11px] text-amber-300">
-                    {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
-                  </span>
-                ) : null}
                 </form>
               </div>
             </div>
@@ -2569,7 +2494,6 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               {t("refresh")}
             </button>
-            <LiveClock />
           </div>
         </header>
 
@@ -2654,7 +2578,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <Card
               title={t("liveMarket")}
               icon={TrendingUp}
-              actions={<span className="text-xs text-slate-400">{asset.label} Â· {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+              actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
             >
               <LazyRender placeholder={<div className="h-80 flex items-center justify-center"><Skeleton className="h-72 w-full" /></div>}>
                 {indicatorSeries.length ? (
@@ -2674,9 +2598,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                           <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
                           <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
-                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
-                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive={false} />
+                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
                         <Line
                           type="monotone"
                           dataKey="close"
@@ -2685,10 +2609,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           yAxisId="y"
                           strokeWidth={2}
                           name="Close"
-                          isAnimationActive={false}
+                          isAnimationActive
+                          animationDuration={650}
+                          animationEasing="ease-out"
                         />
-                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive={false} />
-                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive={false} />
+                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -2701,7 +2627,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <Card
                 title={t("fibMap")}
                 icon={LineChartIcon}
-                actions={<span className="text-xs text-slate-400">{t("fibGolden")} Â· TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+                actions={<span className="text-xs text-slate-400">{t("fibGolden")} · TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
                 <LazyRender placeholder={<div className="h-64 flex items-center justify-center"><Skeleton className="h-56 w-full" /></div>}>
                   {indicatorSeries.length ? (
@@ -2739,7 +2665,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                             dot={renderLastDot(indicatorSeries.length, "#22c55e")}
                             strokeWidth={2}
                             name="Close"
-                            isAnimationActive={false}
+                            isAnimationActive
+                            animationDuration={650}
+                            animationEasing="ease-out"
                           />
                         </ComposedChart>
                       </ResponsiveContainer>
@@ -2831,7 +2759,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Card title="Risk Score Summary" icon={Shield} tooltip="Aggregiert RSI/MACD/ADX in einem Ampel-Bar fÃ¼r schnelle Ãœbersicht.">
+              <Card title="Risk Score Summary" icon={Shield} tooltip="Aggregiert RSI/MACD/ADX in einem Ampel-Bar für schnelle Übersicht.">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-400">Score</span>
@@ -2854,17 +2782,17 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     />
                   </div>
                   <p className="text-sm text-slate-300">
-                    GrÃ¼n = Momentum + StÃ¤rke. Rot = schwach/SeitwÃ¤rts. Nutzt RSI, MACD-Signal und ADX â‰¥ 20 als VerstÃ¤rker.
+                    Grün = Momentum + Stärke. Rot = schwach/Seitwärts. Nutzt RSI, MACD-Signal und ADX ≥ 20 als Verstärker.
                   </p>
                 </div>
               </Card>
 
-              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide fÃ¼r erste Trades.">
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide für erste Trades.">
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
-                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fÃ¼r mÃ¶gliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% â€“ siehe TP/SL Rechner.</li>
-                  <li>Beginner-Mode hÃ¤lt nur Kernkarten aktiv; pro View fÃ¼r volle Tiefe.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone für mögliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% – siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode hält nur Kernkarten aktiv; pro View für volle Tiefe.</li>
                 </ul>
               </Card>
             </div>
@@ -2988,16 +2916,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <div className="mt-4 grid grid-cols-1 gap-6 card-bg-animate">
                 <Paywall
                   minTier="pro"
-                  userTier={resolvedTier}
+                  userTier={effectiveTier}
                   isTrialActive={trialActive}
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : isTrialExpired
+                      : trialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between gap-4 overflow-hidden"
@@ -3017,7 +2945,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <p className="text-sm text-slate-200 leading-snug">{t("onchainDesc")}</p>
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-3xl font-black text-emerald-400 whitespace-nowrap">
-                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "â€”"}
+                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "—"}
                     </div>
                     <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[140px] space-y-1 break-words">
                       <div className="flex items-center justify-between gap-2">
@@ -3057,16 +2985,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
                 <Paywall
                   minTier="pro"
-                  userTier={resolvedTier}
+                  userTier={effectiveTier}
                   isTrialActive={trialActive}
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : isTrialExpired
+                      : trialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between overflow-hidden"
@@ -3095,7 +3023,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <div className="text-xs text-slate-300 text-left leading-tight break-words max-w-[180px] space-y-1">
                       <p>Label: {sentimentMetrics.label}</p>
                       <p>Trend: {sentimentMetrics.score !== null ? (sentimentMetrics.score > 60 ? "Positiv" : "Neutral") : "-"}</p>
-                      <p>Tweets: {sentimentMetrics.tweets ?? "â€”"}</p>
+                      <p>Tweets: {sentimentMetrics.tweets ?? "—"}</p>
                     </div>
                   </div>
                 </section>
@@ -3103,16 +3031,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
                 <Paywall
                   minTier="pro"
-                  userTier={resolvedTier}
+                  userTier={effectiveTier}
                   isTrialActive={trialActive}
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : isTrialExpired
+                      : trialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
@@ -3158,16 +3086,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
                 <Paywall
                   minTier="pro"
-                  userTier={resolvedTier}
+                  userTier={effectiveTier}
                   isTrialActive={trialActive}
                   trialEndText={
                     trialActive
                       ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                      : isTrialExpired
+                      : trialExpired
                       ? "Test abgelaufen. Bitte upgraden."
                       : t("proRequired")
                   }
-                  lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                  lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
@@ -3312,13 +3240,13 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             </Card>
 
             {SHOW_CRYPTO_EDU_CHAT ? (
-              isElite ? (
+              effectiveTier === "elite" ? (
                 <CryptoEduChatCard />
               ) : (
                 <LockedCard
                   title="Crypto Education AI Chat"
                   requiredTier="elite"
-                  description="Nur fÃ¼r Elite-Mitglieder. Demo-Stub bis LLM-Backend angebunden ist."
+                  description="Nur für Elite-Mitglieder. Demo-Stub bis LLM-Backend angebunden ist."
                 />
               )
             ) : null}
@@ -3401,7 +3329,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
             </Card>
 
-            <Paywall minTier="elite" userTier={resolvedTier} lockText={t("eliteRequired")}>
+            <Paywall minTier="elite" userTier={effectiveTier} lockText={t("eliteRequired")}>
               <Card title={t("aiSignalTitle")} icon={Signal}>
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
@@ -3409,7 +3337,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-semibold">{aiSignal.action}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Begruendung</span>
+                    <span>Begründung</span>
                     <span className="text-right text-slate-200">{aiSignal.reason}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-400">
@@ -3433,16 +3361,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
             <Paywall
               minTier="pro"
-              userTier={resolvedTier}
+              userTier={effectiveTier}
               isTrialActive={trialActive}
               trialEndText={
                 trialActive
                   ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                  : isTrialExpired
+                  : trialExpired
                   ? "Test abgelaufen. Bitte upgraden."
                   : t("proRequired")
               }
-              lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+              lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
             >
               <Card title={t("proSignalsTitle")} icon={TrendingUp}>
                 <div className="space-y-2 text-sm text-slate-200">
@@ -3482,7 +3410,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-slate-400 sm:grid-cols-2">
                       <span>ATR%: {proSignal.meta?.atrPct ? proSignal.meta.atrPct.toFixed(2) : "-"}</span>
-                      <span>MACD Î”: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
+                      <span>MACD Δ: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
                       <span>VWAP: {proSignal.meta?.vwap ? formatUSD(proSignal.meta.vwap) : "-"}</span>
                       <span>Vol Spike: {proSignal.meta?.volSpike ? "Ja" : "Nein"}</span>
                     </div>
@@ -3502,7 +3430,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </div>
               </Card>
             </Paywall>
-            {resolvedTier === "basic" ? (
+            {effectiveTier === "basic" ? (
               <LockedCard
                 title={t("backtestTitle")}
                 requiredTier="pro"
@@ -3539,23 +3467,23 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             )}
             <Paywall
               minTier="pro"
-              userTier={resolvedTier}
+              userTier={effectiveTier}
               isTrialActive={trialActive}
               trialEndText={
                 trialActive
                   ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                  : isTrialExpired
+                  : trialExpired
                   ? "Test abgelaufen. Bitte upgraden."
                   : t("proRequired")
               }
-              lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+              lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
             >
               <Card
                 title={t("apiPlaybook")}
                 icon={PlugZap}
                 actions={
                   <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>Limits Â· Snippets</span>
+                    <span>Limits · Snippets</span>
                     <button
                       onClick={loadApiPlaybook}
                       className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60"
@@ -3579,7 +3507,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                         ? "bg-red-500/15 text-red-200"
                         : "bg-slate-800 text-slate-200";
                     const label =
-                      status === "ok" ? t("liveLabel") : status === "auth" ? t("keyNeeded") : status === "fail" ? t("errorLabel") : "â€¦";
+                      status === "ok" ? t("liveLabel") : status === "auth" ? t("keyNeeded") : status === "fail" ? t("errorLabel") : "…";
                     return (
                       <div key={api.name} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
@@ -3633,12 +3561,14 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       strokeWidth={2}
                       dot={renderLastDot(indicatorSeries.length, "#22c55e")}
                       name="RSI"
-                      isAnimationActive={false}
+                      isAnimationActive
+                      animationDuration={550}
+                      animationEasing="ease-out"
                     />
                     <Line type="monotone" dataKey={() => 70} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
                     <Line type="monotone" dataKey={() => 30} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-                    <Line type="monotone" dataKey="stochK" stroke="#38bdf8" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%K" isAnimationActive={false} />
-                    <Line type="monotone" dataKey="stochD" stroke="#a855f7" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%D" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="stochK" stroke="#38bdf8" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%K" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="stochD" stroke="#a855f7" strokeWidth={1} strokeOpacity={0.7} dot={false} name="%D" isAnimationActive animationDuration={500} animationEasing="ease-out" />
                   </ComposedChart>
                   </ResponsiveContainer>
                 ) : (
@@ -3657,9 +3587,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} width={60} />
                     <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                     <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                    <Line type="monotone" dataKey="macd" stroke="#22c55e" dot={false} name="MACD" isAnimationActive={false} />
-                    <Line type="monotone" dataKey="macdSignal" stroke="#f59e0b" dot={false} name="Signal" isAnimationActive={false} />
-                    <Bar dataKey="macdHist" fill="#60a5fa" barSize={8} name="Histogram" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="macd" stroke="#22c55e" dot={false} name="MACD" isAnimationActive animationDuration={550} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="macdSignal" stroke="#f59e0b" dot={false} name="Signal" isAnimationActive animationDuration={550} animationEasing="ease-out" />
+                    <Bar dataKey="macdHist" fill="#60a5fa" barSize={8} name="Histogram" isAnimationActive animationDuration={520} animationEasing="ease-out" />
                   </ComposedChart>
                   </ResponsiveContainer>
                 ) : (
@@ -3678,9 +3608,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} width={70} />
                     <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} formatter={(v, n) => [formatUSD(v), n]} />
                     <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                    <Bar dataKey="buy" stackId="vol" fill="#22c55e" barSize={10} name="Buy Vol" isAnimationActive={false} />
-                    <Bar dataKey="sell" stackId="vol" fill="#ef4444" barSize={10} name="Sell Vol" isAnimationActive={false} />
-                    <Line type="monotone" dataKey="net" stroke="#38bdf8" dot={renderLastDot(volumeBuckets.length, "#38bdf8")} name="Net" isAnimationActive={false} />
+                    <Bar dataKey="buy" stackId="vol" fill="#22c55e" barSize={10} name="Buy Vol" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                    <Bar dataKey="sell" stackId="vol" fill="#ef4444" barSize={10} name="Sell Vol" isAnimationActive animationDuration={520} animationEasing="ease-out" />
+                    <Line type="monotone" dataKey="net" stroke="#38bdf8" dot={renderLastDot(volumeBuckets.length, "#38bdf8")} name="Net" isAnimationActive animationDuration={520} animationEasing="ease-out" />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
@@ -3766,7 +3696,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       {indicatorSeries.at(-1)?.cci ? indicatorSeries.at(-1).cci.toFixed(1) : "-"}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">+100 Ãœberkauft Â· -100 Ãœberverkauft</p>
+                  <p className="text-xs text-slate-400">+100 Überkauft · -100 Überverkauft</p>
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">{t("loadingCCI")}</p>
@@ -3783,7 +3713,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       {indicatorSeries.at(-1)?.atrPct ? indicatorSeries.at(-1).atrPct.toFixed(2) : "-"}%
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">HÃ¶her = mehr VolatilitÃ¤t â†’ breitere SL/TP</p>
+                  <p className="text-xs text-slate-400">Höher = mehr Volatilität → breitere SL/TP</p>
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">{t("loadingATR")}</p>
@@ -3793,7 +3723,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         </div>
 
         <div className="mt-4">
-          <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory Â· Notes</span>}>
+          <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory · Notes</span>}>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="space-y-2 text-sm text-slate-200">
                 <label className="flex flex-col gap-1 text-xs text-slate-400">
@@ -3836,7 +3766,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   >
                     Speichern
                   </button>
-                  <span className="text-xs text-slate-400">Autosave (local) Â· max 50 EintrÃ¤ge</span>
+                  <span className="text-xs text-slate-400">Autosave (local) · max 50 Einträge</span>
                 </div>
               </div>
             </div>
@@ -3862,15 +3792,15 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-slate-400">Noch keine EintrÃ¤ge.</p>
+                <p className="text-sm text-slate-400">Noch keine Einträge.</p>
               )}
             </div>
           </Card>
         </div>
         <div className="mt-4">
-              <Card title="ETF ZuflÃ¼sse" icon={TrendingUp}>
+              <Card title="ETF Zuflüsse" icon={TrendingUp}>
                 <div className="space-y-3">
-                  <Suspense fallback={<div className="text-xs text-slate-400">LÃ¤dt ETF Holdingsâ€¦</div>}>
+                  <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF Holdings…</div>}>
                     <EtfHoldingsCard
                       holdings={etfHoldings}
                       loading={etfHoldingsLoading}
@@ -3928,7 +3858,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                             name={s.symbol}
                             fill={etfColors[idx % etfColors.length]}
                             radius={[4, 4, 0, 0]}
-                            isAnimationActive={false}
+                            isAnimationActive
                             opacity={0.9}
                           />
                         ))}
@@ -3936,7 +3866,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfÃ¼gbar"}</p>
+                  <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
                 )}
               </LazyRender>
               <div className="grid grid-cols-1 gap-2 text-sm text-slate-200 md:grid-cols-2">
@@ -3962,10 +3892,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
             </div>
           </Card>
-          <Suspense fallback={<div className="text-xs text-slate-400">LÃ¤dt Provider-Metrikenâ€¦</div>}>
+          <Suspense fallback={<div className="text-xs text-slate-400">Lädt Provider-Metriken…</div>}>
             <EtfProviderQualityCard />
           </Suspense>
-          <Suspense fallback={<div className="text-xs text-slate-400">LÃ¤dt ETF-Korrelationenâ€¦</div>}>
+          <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
             <EtfCorrelationCard onHealthUpdate={updateApiHealth} />
           </Suspense>
           <Card title={t("etfCard")} icon={TrendingUp}>
@@ -3977,7 +3907,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     {etfFlows.map((f, idx) => (
                       <div key={`${f.name}-${idx}`} className="rounded-lg border border-slate-800/70 bg-slate-900/60 p-3">
                         <p className="text-sm font-semibold text-slate-100 line-clamp-1">{f.name}</p>
-                        <p className="text-[11px] text-slate-400">{f.date ? new Date(f.date).toLocaleDateString() : "â€”"}</p>
+                        <p className="text-[11px] text-slate-400">{f.date ? new Date(f.date).toLocaleDateString() : "—"}</p>
                         <p className={`text-sm font-semibold ${f.inflow >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(f.inflow)}</p>
                       </div>
                     ))}
@@ -4007,7 +3937,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                             <div className="space-y-1">
                               <p className="text-sm font-semibold text-slate-100 line-clamp-2">{item.title}</p>
                               <p className="text-[11px] text-slate-400">
-                                {item.source || "News"} {ts ? `Â· ${ts.toLocaleDateString([], { day: "2-digit", month: "short" })} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+                                {item.source || "News"} {ts ? `· ${ts.toLocaleDateString([], { day: "2-digit", month: "short" })} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
                               </p>
                             </div>
                             <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] text-slate-300">View</span>
@@ -4072,7 +4002,6 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               {t("refresh")}
             </button>
-            <LiveClock />
           </div>
         </header>
 
@@ -4085,12 +4014,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             icon={Shield}
             actions={
               <div className="flex flex-col items-end text-right">
-                <span className="text-[11px] text-slate-400">{tierLabels[resolvedTier] || tierLabels.basic}</span>
+                <span className="text-[11px] text-slate-400">{tierLabels[effectiveTier] || tierLabels.basic}</span>
                 {trialBadgeText ? (
                   <span className="mt-1 inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
                     {trialBadgeText}
                   </span>
-                ) : isTrialExpired && trialStart ? (
+                ) : trialExpired && trialStart ? (
                   <span className="mt-1 inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
                     {lang === "de" ? "Trial abgelaufen" : "Trial expired"}
                   </span>
@@ -4148,22 +4077,20 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </button>
                 <button
                   type="button"
-                  onClick={handleStartTrialClick}
-                  disabled={isTrialLoading}
-                className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
-                  isTrialLoading ? "bg-amber-500/40 cursor-not-allowed" : "bg-amber-500/80 hover:bg-amber-400"
-                }`}
-              >
-                  {trialButtonLabel}
-              </button>
+                  onClick={handleStartTrial}
+                  disabled={isStartingTrial || trialActive || Boolean(trialStart)}
+                  className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
+                    isStartingTrial || trialActive || trialStart
+                      ? "bg-amber-500/40 cursor-not-allowed"
+                      : "bg-amber-500/80 hover:bg-amber-400"
+                  }`}
+                >
+                  {trialActive ? t("trialActive") : t("startTrial")}
+                </button>
               </div>
               {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
               {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
-              {trialBlockMessage ? <span className="text-[11px] text-amber-300">{trialBlockMessage}</span> : null}
-              {tier === "elite_trial" && trialInfo?.trialEnd ? (
-                <span className="text-[11px] text-slate-400">Restzeit: {formatTrialCountdown(trialInfo.trialEnd)}</span>
-              ) : null}
-              {isTrialExpired && trialStart ? (
+              {trialExpired && trialStart ? (
                 <span className="text-[11px] text-amber-300">
                   {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
                 </span>
@@ -4342,7 +4269,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <Card
                 title={t("liveMarket")}
                 icon={TrendingUp}
-                actions={<span className="text-xs text-slate-400">{asset.label} Â· {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+                actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
                 <LazyRender placeholder={<div className="h-72 flex items-center justify-center"><Skeleton className="h-64 w-full" /></div>}>
                   {indicatorSeries.length ? (
@@ -4362,12 +4289,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                           <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
                           <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
-                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive={false} />
-                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive={false} />
-                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive={false} />
-                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive={false} />
-                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive={false} />
+                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
+                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -4380,7 +4307,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <Card
                 title={t("fibMap")}
                 icon={LineChartIcon}
-                actions={<span className="text-xs text-slate-400">{t("fibGolden")} Â· TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+                actions={<span className="text-xs text-slate-400">{t("fibGolden")} · TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
                 <LazyRender placeholder={<div className="h-64 flex items-center justify-center"><Skeleton className="h-56 w-full" /></div>}>
                   {indicatorSeries.length ? (
@@ -4411,7 +4338,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                           {fibView.tp ? <ReferenceLine y={fibView.tp} stroke="#22c55e" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibTp"), position: "insideLeft", fill: "#22c55e", fontSize: 10 }} /> : null}
                           {fibView.sl ? <ReferenceLine y={fibView.sl} stroke="#ef4444" strokeWidth={2} strokeOpacity={blink ? 1 : 0.4} label={{ value: t("fibSl"), position: "insideLeft", fill: "#ef4444", fontSize: 10 }} /> : null}
                           {fibView.current ? <ReferenceLine y={fibView.current} stroke="#38bdf8" strokeDasharray="4 4" label={{ value: t("fibNow"), position: "insideLeft", fill: "#38bdf8", fontSize: 10 }} /> : null}
-                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive={false} />
+                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -4482,16 +4409,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
               <Paywall
                 minTier="elite"
-                userTier={resolvedTier}
+                userTier={effectiveTier}
                 isTrialActive={trialActive}
                 trialEndText={
                   trialActive
                     ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                    : isTrialExpired
+                    : trialExpired
                     ? "Test abgelaufen. Bitte upgraden."
                     : t("eliteRequired")
                 }
-                lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("eliteRequired")}
+                lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("eliteRequired")}
               >
                 <Card title={t("aiSignalTitle")} icon={Signal}>
                   <div className="space-y-2 text-sm text-slate-200">
@@ -4499,10 +4426,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       <span>Aktion</span>
                       <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-semibold">{aiSignal.action}</span>
                     </div>
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span>Begruendung</span>
-                      <span className="text-right text-slate-200">{aiSignal.reason}</span>
-                    </div>
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span>Begründung</span>
+                        <span className="text-right text-slate-200">{aiSignal.reason}</span>
+                      </div>
                     <div className="flex items-center justify-between text-xs text-slate-400">
                       <span>Konfidenz (~ Backtest)</span>
                       <span className="text-emerald-300 font-semibold">{(aiSignal.confidence * 100).toFixed(0)}%</span>
@@ -4524,16 +4451,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
               <Paywall
                 minTier="pro"
-                userTier={resolvedTier}
+                userTier={effectiveTier}
                 isTrialActive={trialActive}
                 trialEndText={
                   trialActive
                     ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                    : isTrialExpired
+                    : trialExpired
                     ? "Test abgelaufen. Bitte upgraden."
                     : t("proRequired")
                 }
-                lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
               >
                 <Card title={t("proSignalsTitle")} icon={TrendingUp}>
                   <div className="space-y-2 text-sm text-slate-200">
@@ -4576,7 +4503,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </Card>
               </Paywall>
 
-              {resolvedTier === "basic" ? (
+              {effectiveTier === "basic" ? (
                 <LockedCard title={t("backtestTitle")} requiredTier="pro" description="Schalte Pro frei, um historische Trefferquote und Risiko-Kennzahlen zu sehen." />
               ) : (
                 <Card title={t("backtestTitle")} icon={TrendingUp}>
@@ -4608,12 +4535,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </Card>
               )}
 
-              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide fÃ¼r erste Trades.">
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide für erste Trades.">
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
-                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fÃ¼r mÃ¶gliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% â€“ siehe TP/SL Rechner.</li>
-                  <li>Beginner-Mode hÃ¤lt nur Kernkarten aktiv; pro View fÃ¼r volle Tiefe.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone für mögliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% – siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode hält nur Kernkarten aktiv; pro View für volle Tiefe.</li>
                 </ul>
               </Card>
             </div>
@@ -4622,16 +4549,16 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <div className="space-y-4">
               <Paywall
                 minTier="pro"
-                userTier={resolvedTier}
+                userTier={effectiveTier}
                 isTrialActive={trialActive}
                 trialEndText={
                   trialActive
                     ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                    : isTrialExpired
+                    : trialExpired
                     ? "Test abgelaufen. Bitte upgraden."
                     : t("proRequired")
                 }
-                lockText={isTrialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
+                lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
               >
                 <section
                   className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
@@ -4651,7 +4578,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <p className="text-sm text-slate-200 leading-snug">{t("onchainDesc")}</p>
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-3xl font-black text-emerald-400 whitespace-nowrap">
-                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "â€”"}
+                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "—"}
                     </div>
                     <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[160px] space-y-1 break-words">
                       <div className="flex items-center justify-between gap-2">
@@ -4682,9 +4609,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </section>
               </Paywall>
 
-              <Card title="ETF ZuflÃ¼sse" icon={TrendingUp}>
+              <Card title="ETF Zuflüsse" icon={TrendingUp}>
                 <div className="space-y-3">
-                  <Suspense fallback={<div className="text-xs text-slate-400">LÃ¤dt ETF Holdingsâ€¦</div>}>
+                  <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF Holdings…</div>}>
                     <EtfHoldingsCard
                       holdings={etfHoldings}
                       loading={etfHoldingsLoading}
@@ -4740,7 +4667,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                                 name={s.symbol}
                                 fill={etfColors[idx % etfColors.length]}
                                 radius={[4, 4, 0, 0]}
-                                isAnimationActive={false}
+                                isAnimationActive
                                 opacity={0.9}
                               />
                             ))}
@@ -4748,7 +4675,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfÃ¼gbar"}</p>
+                      <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
                     )}
                   </LazyRender>
                   <div className="grid grid-cols-1 gap-2 text-sm text-slate-200">
@@ -4774,10 +4701,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 </div>
               </Card>
-              <Suspense fallback={<div className="text-xs text-slate-400">LÃ¤dt Provider-Metrikenâ€¦</div>}>
+              <Suspense fallback={<div className="text-xs text-slate-400">Lädt Provider-Metriken…</div>}>
                 <EtfProviderQualityCard />
               </Suspense>
-              <Suspense fallback={<div className="text-xs text-slate-400">LÃ¤dt ETF-Korrelationenâ€¦</div>}>
+              <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
                 <EtfCorrelationCard onHealthUpdate={updateApiHealth} />
               </Suspense>
 
@@ -4954,12 +4881,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3">
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-                <p className="text-sm font-semibold text-emerald-300">1) Asset wÃ¤hlen</p>
+                <p className="text-sm font-semibold text-emerald-300">1) Asset wählen</p>
                 <p className="text-sm text-slate-300">Oben links BTC/ETH umschalten. Preise und Fib-Map laden live.</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                 <p className="text-sm font-semibold text-emerald-300">2) Beginner-Mode</p>
-                <p className="text-sm text-slate-300">LÃ¤sst Advanced Karten weg â€“ perfekt fÃ¼r den Einstieg.</p>
+                <p className="text-sm text-slate-300">Lässt Advanced Karten weg – perfekt für den Einstieg.</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                 <p className="text-sm font-semibold text-emerald-300">3) AI & Backtest</p>
@@ -5033,7 +4960,5 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 }
 
 export default App;
-
-
 
 

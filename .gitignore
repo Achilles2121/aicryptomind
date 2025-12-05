@@ -32,5 +32,3 @@ env-backup/
 # Misc
 *.zip
 coverage
-.vercel
-.env*.local

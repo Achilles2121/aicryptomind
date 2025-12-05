@@ -4,9 +4,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  signInAnonymously,
 } from "firebase/auth";
-import { doc, getDoc, getFirestore, setDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -68,11 +67,8 @@ export const fetchUserTier = async (uid) => {
     const snap = await getDoc(doc(db, "userTiers", uid));
     const data = snap.exists() ? snap.data() : {};
     const tier = data?.tier || "basic";
-    const trialStart =
-      data?.trialStart instanceof Timestamp ? data.trialStart.toMillis() : Number(data?.trialStart) || null;
-    const trialEndsAtRaw =
-      data?.trialEndsAt instanceof Timestamp ? data.trialEndsAt.toMillis() : Number(data?.trialEndsAt) || null;
-    const trialEndsAt = trialEndsAtRaw || (trialStart ? trialStart + TRIAL_WINDOW_MS : null);
+    const trialStart = data?.trialStart || null;
+    const trialEndsAt = data?.trialEndsAt || (trialStart ? Number(trialStart) + TRIAL_WINDOW_MS : null);
     const trialUsed = Boolean(data?.trialUsed || trialStart);
     setCachedUserTier(tier);
     return { tier, trialStart, trialEndsAt, trialUsed, source: "firebase" };
@@ -96,53 +92,20 @@ export const signup = async (email, password) => {
   return cred;
 };
 
-export const ensureUserOrAnonymous = async () => {
-  if (!auth) throw new Error("Firebase nicht initialisiert");
-  if (auth.currentUser) return auth.currentUser;
-  const cred = await signInAnonymously(auth);
-  return cred.user;
-};
-
 export const startUserTrial = async (uid, windowMs = TRIAL_WINDOW_MS) => {
-  if (!db) return { ok: false, reason: "NO_DB" };
-  let user = null;
-  try {
-    user = await ensureUserOrAnonymous();
-  } catch (err) {
-    return { ok: false, reason: err?.code || "NO_AUTH", message: err?.message };
+  if (!uid || !db) throw new Error("Trial start requires authenticated user");
+  const ref = doc(db, "userTiers", uid);
+  const snap = await getDoc(ref);
+  const data = snap.exists() ? snap.data() : {};
+  if (data?.trialStart) {
+    const trialStart = Number(data.trialStart);
+    const trialEndsAt = data?.trialEndsAt || (Number.isFinite(trialStart) ? trialStart + windowMs : null);
+    return { ok: false, reason: "TRIAL_ALREADY_USED", trialStart, trialEndsAt };
   }
-  const effectiveUid = uid || user?.uid;
-  if (!effectiveUid) return { ok: false, reason: "NO_UID" };
-  const ref = doc(db, "userTiers", effectiveUid);
-  try {
-    const snap = await getDoc(ref);
-    const data = snap.exists() ? snap.data() : {};
-    if (data?.trialStart) {
-      const trialStart = data.trialStart instanceof Timestamp ? data.trialStart.toMillis() : Number(data.trialStart);
-      const trialEndsAtRaw =
-        data.trialEndsAt instanceof Timestamp ? data.trialEndsAt.toMillis() : Number(data.trialEndsAt);
-      const trialEndsAt = trialEndsAtRaw || (Number.isFinite(trialStart) ? trialStart + windowMs : null);
-      return { ok: false, reason: "TRIAL_ALREADY_USED", trialStart, trialEndsAt };
-    }
-    const nowTs = Timestamp.now();
-    const payload = {
-      tier: "trial",
-      trialStart: serverTimestamp(),
-      trialEndsAt: nowTs.toMillis() + windowMs,
-      trialUsed: true,
-    };
-    await setDoc(ref, payload, { merge: true });
-    const fresh = await getDoc(ref);
-    const stored = fresh.exists() ? fresh.data() : {};
-    const trialStart =
-      stored.trialStart instanceof Timestamp ? stored.trialStart.toMillis() : Number(stored.trialStart) || nowTs.toMillis();
-    const trialEndsAt =
-      stored.trialEndsAt instanceof Timestamp ? stored.trialEndsAt.toMillis() : Number(stored.trialEndsAt) || payload.trialEndsAt;
-    return { ok: true, trialStart, trialEndsAt, tier: stored.tier || "trial" };
-  } catch (err) {
-    console.warn("startUserTrial failed", err);
-    return { ok: false, reason: err?.code || "TRIAL_START_FAILED", message: err?.message };
-  }
+  const now = Date.now();
+  const payload = { trialStart: now, trialEndsAt: now + windowMs, trialUsed: true };
+  await setDoc(ref, payload, { merge: true });
+  return { ok: true, ...payload };
 };
 
 export const login = async (email, password) => {
@@ -154,52 +117,6 @@ export const logout = async () => {
   if (!auth) return;
   return signOut(auth);
 };
-
-export async function ensureAnonymousUser() {
-  if (!auth) throw new Error("Firebase nicht initialisiert");
-  if (auth.currentUser) return auth.currentUser;
-  const cred = await signInAnonymously(auth);
-  return cred.user;
-}
-
-export async function startOrResumeTrial(uid) {
-  if (!uid || !db) return { active: false, expired: true, reason: "NO_UID_OR_DB" };
-  const ref = doc(db, "trials", uid);
-  const now = Date.now();
-
-  try {
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      const data = snap.data() || {};
-      const trialStart =
-        data.trialStart instanceof Timestamp ? data.trialStart.toMillis() : Number(data.trialStart) || now;
-      const trialEndRaw =
-        data.trialEnd instanceof Timestamp ? data.trialEnd.toMillis() : Number(data.trialEnd) || null;
-      const trialEnd = trialEndRaw || trialStart + TRIAL_WINDOW_MS;
-      if (trialEnd <= now) {
-        return { active: false, expired: true, trialStart, trialEnd };
-      }
-      return { active: true, expired: false, trialStart, trialEnd };
-    }
-
-    const trialStart = now;
-    const trialEnd = now + TRIAL_WINDOW_MS;
-    await setDoc(
-      ref,
-      {
-        trialStart,
-        trialEnd,
-        createdAt: serverTimestamp(),
-        source: "anonymous",
-      },
-      { merge: true }
-    );
-    return { active: true, expired: false, trialStart, trialEnd };
-  } catch (err) {
-    console.warn("startOrResumeTrial failed", err);
-    return { active: false, expired: true, reason: err?.code || "TRIAL_START_FAILED" };
-  }
-}
 
 export const saveWinrateSnapshot = async () => null; // placeholder
 export const loadWinrateSnapshot = async () => null; // placeholder

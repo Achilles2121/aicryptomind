@@ -1,4 +1,4 @@
-import { safeFetch, type SafeFetchOptions, type ApiHealthStatus } from "./safeFetch";
+import { safeFetch, type SafeFetchOptions } from "./safeFetch";
 
 export type Candle = {
   time: number;
@@ -11,7 +11,6 @@ export type Candle = {
 };
 
 const MIN_POINTS = 5;
-const inFlight = new Map<string, { ts: number; promise: Promise<Candle[]> }>();
 
 const normalizeSeries = (rows: any[] = [], fallbackProvider = "proxy"): Candle[] =>
   rows.map((row) => ({
@@ -26,58 +25,19 @@ const normalizeSeries = (rows: any[] = [], fallbackProvider = "proxy"): Candle[]
 
 const hasEnoughData = (series: Candle[] | null | undefined) => Array.isArray(series) && series.length >= MIN_POINTS;
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-type OhlcApiResponse = {
-  ok?: boolean;
-  status?: "ok" | "upstream_error" | "timeout" | "invalid_params";
-  error?: string | null;
-  data?: Candle[] | null;
-};
-
 const fetchCandles = async (url: string, providerKey: string, options: SafeFetchOptions): Promise<Candle[]> => {
   const fetchOptions: SafeFetchOptions = {
     ...options,
     serviceName: options.serviceName ? `${options.serviceName}:${providerKey}` : providerKey,
   };
-  const key = `${providerKey}:${url}`;
-  const now = Date.now();
-  const existing = inFlight.get(key);
-  if (existing && now - existing.ts < 500) {
-    return existing.promise;
+  const response = await safeFetch<{ data?: Candle[]; error?: string } | Candle[]>(url, fetchOptions);
+  if ((response as any)?.error) throw new Error((response as any).error);
+  const rows = Array.isArray((response as any)?.data) ? (response as any).data : response;
+  const normalized = normalizeSeries(rows as any[], providerKey);
+  if (!hasEnoughData(normalized)) {
+    throw new Error(`${providerKey} returned insufficient data`);
   }
-
-  const task = (async () => {
-    try {
-      const response = await safeFetch<OhlcApiResponse | Candle[]>(url, fetchOptions);
-      const apiRes = response as OhlcApiResponse;
-      const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(response as any) ? (response as any) : []);
-      const normalized = normalizeSeries(rows as any[], (response as any)?.provider || providerKey);
-      if (apiRes?.ok === false || !hasEnoughData(normalized)) {
-        const status = apiRes?.status || "upstream_error";
-        const error = apiRes?.error || `${providerKey} unavailable`;
-        const healthStatus: ApiHealthStatus = status === "timeout" ? "degraded" : "error";
-        fetchOptions.onHealthUpdate?.(fetchOptions.serviceName || providerKey, healthStatus, error);
-        return [];
-      }
-      return normalized;
-    } catch (err: any) {
-      fetchOptions.onHealthUpdate?.(
-        fetchOptions.serviceName || providerKey,
-        "degraded",
-        err?.message || `${providerKey} failed`
-      );
-      fetchOptions.onLog?.(fetchOptions.serviceName || providerKey, "warn", err?.message || `${providerKey} failed`);
-      return [];
-    }
-  })();
-
-  inFlight.set(key, { ts: now, promise: task });
-  try {
-    return await task;
-  } finally {
-    inFlight.delete(key);
-  }
+  return normalized;
 };
 
 export type ChartLoadConfig = {
@@ -106,29 +66,19 @@ export async function loadChart(
       url: `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=${limit}`,
     },
   ];
-  // Hedge requests: start primary, then fallbacks a few hundred ms later to avoid long sequential waits.
-  const staggerMs = 350;
-  const loaders = attempts.map((attempt, idx) =>
-    delay(idx * staggerMs).then(async () => {
+  for (const attempt of attempts) {
+    try {
       const candles = await fetchCandles(attempt.url, attempt.key, options);
-      if (hasEnoughData(candles)) return { provider: attempt.key, candles };
-      if (import.meta.env.DEV) {
-        console.warn(`[chartLoader] ${attempt.key} failed or returned insufficient data`);
+      if (hasEnoughData(candles)) {
+        return candles;
       }
-      throw new Error(`${attempt.key} unavailable`);
-    })
-  );
-
-  try {
-    const winner = await Promise.any(loaders);
-    return winner.candles;
-  } catch (aggregateErr) {
-    if (import.meta.env.DEV) {
-      console.warn("[chartLoader] all providers failed, using fallback", aggregateErr);
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn(`[chartLoader] ${attempt.key} failed`, err);
+      }
     }
   }
-  // Last resort: return a synthetic fallback to keep charts rendering and avoid crashes
-  return buildFallbackChart(Math.max(limit, MIN_POINTS));
+  return null;
 }
 
 export const buildFallbackChart = (length = 24): Candle[] => {

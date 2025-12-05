@@ -1,4 +1,6 @@
-import { safeFetch, type ApiHealthStatus } from "../lib/safeFetch";
+import { safeFetch } from "../lib/safeFetch";
+
+export type ApiHealthStatus = "ok" | "degraded" | "fallback" | "error";
 
 export type EtfFlowPoint = { date: string; netFlowUsd: number; aumUsd?: number; volumeUsd?: number };
 export type EtfFlowSeries = {
@@ -17,13 +19,13 @@ export type SafeOpts = {
 };
 
 type ProxyHealth = { key: string; status: string; message?: string };
-type ProxyResponse = { ok?: boolean; data?: EtfFlowSeries[]; health?: ProxyHealth[]; error?: string; status?: number };
+type ProxyResponse = { data?: EtfFlowSeries[]; health?: ProxyHealth[]; error?: string };
 
 const relayProxyHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: SafeOpts["onHealthUpdate"]) => {
   if (!entries?.length || !onHealthUpdate) return;
   for (const entry of entries) {
     if (!entry?.key || !entry?.status) continue;
-    onHealthUpdate(entry.key, entry.status as ApiHealthStatus, entry.message);
+    onHealthUpdate(entry.key, entry.status, entry.message);
   }
 };
 
@@ -40,7 +42,7 @@ export async function fetchEtfFlowSeries(symbols: string[], opts: SafeOpts = {})
     onToast: opts.onToast,
   });
   relayProxyHealth(response?.health, opts.onHealthUpdate);
-  if (response?.ok === false || response?.error) throw new Error(response?.error || "flows_unavailable");
+  if (response?.error) throw new Error(response.error);
   const data = Array.isArray(response?.data) ? response.data : [];
   if (!data.length) {
     opts.onToast?.("ETF flows currently unavailable", "warn");

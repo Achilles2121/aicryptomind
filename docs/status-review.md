@@ -1,26 +1,22 @@
 # Statusreview: Vision AI Mind Dashboard
 
-## Diagnose (Kurzfassung)
-- **Backend issues:** Kein separater `/api/health` Router (jetzt ergänzt); Express lief auf 5176 ohne kombiniertes Dev-Skript; teils fehlende shared safeFetch/cache; direkte Provider-Calls aus dem Frontend führten zu CORS/ECONNREFUSED, wenn der Proxy aus war.
-- **Frontend issues:** StrictMode-Doppel-Mount; mehrere ErrorBoundaries unnötig; einige Services nutzten weiterhin externe URLs statt `/api`.
-- **Chart & indicator issues:** Charts konnten `undefined`/leere Arrays erhalten; Indikator- und Derivate-Services riefen externe APIs direkt.
-- **Trial / tier issues:** Trial-/Tier-Logik vorhanden, aber weiter zu testen (7 Tage Trial, Elite während Trial); muss fehlertolerant bei fehlender `trialStart` bleiben.
-- **Build/deploy issues:** Vite-Proxy zuvor nicht strikt auf 5175/5176; fehlende kombinierte Dev-Skripte; teils veraltete/fehlerhafte Docs (Encoding).
+## Was geklappt hat ✅
 
-## Erledigt (aktuelle Runde)
-- Express-Proxy gehärtet: `/api/health` Router, Rate-Limit, Kurzzeit-Cache, nativer Fetch.
-- Neue/aktualisierte Routen: `/api/indicators`, `/api/derivatives`, gecachte `/api/price` und `/api/ohlc` inkl. Health.
-- Frontend-Services: `marketDataLive` nutzt `/api/ohlc`, `derivativesLive` nutzt `/api/derivatives`, `etfCorrelations` nutzt `/api/etf/correlations`.
-- Vite-Proxy fixiert (Port 5175 strict → Proxy 5176). Eine ErrorBoundary in `src/main.jsx`, StrictMode entfernt.
-- Scripts: `dev` startet parallel `dev:server` + `dev:frontend` via npm-run-all; Abhängigkeiten express/cors/morgan/npm-run-all deklariert.
-- Docs bereinigt/aktualisiert: `trading-engine-analysis.md`, `deploy-guide.md`, `status-review.md`, `final-system-validation.md`.
+- **Build-Pipeline stabil**: `npm run build` läuft lokal ohne Fehler (Stand: 01.12.2025) und bestätigt, dass Vite/Tailwind/Bundling unverändert funktionieren.
+- **Error Boundary konsolidiert**: `src/App.jsx` exportiert wieder den nackten `App`-Component; die einzige ErrorBoundary lebt in `src/main.jsx`, wodurch das iOS-Safari-Reload-Loop verschwindet und StrictMode keine Doppel-Mounts mehr provoziert.
+- **StrictMode/Hydration**: Durch das Verschieben der Boundary außerhalb von `React.StrictMode` bleibt die Dev-Doppelung auf UI-State beschränkt, ohne dass die Fehlerseite erneut getriggert wird.
+- **Projektanalyse dokumentiert**: `docs/trading-engine-analysis.md` fasst Architektur, Datenquellen, Health-Store-Regeln und offene V3+ Anforderungen zusammen und dient als Referenz für weitere Arbeiten.
 
-## Offene Punkte
-- Secrets (`VITE_COINAPI_KEY`, `VITE_FMP_KEY`, Firebase) fehlen → ETF/Derivate bleiben degraded/null ohne sie.
-- Charts brauchen durchgehend Guards/Skeletons (Recharts nie mit null/empty) und Anbindung aller Widgets an `/api/indicators`/`/api/derivatives`.
-- Keine aktuellen Lint/Typecheck-Läufe oder automatisierte CI-Smokes; Mobile Tab-/Reload-Flow nach Proxy-Anpassung noch nicht verifiziert.
+## Was noch nicht geklappt hat ⚠️
 
-## Nächste Schritte (kurz)
-1. Secrets setzen und Smoke-Tests: `curl /api/health`, `/api/price`, `/api/ohlc`, `/api/indicators`, `/api/derivatives`, `/api/etf/*`; Ergebnisse in `docs/local-health-report.md` notieren.
-2. Frontend-Wiring finalisieren: alle Charts auf Proxy-Endpunkte umstellen, Null/Empty-Guards setzen, Error/Skeleton-UI nutzen.
-3. CI ergänzen (`lint`, `typecheck`, `build`, supertest-smokes) und Mobile/Reload-Verhalten prüfen; Deploy-Doku ggf. erweitern.
+- **Proxy/Serverless-Umstellung**: Express-basierter Proxy in `server/index.js` kollidiert weiter mit Vercel; `/api`-Rewrite ist noch nicht auf einzelne Endpunkte/Serverless Handler reduziert.
+- **Chart-/Datenpipeline**: Kraken-OHLC + Binance-WS-Fallbacks blockieren gelegentlich das Rendern; Guard-Checks für `indicatorSeries`, `hasProAccess` etc. sind noch nicht vollständig umgesetzt.
+- **safeFetch & Tier-Flow**: Aggregated Errors aus Nicht-JSON-Antworten und Trial-Persistenz (localStorage vs. Firebase) führen weiterhin zu doppelten API-Aufrufen und zurückgesetzten Trials.
+- **ETF-Proxy-Dienste**: Holdings/Flows/News laufen noch über direkte Drittanbieter-Aufrufe statt über die geplanten `/api/etf/*`-Handler, wodurch Health-Status und Rate-Limits unkontrolliert bleiben.
+- **Dokumentation & Tests**: README/Release Notes spiegeln die anstehenden Änderungen (Proxy, SafeFetch, Trials, Mobile) noch nicht wider; automatisierte Tests oder erneute Builds nach den kommenden Fixes fehlen.
+
+## Nächste Schritte
+
+1. Proxy/Serverless refactor abschließen und `/api/*`-Calls anpassen.
+2. Chart/HTF/ETF-Services härten, damit Erst-Load + Mobile stabil bleiben.
+3. safeFetch/Tier-Handling finalisieren, danach README & Release-Notes aktualisieren.
