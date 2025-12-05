@@ -1,5 +1,6 @@
 import { safeFetch } from "../lib/safeFetch";
 import { getCachedUserTier } from "../firebase";
+import { apiUrl } from "../lib/http";
 import type { ApiHealthStatus } from "../lib/safeFetch";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
@@ -43,7 +44,8 @@ export const fetchDerivativesLive = async (
     };
   }
   try {
-    const url = `/api/derivatives?symbol=${encodeURIComponent(symbolId)}&period=1HRS&limit=200`;
+    // FIX: Use the dedicated /api/derivatives proxy (with apiUrl) to avoid CORS/404 issues.
+    const url = apiUrl(`/api/derivatives?symbol=${encodeURIComponent(symbolId)}&period=1HRS&limit=200`);
     const res = await safeFetch<{
       data?: { funding?: any[]; openInterest?: any[]; risk?: { composite: number; fundingScore: number; oiScore: number; riskLevel: string } };
     }>(url, {

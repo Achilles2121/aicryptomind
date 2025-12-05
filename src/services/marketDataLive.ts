@@ -1,10 +1,16 @@
 import { safeFetch } from "../lib/safeFetch";
 import { getCachedUserTier } from "../firebase";
 import type { ApiHealthStatus } from "../lib/safeFetch";
+import { apiUrl } from "../lib/http";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
 type LogCb = (source: string, level: "info" | "warn" | "error", message?: string, meta?: Record<string, unknown>) => void;
 type ToastCb = (message: string, type?: "warn" | "error" | "info") => void;
+
+const toSeconds = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
+};
 
 type OhlcRow = {
   time: number;
@@ -18,9 +24,10 @@ type OhlcRow = {
 
 const mapOhlcSeries = (rows: any[] = []): OhlcRow[] =>
   rows
-    .filter((row) => row && (row.time || row.ts || row.closeTime))
+    .filter((row) => row && (row.time || row.ts || row.closeTime || row.openTime))
     .map((row) => {
-      const ts = Number(row.time ?? Math.floor((row.openTime ?? row.closeTime ?? Date.now()) / 1000));
+      const rawTs = Number(row.time ?? row.ts ?? row.closeTime ?? row.openTime ?? Date.now());
+      const ts = toSeconds(rawTs);
       const date = new Date(ts * 1000);
       return {
         time: ts,
@@ -51,15 +58,15 @@ const shouldToast = (key: string, cooldownMs = 180000) => {
 
 const fetchProxyHtf = async (
   pair: string,
-  binanceSymbol: string,
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
   onToast?: ToastCb
 ) => {
-  const url = `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=240`;
+  // FIX: Use the kraken OHLC proxy (with apiUrl) and accept both data/candles shapes.
+  const url = apiUrl(`/api/kraken/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=240`);
   try {
-    const res = await safeFetch<OhlcApiResponse | any[]>(url, {
+    const res = await safeFetch<OhlcApiResponse | { candles?: any[]; data?: any[] } | any[]>(url, {
       serviceName: "MARKET_HTF_PRIMARY",
       timeoutMs: 10000,
       retries: 1,
@@ -67,7 +74,7 @@ const fetchProxyHtf = async (
       onLog,
       onToast,
     });
-    const apiRes = res as OhlcApiResponse;
+    const apiRes = res as OhlcApiResponse & { candles?: any[]; data?: any[] };
     if (apiRes?.ok === false) {
       const status = apiRes.status || "upstream_error";
       const message = apiRes.error || "Price data temporarily unavailable";
@@ -78,7 +85,13 @@ const fetchProxyHtf = async (
       }
       return [];
     }
-    const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(res) ? res : []);
+    const rows = Array.isArray(apiRes?.data)
+      ? apiRes.data
+      : Array.isArray(apiRes?.candles)
+      ? apiRes.candles
+      : Array.isArray(res)
+      ? (res as any[])
+      : [];
     if (!rows.length) {
       onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", "Empty OHLC response");
       return [];
@@ -96,7 +109,7 @@ const fetchProxyHtf = async (
 
 export const fetchHtfOhlc = async (
   pair: string,
-  symbolId: string,
+  _symbolId: string,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
   onToast?: ToastCb
@@ -108,8 +121,8 @@ export const fetchHtfOhlc = async (
   }
   try {
     const [h4, d1] = await Promise.all([
-      fetchProxyHtf(pair, symbolId, 240, onHealthUpdate, onLog, onToast),
-      fetchProxyHtf(pair, symbolId, 1440, onHealthUpdate, onLog, onToast),
+      fetchProxyHtf(pair, 240, onHealthUpdate, onLog, onToast),
+      fetchProxyHtf(pair, 1440, onHealthUpdate, onLog, onToast),
     ]);
     const hasData: ApiHealthStatus = h4?.length || d1?.length ? "ok" : "warn";
     onHealthUpdate?.("MARKET_HTF_PRIMARY", hasData, hasData === "ok" ? "" : "HTF data empty");
@@ -125,3 +138,4 @@ export const fetchHtfOhlc = async (
 };
 
 export type HtfResult = Awaited<ReturnType<typeof fetchHtfOhlc>>;
+// NOTE: Removed unused binanceSymbol parameter to fix TS6133 without changing behavior.
