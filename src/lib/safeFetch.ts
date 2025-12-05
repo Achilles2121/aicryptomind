@@ -6,7 +6,10 @@ import {
   isSourceEnabled,
 } from "../config/dataSources";
 
-export type ApiHealthStatus = "ok" | "degraded" | "fallback" | "error" | "disabled" | "cors";
+import type { ToastFn, ToastType } from "./toast";
+export type { ToastFn, ToastType } from "./toast";
+export type ApiHealthStatus = "ok" | "warn" | "error" | "disabled";
+export type ApiHealthUpdateFn = (service: string, status: ApiHealthStatus, message?: string) => void;
 
 export type SourceHealthEntry = {
   status: DataSourceStatus;
@@ -58,9 +61,9 @@ export type SafeFetchOptions = RequestInit & {
   retries?: number;
   retryDelayMs?: number;
   timeoutMs?: number;
-  onHealthUpdate?: (service: string, status: ApiHealthStatus, message?: string) => void;
-  onLog?: (source: string, level: "info" | "warn" | "error", message?: string, meta?: Record<string, unknown>) => void;
-  onToast?: (message: string, type?: "warn" | "error" | "info") => void;
+  onHealthUpdate?: ApiHealthUpdateFn;
+  onLog?: (source: string, level: ToastType, message?: string, meta?: Record<string, unknown>) => void;
+  onToast?: ToastFn;
   serviceName?: string;
 };
 
@@ -77,18 +80,18 @@ export class AppError extends Error {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const isRequestLike = (val: unknown): val is { url?: string; href?: string } => {
+  if (!val || typeof val !== "object") return false;
+  const maybeObj = val as Record<string, unknown>;
+  return (typeof maybeObj.url === "string" && maybeObj.url.length > 0) || (typeof maybeObj.href === "string" && maybeObj.href.length > 0);
+};
+
 const toUrlString = (input: RequestInfo | URL) => {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
   if (typeof Request !== "undefined" && input instanceof Request) return input.url;
-  if (typeof input === "object" && input) {
-    if ("url" in input && typeof (input as Record<string, unknown>).url === "string") {
-      return String((input as Record<string, unknown>).url);
-    }
-    if ("href" in input && typeof (input as Record<string, unknown>).href === "string") {
-      return String((input as Record<string, unknown>).href);
-    }
-  }
+  const maybeRequestLike: unknown = input;
+  if (isRequestLike(maybeRequestLike)) return maybeRequestLike.url || maybeRequestLike.href || "";
   return "";
 };
 
@@ -118,16 +121,16 @@ const normalizeError = (error: AppError & { code?: string }, isFinalAttempt: boo
     return { status: "disabled", message: "Source disabled", code: DISABLED_SOURCE_CODE };
   }
   if (isCorsError(error)) {
-    return { status: "cors", message: "CORS / Network blocked", code: "CORS" };
+    return { status: "warn", message: "CORS / Network blocked", code: "CORS" };
   }
   const statusCode = error?.status ?? (error as any)?.statusCode;
   if (statusCode === 401 || statusCode === 403) {
-    return { status: "degraded", message: `HTTP ${statusCode}`, code: `HTTP_${statusCode}` };
+    return { status: "warn", message: `HTTP ${statusCode}`, code: `HTTP_${statusCode}` };
   }
   if (error?.name === "AbortError") {
-    return { status: isFinalAttempt ? "error" : "degraded", message: "timeout", code: "TIMEOUT" };
+    return { status: isFinalAttempt ? "error" : "warn", message: "timeout", code: "TIMEOUT" };
   }
-  const status: ApiHealthStatus = isFinalAttempt ? "error" : "degraded";
+  const status: ApiHealthStatus = isFinalAttempt ? "error" : "warn";
   return { status, message: error?.message || "fetch failed", code: statusCode ? `HTTP_${statusCode}` : undefined };
 };
 

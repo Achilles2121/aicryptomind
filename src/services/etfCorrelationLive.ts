@@ -1,4 +1,5 @@
-﻿import { safeFetch } from "../lib/safeFetch";
+import { safeFetch, type ApiHealthStatus, type ApiHealthUpdateFn, type ToastFn } from "../lib/safeFetch";
+import { apiUrl } from "../lib/http";
 
 export type CorrelationPoint = {
   pair: string;
@@ -12,35 +13,44 @@ export type CorrelationResult = {
   error?: string;
 };
 
-type HealthFn = (key: string, status: string, message?: string) => void;
-type ToastFn = (msg: string, type?: string) => void;
-
 type ProxyHealth = { key: string; status: string; message?: string };
 type ProxyResponse = { data?: CorrelationPoint[]; health?: ProxyHealth[]; generatedAt?: string; error?: string };
 
-const relayHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: HealthFn) => {
+const isHealthStatus = (val: string): val is ApiHealthStatus => {
+  return val === "ok" || val === "warn" || val === "error" || val === "disabled";
+};
+
+const relayHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: ApiHealthUpdateFn) => {
   if (!entries?.length || !onHealthUpdate) return;
   for (const entry of entries) {
-
-    onHealthUpdate(entry.key, entry.status, entry.message);
+    if (!entry?.key || !entry?.status) continue;
+    const status = isHealthStatus(entry.status) ? entry.status : "warn";
+    onHealthUpdate(entry.key, status, entry.message);
   }
 };
 
-export async function fetchEtfCorrelationsLive(onHealthUpdate?: HealthFn, onToast?: ToastFn): Promise<CorrelationResult> {
-  const response = await safeFetch<ProxyResponse>("/api/etf/correlations", {
-    serviceName: "ETF_PROXY_CORR",
-    timeoutMs: 15000,
-    retries: 0,
-    onHealthUpdate,
-  });
-  relayHealth(response?.health, onHealthUpdate);
-  if (response?.error) {
-    onToast?.("ETF correlations currently unavailable", "warn");
-    return { data: [], lastUpdated: new Date().toISOString(), error: response.error };
+export async function fetchEtfCorrelationsLive(onHealthUpdate?: ApiHealthUpdateFn, onToast?: ToastFn): Promise<CorrelationResult> {
+  try {
+    const response = await safeFetch<ProxyResponse>(apiUrl("/api/etf/correlations"), {
+      serviceName: "ETF_PROXY_CORR",
+      timeoutMs: 15000,
+      retries: 0,
+      onHealthUpdate,
+    });
+    relayHealth(response?.health, onHealthUpdate);
+    if (response?.error) {
+      onToast?.("ETF-Korrelationen aktuell nicht erreichbar (API-Fehler).", "warn");
+      onHealthUpdate?.("etfCorrelations", "error", response.error);
+      return { data: [], lastUpdated: new Date().toISOString(), error: response.error };
+    }
+    return {
+      data: response?.data ?? [],
+      lastUpdated: response?.generatedAt || new Date().toISOString(),
+    };
+  } catch (err: any) {
+    const message = err?.message || "ETF correlations fetch failed";
+    onToast?.("ETF-Korrelationen aktuell nicht erreichbar (API-Fehler).", "warn");
+    onHealthUpdate?.("etfCorrelations", "error", message);
+    return { data: [], lastUpdated: new Date().toISOString(), error: message };
   }
-  return {
-    data: response?.data ?? [],
-    lastUpdated: response?.generatedAt || new Date().toISOString(),
-  };
 }
-  let denB = 0;

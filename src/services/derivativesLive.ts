@@ -30,7 +30,7 @@ export const fetchDerivativesLive = async (
 ) => {
   const tier = getCachedUserTier();
   if (tier !== "pro" && tier !== "elite") {
-    onHealthUpdate?.("DERIVATIVES_PRIMARY", "degraded", "Tier required");
+    onHealthUpdate?.("DERIVATIVES_PRIMARY", "warn", "Tier required");
     return {
       fundingSeries: [],
       oiSeries: [],

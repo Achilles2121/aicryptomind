@@ -26,6 +26,7 @@ const badPatterns = [
   /â†’/,
   /Ã–mer/,
   /EintrÃ¤ge/,
+  /Â·/,
 ];
 
 const includeExt = new Set([".js", ".jsx", ".ts", ".tsx", ".json", ".html"]);

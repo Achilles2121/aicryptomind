@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "lint:encoding": "node scripts/check-encoding.js"
+    "lint:encoding": "node scripts/check-encoding.js",
+    "prebuild": "npm run lint:encoding && npm run lint && npm run typecheck"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",

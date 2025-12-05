@@ -1,6 +1,5 @@
-import { safeFetch } from "../lib/safeFetch";
-
-export type ApiHealthStatus = "ok" | "degraded" | "fallback" | "error";
+import { safeFetch, type ApiHealthStatus, type ApiHealthUpdateFn, type ToastFn, type ToastType } from "../lib/safeFetch";
+import { apiUrl } from "../lib/http";
 
 export type EtfHolding = {
   symbol: string;
@@ -14,19 +13,24 @@ export type EtfHolding = {
 };
 
 export type SafeOpts = {
-  onHealthUpdate?: (service: string, status: ApiHealthStatus, message?: string) => void;
-  onLog?: (source: string, level: "info" | "warn" | "error", message?: string, meta?: Record<string, unknown>) => void;
-  onToast?: (message: string, type?: "warn" | "error" | "info") => void;
+  onHealthUpdate?: ApiHealthUpdateFn;
+  onLog?: (source: string, level: ToastType, message?: string, meta?: Record<string, unknown>) => void;
+  onToast?: ToastFn;
 };
 
-type ProxyHealth = { key: string; status: string; message?: string };
+type ProxyHealth = { key: string; status: ApiHealthStatus | string; message?: string };
 type ProxyResponse = { data?: EtfHolding[]; health?: ProxyHealth[]; error?: string };
+
+const isHealthStatus = (val: string): val is ApiHealthStatus => {
+  return val === "ok" || val === "warn" || val === "error" || val === "disabled";
+};
 
 const relayProxyHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: SafeOpts["onHealthUpdate"]) => {
   if (!entries?.length || !onHealthUpdate) return;
   for (const entry of entries) {
     if (!entry?.key || !entry?.status) continue;
-    onHealthUpdate(entry.key, entry.status, entry.message);
+    const status = typeof entry.status === "string" && isHealthStatus(entry.status) ? entry.status : "warn";
+    onHealthUpdate(entry.key, status, entry.message);
   }
 };
 
@@ -34,19 +38,26 @@ export async function fetchEtfHoldings(symbols: string[], opts: SafeOpts = {}): 
   const params = new URLSearchParams();
   if (symbols?.length) params.set("symbols", symbols.join(","));
   const url = params.toString() ? `/api/etf/holdings?${params.toString()}` : "/api/etf/holdings";
-  const response = await safeFetch<ProxyResponse>(url, {
-    serviceName: "ETF_PROXY_HOLDINGS",
-    timeoutMs: 12000,
-    retries: 0,
-    onHealthUpdate: opts.onHealthUpdate,
-    onLog: opts.onLog,
-    onToast: opts.onToast,
-  });
-  relayProxyHealth(response?.health, opts.onHealthUpdate);
-  if (response?.error) throw new Error(response.error);
-  const data = Array.isArray(response?.data) ? response.data : [];
-  if (!data.length) {
-    opts.onToast?.("ETF holdings currently unavailable", "warn");
+  try {
+    const response = await safeFetch<ProxyResponse>(apiUrl(url), {
+      serviceName: "ETF_PROXY_HOLDINGS",
+      timeoutMs: 12000,
+      retries: 0,
+      onHealthUpdate: opts.onHealthUpdate,
+      onLog: opts.onLog,
+      onToast: opts.onToast,
+    });
+    relayProxyHealth(response?.health, opts.onHealthUpdate);
+    if (response?.error) throw new Error(response.error);
+    const data = Array.isArray(response?.data) ? response.data : [];
+    if (!data.length) {
+      opts.onToast?.("ETF-Holdings aktuell nicht erreichbar (API-Fehler).", "warn");
+    }
+    return data;
+  } catch (err: any) {
+    const message = err?.message || "ETF holdings fetch failed";
+    opts.onToast?.("ETF-Holdings aktuell nicht erreichbar (API-Fehler).", "warn");
+    opts.onHealthUpdate?.("etfHoldings", "error", message);
+    return [];
   }
-  return data;
 }

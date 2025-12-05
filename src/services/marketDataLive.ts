@@ -71,7 +71,7 @@ const fetchProxyHtf = async (
     if (apiRes?.ok === false) {
       const status = apiRes.status || "upstream_error";
       const message = apiRes.error || "Price data temporarily unavailable";
-      const healthStatus: ApiHealthStatus = status === "timeout" ? "degraded" : "error";
+      const healthStatus: ApiHealthStatus = status === "timeout" ? "warn" : "error";
       onHealthUpdate?.("MARKET_HTF_PRIMARY", healthStatus, message);
       if (shouldToast("MARKET_HTF_PRIMARY")) {
         onToast?.("Price data temporarily unavailable, retrying...", "warn");
@@ -80,13 +80,13 @@ const fetchProxyHtf = async (
     }
     const rows = Array.isArray(apiRes?.data) ? apiRes.data : (Array.isArray(res) ? res : []);
     if (!rows.length) {
-      onHealthUpdate?.("MARKET_HTF_PRIMARY", "degraded", "Empty OHLC response");
+      onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", "Empty OHLC response");
       return [];
     }
     return mapOhlcSeries(rows);
   } catch (err: any) {
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
-    onHealthUpdate?.("MARKET_HTF_PRIMARY", "degraded", err?.message || "primary HTF failed");
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     if (shouldToast("MARKET_HTF_PRIMARY")) {
       onToast?.("Price data temporarily unavailable, retrying...", "warn");
     }
@@ -103,7 +103,7 @@ export const fetchHtfOhlc = async (
 ) => {
   const tier = getCachedUserTier();
   if (tier !== "pro" && tier !== "elite") {
-    onHealthUpdate?.("MARKET_HTF_PRIMARY", "degraded", "Tier required");
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", "Tier required");
     return { h4: [], d1: [] };
   }
   try {
@@ -111,7 +111,7 @@ export const fetchHtfOhlc = async (
       fetchProxyHtf(pair, symbolId, 240, onHealthUpdate, onLog, onToast),
       fetchProxyHtf(pair, symbolId, 1440, onHealthUpdate, onLog, onToast),
     ]);
-    const hasData = (h4?.length || d1?.length) ? "ok" : "degraded";
+    const hasData: ApiHealthStatus = h4?.length || d1?.length ? "ok" : "warn";
     onHealthUpdate?.("MARKET_HTF_PRIMARY", hasData, hasData === "ok" ? "" : "HTF data empty");
     return { h4, d1 };
   } catch (err: any) {

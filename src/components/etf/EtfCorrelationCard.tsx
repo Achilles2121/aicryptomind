@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import { fetchEtfCorrelationsLive } from "../../services/etfCorrelationLive";
+import { type ApiHealthUpdateFn, type ToastFn } from "../../lib/safeFetch";
 import { setCorrelationCache, type CorrelationPoint } from "./EtfCorrelationHeatmapCard";
 
 const statusColor = (val: number | null | undefined) => {
@@ -18,8 +19,8 @@ const formatCorr = (val: number | null | undefined) => {
 };
 
 interface EtfCorrelationCardProps {
-  onHealthUpdate?: (service: string, status: string, message?: string) => void;
-  onToast?: (msg: string, type?: "info" | "error" | "warn") => void;
+  onHealthUpdate?: ApiHealthUpdateFn;
+  onToast?: ToastFn;
 }
 
 const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps) => {
@@ -35,10 +36,10 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
       setData(res.data || []);
       setLastUpdated(res.lastUpdated);
       setCorrelationCache(res.data || [], res.lastUpdated);
-      setError(res.error ? "Daten derzeit nicht verfuegbar" : "");
+      setError(res.error ? "Daten derzeit nicht verfügbar" : "");
     } catch (err) {
       console.error("etf correlation fetch failed", err);
-      setError("Daten derzeit nicht verfuegbar");
+      setError("Daten derzeit nicht verfügbar");
     } finally {
       setLoading(false);
     }
@@ -66,6 +67,7 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
       </div>
       {loading ? <p className="text-sm text-slate-400">Lade Korrelationen...</p> : null}
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
+      {!loading && !error && !data.length ? <p className="text-sm text-slate-400">Keine ETF-Daten verfügbar.</p> : null}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-slate-200">
           <thead>
