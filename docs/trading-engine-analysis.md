@@ -185,3 +185,12 @@ Senior TypeScript/React/Vite engineer + HF crypto trading architect. Ziel: Crypt
 - **Backtest (`src/lib/backtestV3.js`):** Equity-Curve mit fixem Risiko-% pro Trade; Kennzahlen Max Drawdown, Profit Factor, WinRate, AvgRR, ProfitPct. Slippage stochastisch (Normalverteilung um ATR-basierten Mean), Fees 0.075%. TP/SL-Candle-Lauf ohne Lookahead. Setup-/Regime-Winrates werden zurückgegeben. Firebase-Stubs (`saveWinrateSnapshot`/`loadWinrateSnapshot`) noch ohne echte Persistenz.
 - **Health-Aggregation:** `ETFFLOWS`/`ETFNEWS`: Primary ok ⇒ Aggregator ok; Primary error + alle Fallbacks error ⇒ Aggregator error; sonst degraded. Neue Keys: `MARKET_HTF_PRIMARY`, `MARKET_HTF_FALLBACK`, `DERIVATIVES_PRIMARY`.
 - **Env:** `VITE_COINAPI_KEY` erforderlich (lokal & Deployment), sonst leere HTF/Derivatives-Daten.
+
+### V3+ Engine – Final
+
+- **EdgeScore:** Mischt technische Confidence mit Fundamental-/Liquiditäts-Score (`computeFundamentalScore`) und fließt in die finale Confidence von `buildSignalsV3`.
+- **Derivate-Gates:** `riskLevel=hot` blockt Trend/Breakout oder deckelt Confidence (0.55), `cool` leichter Boost (max 0.95), Meta führt Ursache auf.
+- **Daily Risk Gate:** `computeDailyRiskGate` (-3% default) stoppt Tages-Trades im Backtest und kann Live-Signale auf "wait" setzen, wenn `dayPnlPct` übergeben wird.
+- **Unified Stops/Sizing:** `computeStopAndTarget` (ATR/Setup/Regime-basiert) + `computePositionSize` (1% Equity default) werden in Signals, Backtest und TP/SL-Suggestor genutzt.
+- **HTF Stabilität:** `MARKET_HTF_PRIMARY`/`FALLBACK` via echte 4h/1d-Kerzen; fehlende HTF-Daten erzwingen Reversion-only oder Wait.
+- **ETF-Fallback & EdgeScore:** ETF-Korrelationen bevorzugen FMP, fallen auf Stooq-Fetch zurück (Health `degraded`, data leer) statt Exceptions. EdgeScore mischt Technical/Fundamental und clamped Confidence entsprechend.

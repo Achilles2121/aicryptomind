@@ -107,6 +107,51 @@ const fetchProxyHtf = async (
   }
 };
 
+const fetchProxyHtfFallback = async (
+  pair: string,
+  interval: number,
+  onHealthUpdate?: HealthCb,
+  onLog?: LogCb,
+  onToast?: ToastCb
+) => {
+  const url = apiUrl(`/api/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=240`);
+  try {
+    const res = await safeFetch<OhlcApiResponse | { candles?: any[]; data?: any[] } | any[]>(url, {
+      serviceName: "MARKET_HTF_FALLBACK",
+      timeoutMs: 10000,
+      retries: 1,
+      onHealthUpdate,
+      onLog,
+      onToast,
+    });
+    const apiRes = res as OhlcApiResponse & { candles?: any[]; data?: any[] };
+    if (apiRes?.ok === false) {
+      const status = apiRes.status || "upstream_error";
+      const message = apiRes.error || "Price data temporarily unavailable";
+      const healthStatus: ApiHealthStatus = status === "timeout" ? "warn" : "error";
+      onHealthUpdate?.("MARKET_HTF_FALLBACK", healthStatus, message);
+      return [];
+    }
+    const rows = Array.isArray(apiRes?.data)
+      ? apiRes.data
+      : Array.isArray(apiRes?.candles)
+      ? apiRes.candles
+      : Array.isArray(res)
+      ? (res as any[])
+      : [];
+    if (!rows.length) {
+      onHealthUpdate?.("MARKET_HTF_FALLBACK", "warn", "Empty OHLC response");
+      return [];
+    }
+    onHealthUpdate?.("MARKET_HTF_FALLBACK", "ok");
+    return mapOhlcSeries(rows);
+  } catch (err: any) {
+    onLog?.("MARKET_HTF_FALLBACK", "warn", err?.message || "fallback HTF failed");
+    onHealthUpdate?.("MARKET_HTF_FALLBACK", "warn", err?.message || "fallback HTF failed");
+    return [];
+  }
+};
+
 export const fetchHtfOhlc = async (
   pair: string,
   _symbolId: string,
@@ -120,12 +165,18 @@ export const fetchHtfOhlc = async (
     return { h4: [], d1: [] };
   }
   try {
-    const [h4, d1] = await Promise.all([
+    const [h4Primary, d1Primary] = await Promise.all([
       fetchProxyHtf(pair, 240, onHealthUpdate, onLog, onToast),
       fetchProxyHtf(pair, 1440, onHealthUpdate, onLog, onToast),
     ]);
-    const hasData: ApiHealthStatus = h4?.length || d1?.length ? "ok" : "warn";
-    onHealthUpdate?.("MARKET_HTF_PRIMARY", hasData, hasData === "ok" ? "" : "HTF data empty");
+
+    const h4 = h4Primary?.length ? h4Primary : await fetchProxyHtfFallback(pair, 240, onHealthUpdate, onLog, onToast);
+    const d1 = d1Primary?.length ? d1Primary : await fetchProxyHtfFallback(pair, 1440, onHealthUpdate, onLog, onToast);
+
+    const hasDataPrimary: ApiHealthStatus = h4Primary?.length || d1Primary?.length ? "ok" : "warn";
+    onHealthUpdate?.("MARKET_HTF_PRIMARY", hasDataPrimary, hasDataPrimary === "ok" ? "" : "HTF data empty");
+    const hasDataFallback: ApiHealthStatus = h4?.length || d1?.length ? "ok" : "warn";
+    onHealthUpdate?.("MARKET_HTF_FALLBACK", hasDataFallback, hasDataFallback === "ok" ? "" : "HTF fallback used");
     return { h4, d1 };
   } catch (err: any) {
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");

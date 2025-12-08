@@ -68,26 +68,44 @@ const computeRR = (direction, entryPrice, exitPrice, sl) => {
   return risk ? (entryPrice - exitPrice) / risk : null;
 };
 
-const sampleNormal = (mean = 0, std = 1) => {
-  const u = 1 - Math.random();
-  const v = Math.random();
+const mulberry32 = (seed) => {
+  let a = seed || 1;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const sampleNormal = (mean = 0, std = 1, rand = Math.random) => {
+  const u = 1 - rand();
+  const v = rand();
   const mag = Math.sqrt(-2.0 * Math.log(u));
   const z = mag * Math.cos(2.0 * Math.PI * v);
   return mean + z * std;
 };
 
-const simulateTrade = ({ candles, signal, maxHoldBars }) => {
+const simulateTrade = ({ candles, signal, maxHoldBars, rng }) => {
   const { index, direction } = signal;
   if (!candles?.length || index >= candles.length) return null;
   const entryIndex = index;
   const entryCandle = candles[entryIndex];
   const entryPrice = signal.entryPrice ?? entryCandle.close;
-  const tp = signal.tp ?? (direction === "long" ? entryPrice * 1.01 : entryPrice * 0.99);
-  const sl = signal.sl ?? (direction === "long" ? entryPrice * 0.99 : entryPrice * 1.01);
   const atrPct = signal.meta?.atrPct ?? entryCandle.atrPct ?? 1;
+  const stops = computeStopAndTarget({
+    entry: entryPrice,
+    direction,
+    atrPct,
+    regimeLabel: signal.meta?.regime,
+    setupType: signal.meta?.setup,
+  });
+  const tp = signal.tp ?? stops.tp ?? (direction === "long" ? entryPrice * 1.01 : entryPrice * 0.99);
+  const sl = signal.sl ?? stops.sl ?? (direction === "long" ? entryPrice * 0.99 : entryPrice * 1.01);
   const fee = 0.00075; // 0.075%
   const slipMean = ((atrPct || 0) / 100) * 0.1; // 10% of ATR% as baseline slippage
-  const slipPct = Math.max(0, sampleNormal(slipMean, slipMean * 0.35)); // stochastic slippage around baseline
+  const slipPct = Math.max(0, sampleNormal(slipMean, slipMean * 0.35, rng)); // deterministic slippage
 
   const entryAdj = direction === "long" ? 1 + slipPct + fee : 1 - slipPct - fee;
   const exitAdjWin = direction === "long" ? 1 - slipPct - fee : 1 + slipPct + fee;
@@ -133,11 +151,19 @@ const simulateTrade = ({ candles, signal, maxHoldBars }) => {
   return { entryIndex, exitIndex, direction, entryPrice: effectiveEntry, exitPrice, tp, sl, rr, result, meta: signal.meta };
 };
 
-export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5, startEquity = 10000, riskPct = 0.01 }) => {
-  const trades = [];
+export const runBacktestV3 = ({
+  candles = [],
+  signals = [],
+  maxHoldBars = 5,
+  startEquity = 10000,
+  riskPct = RISK_CONFIG.riskPctDefault,
+  seed = 42,
+  dailyLossLimitPct = RISK_CONFIG.dailyLossLimitPct,
+}) => {
+  const rawTrades = [];
   if (!candles.length || !signals.length) {
     return {
-      trades,
+      trades: rawTrades,
       winRate: null,
       avgRR: null,
       profitPct: null,
@@ -152,9 +178,38 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5, sta
   }
 
   const sortedSignals = [...signals].sort((a, b) => a.index - b.index);
+  const rng = mulberry32(seed);
   for (const sig of sortedSignals) {
-    const trade = simulateTrade({ candles, signal: sig, maxHoldBars });
-    if (trade) trades.push(trade);
+    const trade = simulateTrade({ candles, signal: sig, maxHoldBars, rng });
+    if (trade) rawTrades.push(trade);
+  }
+
+  const trades = [];
+  const dayState = new Map();
+  const dayKeyForIndex = (idx) => {
+    const ts = candles?.[idx]?.time ?? 0;
+    const d = new Date((Number(ts) || 0) * 1000);
+    return d.toISOString().slice(0, 10);
+  };
+
+  let equityPreview = startEquity;
+  for (const t of rawTrades) {
+    const dayKey = dayKeyForIndex(t.entryIndex);
+    if (!dayState.has(dayKey)) {
+      dayState.set(dayKey, { startEquity: equityPreview, blocked: false });
+    }
+    const info = dayState.get(dayKey);
+    if (info.blocked) continue;
+
+    const stopDistance = t.direction === "long" ? t.entryPrice - t.sl : t.sl - t.entryPrice;
+    const positionSize = stopDistance > 0 ? computePositionSize({ equity: equityPreview, riskPct, entry: t.entryPrice, sl: t.sl }) : 0;
+    const pnl = positionSize * (t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice);
+    const equityAfter = equityPreview + pnl;
+    trades.push({ ...t, positionSize, pnl });
+    equityPreview = equityAfter;
+    const dayPnlPct = info.startEquity ? (equityAfter - info.startEquity) / info.startEquity : 0;
+    const gate = computeDailyRiskGate({ dayPnlPct, limitPct: dailyLossLimitPct });
+    if (!gate.allowed) info.blocked = true;
   }
 
   const wins = trades.filter((t) => t.result === "win").length;
@@ -208,9 +263,16 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5, sta
 
   for (const t of trades) {
     const stopDistance = t.direction === "long" ? t.entryPrice - t.sl : t.sl - t.entryPrice;
-    const riskBudget = equity * riskPct;
-    const positionSize = stopDistance > 0 ? riskBudget / stopDistance : 0;
-    const pnl = positionSize * (t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice);
+    const positionSize =
+      Number.isFinite(t.positionSize) && t.positionSize > 0
+        ? t.positionSize
+        : stopDistance > 0
+        ? computePositionSize({ equity, riskPct, entry: t.entryPrice, sl: t.sl })
+        : 0;
+    const pnl =
+      Number.isFinite(t.pnl) && t.pnl !== null
+        ? t.pnl
+        : positionSize * (t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice);
     equity += pnl;
     if (pnl >= 0) grossWin += pnl;
     else grossLoss += Math.abs(pnl);
@@ -239,3 +301,4 @@ export const runBacktestV3 = ({ candles = [], signals = [], maxHoldBars = 5, sta
 // Vision AI Mind – Crypto Risk Engine
 // (c) Vision AI – All rights reserved.
 // Do not remove this header.
+import { computeStopAndTarget, computePositionSize, computeDailyRiskGate, RISK_CONFIG } from "./riskEngine.js";

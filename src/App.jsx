@@ -62,6 +62,7 @@ import {
   calculateOBV,
   calculatePearson,
 } from "./lib/indicators";
+import { computeStopAndTarget } from "./lib/riskEngine";
 import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
 
@@ -154,19 +155,32 @@ Paywall.propTypes = {
   children: PropTypes.node.isRequired,
 };
 
-const formatUSD = (value) =>
-  value !== null && value !== undefined
-    ? new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        maximumFractionDigits: 2,
-      }).format(value)
-    : "-";
+const formatterCache = new Map();
+const getFormatter = (locale, opts) => {
+  const key = `${locale}:${JSON.stringify(opts)}`;
+  if (!formatterCache.has(key)) {
+    formatterCache.set(key, new Intl.NumberFormat(locale, opts));
+  }
+  return formatterCache.get(key);
+};
 
-const formatPercent = (value) =>
-  value !== null && value !== undefined
-    ? `${value > 0 ? "+" : ""}${value.toFixed(2)}%`
-    : "-";
+let activeLocale = "de-DE";
+const setActiveLocale = (locale) => {
+  activeLocale = locale || "en-US";
+};
+
+const formatUSD = (value, locale) => {
+  const loc = locale || activeLocale || "en-US";
+  if (!Number.isFinite(value)) return "-";
+  return getFormatter(loc, { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+};
+
+const formatPercent = (value, locale) => {
+  const loc = locale || activeLocale || "en-US";
+  if (!Number.isFinite(value)) return "-";
+  const formatted = getFormatter(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  return `${value > 0 ? "+" : ""}${formatted}%`;
+};
 
 const clampNumber = (value, fallback = null) => (Number.isFinite(value) ? value : fallback);
 
@@ -832,6 +846,7 @@ function App() {
     trialEndsAt,
     trialExpired,
     trialRemainingDays,
+    trialRemainingMs,
     loading: tierLoading,
     refreshUserTier,
   } = useUserTier();
@@ -926,17 +941,18 @@ function App() {
   }, [trialEndsAt]);
   const trialBadgeText = useMemo(() => {
     if (!trialActive) return null;
+    const remainingHours = Number.isFinite(trialRemainingMs) ? Math.floor((trialRemainingMs / (1000 * 60 * 60)) % 24) : 0;
     const daysSuffix =
       Number.isFinite(trialRemainingDays) && trialRemainingDays >= 0
         ? lang === "de"
-          ? ` (${trialRemainingDays} Tag${trialRemainingDays === 1 ? "" : "e"})`
-          : ` (${trialRemainingDays}d left)`
+          ? ` (${trialRemainingDays} Tag${trialRemainingDays === 1 ? "" : "e"} ${remainingHours}h)`
+          : ` (${trialRemainingDays}d ${remainingHours}h left)`
         : "";
     const endSuffix = trialEnd ? (lang === "de" ? ` Ende: ${trialEnd}` : ` Ends: ${trialEnd}`) : "";
     return lang === "de"
       ? `7-Tage-Test aktiv${daysSuffix}${endSuffix ? `.${endSuffix}` : ""}`
       : `7-day trial active${daysSuffix}${endSuffix ? `. ${endSuffix}` : ""}`;
-  }, [trialActive, trialRemainingDays, trialEnd, lang]);
+  }, [trialActive, trialRemainingDays, trialRemainingMs, trialEnd, lang]);
 
   const tierLabels = useMemo(
     () => ({
@@ -946,6 +962,10 @@ function App() {
     }),
     [lang]
   );
+
+  useEffect(() => {
+    setActiveLocale(lang === "de" ? "de-DE" : "en-US");
+  }, [lang]);
 
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -1930,7 +1950,28 @@ function App() {
   }, [indicatorSeries]);
 
   const suggestRisk = () => {
-    if (!priceState.value) return;
+    const entry = tpForm.entry ?? displayPrice;
+    if (!entry) return;
+    const last = indicatorSeries.at(-1);
+    const atrPct = Number.isFinite(last?.atrPct) ? last.atrPct : null;
+    const setupType =
+      indicators.rsi && indicators.rsi < 30
+        ? "reversion"
+        : indicators.rsi && indicators.rsi > 70
+        ? "reversion"
+        : "trend";
+    const direction = indicators.rsi && indicators.rsi > 70 ? "short" : "long";
+    const stops = computeStopAndTarget({ entry, direction, atrPct, regimeLabel: marketRegime?.label, setupType });
+    if (stops.tp && stops.sl) {
+      const tpPct = direction === "long" ? ((stops.tp - entry) / entry) * 100 : ((entry - stops.tp) / entry) * 100;
+      const slPct = direction === "long" ? ((entry - stops.sl) / entry) * 100 : ((stops.sl - entry) / entry) * 100;
+      setTpForm((prev) => ({ ...prev, entry, tpPct: Number(tpPct.toFixed(2)), slPct: Number(slPct.toFixed(2)) }));
+      setAiNote(
+        `Engine Stops (${direction}): ATR-basiert mit Risiko-Polster ${stops.riskPad ? (stops.riskPad * 100).toFixed(2) + "%" : ""}`
+      );
+      return;
+    }
+    // Fallback to legacy heuristic
     const rsi = indicators.rsi;
     let tpPct = 4;
     let slPct = 3;

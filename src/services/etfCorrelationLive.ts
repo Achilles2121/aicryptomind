@@ -14,7 +14,7 @@ export type CorrelationResult = {
 };
 
 type ProxyHealth = { key: string; status: string; message?: string };
-type ProxyResponse = { data?: CorrelationPoint[]; health?: ProxyHealth[]; generatedAt?: string; error?: string };
+type ProxyResponse = { status?: string; data?: CorrelationPoint[]; health?: ProxyHealth[]; generatedAt?: string; error?: string; reason?: string };
 
 const isHealthStatus = (val: string): val is ApiHealthStatus => {
   return val === "ok" || val === "warn" || val === "error" || val === "disabled";
@@ -38,14 +38,18 @@ export async function fetchEtfCorrelationsLive(onHealthUpdate?: ApiHealthUpdateF
       onHealthUpdate,
     });
     relayHealth(response?.health, onHealthUpdate);
-    if (response?.error) {
+    if (response?.error || response?.status === "error") {
+      const msg = response.error || response.reason || "ETF-Korrelationen aktuell nicht erreichbar.";
       onToast?.("ETF-Korrelationen aktuell nicht erreichbar (API-Fehler).", "warn");
-      onHealthUpdate?.("etfCorrelations", "error", response.error);
-      return { data: [], lastUpdated: new Date().toISOString(), error: response.error };
+      onHealthUpdate?.("etfCorrelations", "error", msg);
+      return { data: [], lastUpdated: new Date().toISOString(), error: msg };
     }
+    const data = response?.data ?? [];
+    const status = response?.status || "ok";
     return {
-      data: response?.data ?? [],
+      data,
       lastUpdated: response?.generatedAt || new Date().toISOString(),
+      error: status === "disabled" ? "ETF correlation disabled in dev" : undefined,
     };
   } catch (err: any) {
     const message = err?.message || "ETF correlations fetch failed";

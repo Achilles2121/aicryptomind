@@ -48,3 +48,10 @@
 - ETF flow/holding data ultimately depends on providers that may throttle; proxy caching mitigates this but does not guarantee completeness.
 - AI chat (`useCryptoEduChat`) is still a stub until an LLM endpoint is exposed.
 - No automated tests or CI scripts are present; consider adding lint/typecheck/build steps to CI to catch regressions early.
+## Dev Setup & Ports (2025-12 update)
+- Frontend: `npm run dev` ? http://localhost:5175
+- API/Proxy: `npm run dev:api` (Vercel dev) oder `npm run dev:server` ? http://localhost:5176
+- CORS: `FRONTEND_ORIGIN` default ist `http://localhost:5175`.
+- ETF-Korrelationen: FMP primär, Fallback Stooq (CSV) bei fehlendem Key/Fehler ? Health `degraded`, leere Daten. Dev-Flag: `ETF_CORRELATIONS_DISABLED=true` zum Abschalten.
+- Provider-Toggles: `VITE_ENABLE_*` Flags steuern SafeFetch-Quellen; fehlende Keys ergeben `degraded` statt Crash.
+

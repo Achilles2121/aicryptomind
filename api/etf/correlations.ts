@@ -60,6 +60,55 @@ const fetchEtfSeries = async (symbol: string) => {
     .filter((p) => p.date && Number.isFinite(p.value)) as SeriesPoint[];
 };
 
+const fetchStooqSeries = async (symbol: string, days = 120) => {
+  const mapped = `${symbol.toLowerCase()}.us`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`https://stooq.pl/q/d/l/?s=${mapped}&i=d`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const lines = text.trim().split(/\r?\n/).slice(1); // skip header
+    const rows = lines
+      .map((line) => line.split(","))
+      .map((cols) => ({ date: toDateKey(cols[0]), value: Number(cols[4] ?? cols[1] ?? 0) }))
+      .filter((p) => p.date && Number.isFinite(p.value));
+    return rows.slice(-days);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+export const fetchEtfSeriesSafe = async (
+  symbol: string,
+  tracker: ReturnType<typeof createHealthTracker>,
+  opts: { forceMock?: boolean } = {}
+) => {
+  const key = getFmpKey();
+  const shouldMock = opts.forceMock || (!key && process.env.NODE_ENV === "test");
+  if (shouldMock) {
+    tracker.set("ETF_CORR_FMP", "warn", "FMP key missing (mock)");
+    return [];
+  }
+  // Try FMP first
+  try {
+    const series = await fetchEtfSeries(symbol);
+    tracker.set("ETF_CORR_FMP", series.length ? "ok" : "warn", series.length ? "" : "ETF series empty");
+    return series;
+  } catch (err: any) {
+    tracker.set("ETF_CORR_FMP", "degraded", err?.message || "FMP failed, fallback to Stooq");
+  }
+  // Fallback: Stooq
+  try {
+    const series = await fetchStooqSeries(symbol);
+    tracker.set("ETF_CORR_FALLBACK", series.length ? "warn" : "error", series.length ? "fallback stooq" : "stooq empty");
+    return series;
+  } catch (err: any) {
+    tracker.set("ETF_CORR_FALLBACK", "error", err?.message || "fallback failed");
+    throw err;
+  }
+};
+
 const pearson = (a: number[], b: number[]) => {
   if (a.length !== b.length || a.length < 3) return null;
   const meanA = a.reduce((acc, v) => acc + v, 0) / a.length;
@@ -93,6 +142,16 @@ const correlate = (lhs: SeriesPoint[], rhs: SeriesPoint[], window = 30) => {
 
 export default async function handler(req: Request) {
   const tracker = createHealthTracker();
+  const devDisabled = process.env.NODE_ENV === "development" && process.env.ETF_CORRELATIONS_DISABLED === "true";
+  if (devDisabled) {
+    return jsonResponse({
+      status: "disabled",
+      reason: "ETF correlation disabled in local dev",
+      data: [],
+      health: tracker.toArray(),
+      generatedAt: new Date().toISOString(),
+    });
+  }
   try {
     const { searchParams } = new URL(req.url);
     const symbols = parseSymbols(searchParams.get("symbols"));
@@ -135,8 +194,7 @@ export default async function handler(req: Request) {
     const data = [];
     for (const symbol of symbols) {
       try {
-        const etfSeries = await fetchEtfSeries(symbol);
-        tracker.set("ETF_CORR_FMP", etfSeries.length ? "ok" : "warn", etfSeries.length ? "" : "ETF series empty");
+        const etfSeries = await fetchEtfSeriesSafe(symbol, tracker);
         for (const asset of assets) {
           data.push({
             pair: `${symbol}-${asset}`,
@@ -153,12 +211,17 @@ export default async function handler(req: Request) {
     }
 
     return jsonResponse({
+      status: "ok",
       data,
       health: tracker.toArray(),
       generatedAt: new Date().toISOString(),
     });
   } catch (err: any) {
+    console.error("ETF correlations failed", err);
     tracker.set("etfCorrelations", "error", err?.message || "ETF correlations failed");
-    return errorResponse(err?.message || "ETF correlations failed", 502, { health: tracker.toArray() });
+    return jsonResponse(
+      { status: "error", reason: "ETF provider unavailable", data: [], health: tracker.toArray() },
+      { status: 503 }
+    );
   }
 }

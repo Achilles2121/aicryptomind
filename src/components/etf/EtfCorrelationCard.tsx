@@ -36,10 +36,10 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
       setData(res.data || []);
       setLastUpdated(res.lastUpdated);
       setCorrelationCache(res.data || [], res.lastUpdated);
-      setError(res.error ? "Daten derzeit nicht verfügbar" : "");
+      setError(res.error || !res.data?.length ? "ETF-Korrelationen aktuell nicht verfügbar." : "");
     } catch (err) {
       console.error("etf correlation fetch failed", err);
-      setError("Daten derzeit nicht verfügbar");
+      setError("ETF-Korrelationen aktuell nicht verfügbar.");
     } finally {
       setLoading(false);
     }
@@ -67,7 +67,7 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
       </div>
       {loading ? <p className="text-sm text-slate-400">Lade Korrelationen...</p> : null}
       {error ? <p className="text-sm text-amber-300">{error}</p> : null}
-      {!loading && !error && !data.length ? <p className="text-sm text-slate-400">Keine ETF-Daten verfügbar.</p> : null}
+      {!loading && !error && !data.length ? <p className="text-sm text-slate-400">ETF-Korrelationen aktuell nicht verfügbar.</p> : null}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-slate-200">
           <thead>

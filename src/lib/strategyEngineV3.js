@@ -35,22 +35,21 @@ export const evaluateTrendSetup = (row, meta) => {
     macdDiff !== null && vwap && atrPct && atrPct < 3 && ((trendUp && macdDiff > 0 && row.close > vwap) || (!trendUp && macdDiff < 0 && row.close < vwap));
   if (!baseCond) return { trigger: false };
   const direction = trendUp ? "long" : "short";
-  const atrFrac = Math.min(atrPct / 100 || 0.01, 0.02);
-  const riskPad = atrFrac * 0.5;
-  const tp = direction === "long" ? row.close * (1 + riskPad * 2.2) : row.close * (1 - riskPad * 2.2);
-  const sl = direction === "long" ? row.close * (1 - riskPad) : row.close * (1 + riskPad);
+  const stops = computeStopAndTarget({ entry: row.close, direction, atrPct, regimeLabel, setupType: "trend" });
   return {
     trigger: true,
     direction,
     entryPrice: row.close,
-    tp,
-    sl,
+    tp: stops.tp,
+    sl: stops.sl,
     meta: {
       reason: ["Trend + MACD + VWAP + ATR filter"],
       regimeMatch: regimeLabel,
       volatilityScore: volScore,
       flowScore,
       setup: "trend",
+      riskPad: stops.riskPad,
+      atrFrac: stops.atrFrac,
     },
   };
 };
@@ -71,22 +70,21 @@ export const evaluateBreakoutSetup = (row, meta) => {
   if (!dirLong && !dirShort) return { trigger: false };
   const direction = dirLong ? "long" : "short";
   if (regimeLabel && !matchesRegime(regimeLabel, ["Bull", "Bear", "Choppy", "Crab"])) return { trigger: false };
-  const atrFrac = Math.min(atrPct / 100 || 0.01, 0.02);
-  const riskPad = atrFrac * 0.6;
-  const tp = direction === "long" ? row.close * (1 + riskPad * 2.2) : row.close * (1 - riskPad * 2.2);
-  const sl = direction === "long" ? row.close * (1 - riskPad) : row.close * (1 + riskPad);
+  const stops = computeStopAndTarget({ entry: row.close, direction, atrPct, regimeLabel, setupType: "breakout" });
   return {
     trigger: true,
     direction,
     entryPrice: row.close,
-    tp,
-    sl,
+    tp: stops.tp,
+    sl: stops.sl,
     meta: {
       reason: ["Donchian + Vol Spike breakout"],
       regimeMatch: regimeLabel,
       volatilityScore: volScore,
       flowScore,
       setup: "breakout",
+      riskPad: stops.riskPad,
+      atrFrac: stops.atrFrac,
     },
   };
 };
@@ -105,22 +103,21 @@ export const evaluateReversionSetup = (row, meta) => {
   const shortCond = rsi !== null && rsi > 70 && upper && row.close >= upper;
   if (!longCond && !shortCond) return { trigger: false };
   const direction = longCond ? "long" : "short";
-  const atrFrac = Math.min(atrPct / 100 || 0.01, 0.02);
-  const riskPad = atrFrac * 0.5;
-  const tp = direction === "long" ? row.close * (1 + riskPad * 2.2) : row.close * (1 - riskPad * 2.2);
-  const sl = direction === "long" ? row.close * (1 - riskPad) : row.close * (1 + riskPad);
+  const stops = computeStopAndTarget({ entry: row.close, direction, atrPct, regimeLabel, setupType: "reversion" });
   return {
     trigger: true,
     direction,
     entryPrice: row.close,
-    tp,
-    sl,
+    tp: stops.tp,
+    sl: stops.sl,
     meta: {
       reason: ["RSI extreme + Bollinger reversion"],
       regimeMatch: regimeLabel,
       volatilityScore: volScore,
       flowScore,
       setup: "reversion",
+      riskPad: stops.riskPad,
+      atrFrac: stops.atrFrac,
     },
   };
 };
@@ -140,6 +137,13 @@ export const computeConfidenceFromBacktest = ({ setupWinrate, regimeWinrate, vol
   return clamp01(conf);
 };
 
+export const computeEdgeScore = ({ technical, fundamental, liquidity }) => {
+  const tech = clamp01(technical ?? 0.5);
+  const fund = clamp01(fundamental ?? 0.5);
+  const liq = clamp01(liquidity ?? 0.5);
+  return clamp01(0.5 * tech + 0.35 * fund + 0.15 * liq);
+};
+
 export const isUltraSignal = ({ setupWinrate, regimeWinrate, volatilityScore, flowScore, atrPct, socialBias }) => {
   const socialOk = socialBias === undefined || Math.abs(socialBias) >= 0.7 ? true : false;
   return (
@@ -155,3 +159,4 @@ export const isUltraSignal = ({ setupWinrate, regimeWinrate, volatilityScore, fl
 // Vision AI Mind – Crypto Risk Engine
 // (c) Vision AI – All rights reserved.
 // Do not remove this header.
+import { computeStopAndTarget } from "./riskEngine.js";

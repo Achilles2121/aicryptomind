@@ -64,8 +64,16 @@ export const fetchUserTier = async (uid) => {
     return { ...baseResponse, error };
   }
   try {
-    const snap = await getDoc(doc(db, "userTiers", uid));
-    const data = snap.exists() ? snap.data() : {};
+    const ref = doc(db, "userTiers", uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      const now = Date.now();
+      const payload = { tier: "elite_trial", trialStart: now, trialEndsAt: now + TRIAL_WINDOW_MS, trialUsed: true };
+      await setDoc(ref, payload, { merge: true });
+      setCachedUserTier("elite");
+      return { ...payload, source: "firebase" };
+    }
+    const data = snap.data() || {};
     const tier = data?.tier || "basic";
     const trialStart = data?.trialStart || null;
     const trialEndsAt = data?.trialEndsAt || (trialStart ? Number(trialStart) + TRIAL_WINDOW_MS : null);

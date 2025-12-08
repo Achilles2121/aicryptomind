@@ -1,5 +1,8 @@
 // Signal builders extracted from the legacy App.jsx logic.
 
+import { computeStopAndTarget, computeDailyRiskGate, clampConfidence } from "./riskEngine.js";
+import { buildFundamentalSnapshot, computeFundamentalScore } from "./fundamentals";
+
 const defaultT = (key) => key;
 
 export const buildAISignal = ({ indicatorSeries = [], indicators = {}, displayPrice, takeProfitPrice, stopLossPrice }) => {
@@ -18,29 +21,32 @@ export const buildAISignal = ({ indicatorSeries = [], indicators = {}, displayPr
   let confidence = 0.55;
   let tp = takeProfitPrice;
   let sl = stopLossPrice;
+  const atrPct = Number.isFinite(last?.atrPct) ? last.atrPct : null;
   if (rsi !== null && rsi < 30 && macdDiff !== null && macdDiff > 0) {
     action = "Kaufen";
     reason = "RSI < 30 und MACD bullisch";
     confidence = 0.68;
-    tp = tp || close * 1.05;
-    sl = sl || close * 0.975;
+    const stops = computeStopAndTarget({ entry: close, direction: "long", atrPct, setupType: "reversion" });
+    tp = tp || stops.tp || (close ? close * 1.05 : null);
+    sl = sl || stops.sl || (close ? close * 0.975 : null);
   } else if (rsi !== null && rsi > 70 && macdDiff !== null && macdDiff < 0) {
     action = "Verkaufen";
     reason = "RSI > 70 und MACD baerisch";
     confidence = 0.66;
-    tp = tp || close * 0.97;
-    sl = sl || close * 1.03;
+    const stops = computeStopAndTarget({ entry: close, direction: "short", atrPct, setupType: "reversion" });
+    tp = tp || stops.tp || (close ? close * 0.97 : null);
+    sl = sl || stops.sl || (close ? close * 1.03 : null);
   } else if (upper && close && close >= upper) {
     action = "Take Profit";
     reason = "Preis am oberen Band";
     confidence = 0.6;
     tp = tp || close;
-    sl = sl || close * 0.985;
+    sl = sl || (close ? close * 0.985 : null);
   } else if (lower && close && close <= lower) {
     action = "Stop Loss pruefen";
     reason = "Preis am unteren Band";
     confidence = 0.6;
-    tp = tp || close * 1.015;
+    tp = tp || (close ? close * 1.015 : null);
     sl = sl || close;
   }
   return { action, reason, confidence, tp, sl };
@@ -121,16 +127,10 @@ export const buildProSignal = ({ indicatorSeries = [], indicators = {}, smartMon
   if (flowBias < 0 && action === "long") confidence -= 0.05;
   if (flowBias > 0 && action === "short") confidence -= 0.05;
 
-  if (action !== "wait" && atrPct && close) {
-    const atrFrac = Math.min(atrPct / 100, 0.02);
-    const riskPad = setup === "breakout" ? atrFrac * 0.6 : atrFrac * 0.5;
-    if (action === "long") {
-      sl = close * (1 - riskPad);
-      tp = close * (1 + riskPad * 2.2);
-    } else {
-      sl = close * (1 + riskPad);
-      tp = close * (1 - riskPad * 2.2);
-    }
+  if (action !== "wait" && close) {
+    const stops = computeStopAndTarget({ entry: close, direction: action === "long" ? "long" : "short", atrPct, setupType: setup });
+    sl = sl || stops.sl || null;
+    tp = tp || stops.tp || null;
   }
 
   const scoreParts = [trendBias, momentum, flowBias, volQuality].map((v) => (Number.isFinite(v) ? v : 0));
@@ -226,24 +226,16 @@ export const buildBacktestSignals = (indicatorSeries = []) => {
 
     if (!direction || !row.close) continue;
 
-    const atrFrac = atrPct ? Math.min(atrPct / 100, 0.02) : 0.01;
-    const riskPad = (setup === "breakout" ? atrFrac * 0.6 : atrFrac * 0.5) || 0.005;
-    let tp = null;
-    let sl = null;
-    if (direction === "long") {
-      sl = row.close * (1 - riskPad);
-      tp = row.close * (1 + riskPad * 2.2);
-    } else {
-      sl = row.close * (1 + riskPad);
-      tp = row.close * (1 - riskPad * 2.2);
-    }
+    const stops = computeStopAndTarget({ entry: row.close, direction, atrPct, regimeLabel: inferRegime(row), setupType: setup });
+    const tp = stops.tp ?? null;
+    const sl = stops.sl ?? null;
     signals.push({
       index: i,
       direction,
       entryPrice: row.close,
       tp,
       sl,
-      meta: { setup, atrPct, riskPad, regime: inferRegime(row) },
+      meta: { setup, atrPct, riskPad: stops.riskPad, regime: inferRegime(row) },
     });
   }
   return signals;
@@ -257,6 +249,7 @@ import {
   isUltraSignal,
   computeVolatilityScore,
   computeFlowScore,
+  computeEdgeScore,
 } from "./strategyEngineV3";
 
 const deriveSetupWinrate = (backtestStats, setup) => {
@@ -280,16 +273,28 @@ const normalizeSocial = (sentimentMetrics) => {
   return Math.max(-1, Math.min(1, (score - 50) / 50));
 };
 
-export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney, sentimentMetrics, backtestStats, htfRegime, derivativesRisk }) => {
+export const buildSignalsV3 = ({
+  indicatorSeries = [],
+  marketRegime,
+  smartMoney,
+  sentimentMetrics,
+  backtestStats,
+  htfRegime,
+  derivativesRisk,
+  riskContext,
+}) => {
   if (!indicatorSeries.length) {
     return { action: "wait", reason: "no data", confidence: 0.5, tp: null, sl: null, meta: {} };
   }
   const last = indicatorSeries.at(-1);
   const regimeLabel = marketRegime?.label;
   const htfLabel = htfRegime?.label || regimeLabel;
+  const htfHealthy = Boolean(htfRegime?.label);
   const socialBias = normalizeSocial(sentimentMetrics);
   const flowScore = computeFlowScore(smartMoney);
   const volatilityScore = computeVolatilityScore(last.atrPct);
+  const fundamentalSnapshot = buildFundamentalSnapshot(last, derivativesRisk);
+  const fundamentalScore = computeFundamentalScore(fundamentalSnapshot);
 
   const meta = {
     regimeLabel,
@@ -302,6 +307,10 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
   const breakout = evaluateBreakoutSetup(last, meta);
   const reversion = evaluateReversionSetup(last, meta);
   let candidates = [trend, breakout, reversion].filter((c) => c.trigger);
+
+  if (!htfHealthy) {
+    candidates = candidates.filter((c) => c.meta?.setup === "reversion");
+  }
 
   if (socialBias > 0.7) {
     candidates = candidates.filter((c) => c.direction !== "short");
@@ -319,12 +328,34 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
   });
 
   if (!candidates.length) {
-    return { action: "wait", reason: "neutral", confidence: 0.5, tp: null, sl: null, meta: { regimeLabel } };
+    return {
+      action: "wait",
+      reason: htfHealthy ? "neutral" : "HTF data missing",
+      confidence: htfHealthy ? 0.5 : 0.45,
+      tp: null,
+      sl: null,
+      meta: { regimeLabel, htfHealthy, derivativesRisk },
+    };
+  }
+
+  const dailyGate = computeDailyRiskGate({ dayPnlPct: riskContext?.dayPnlPct, trades: riskContext?.dayTrades });
+  if (!dailyGate.allowed) {
+    return {
+      action: "wait",
+      reason: "Daily risk limit reached",
+      confidence: 0.45,
+      tp: null,
+      sl: null,
+      meta: { regimeLabel, derivativesRisk, dailyGate },
+    };
   }
 
   let best = candidates[0];
   let bestConfidence = 0;
   for (const c of candidates) {
+    if (derivativesRisk?.riskLevel === "hot" && (c.meta?.setup === "trend" || c.meta?.setup === "breakout")) {
+      continue;
+    }
     const setupWinrate = deriveSetupWinrate(backtestStats, c.meta?.setup);
     const regimeWinrate = deriveRegimeWinrate(backtestStats, regimeLabel);
     let confidence = computeConfidenceFromBacktest({
@@ -333,9 +364,14 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
       volatilityScore: c.meta?.volatilityScore ?? volatilityScore,
       flowScore: c.meta?.flowScore ?? flowScore,
     });
-    if (derivativesRisk?.riskLevel === "hot") confidence *= 0.85;
+    if (derivativesRisk?.riskLevel === "hot") confidence = Math.min(confidence, 0.55);
     if (derivativesRisk?.riskLevel === "cool") confidence *= 1.05;
-    confidence = Math.min(0.99, Math.max(0, confidence));
+    const edgeScore = computeEdgeScore({
+      technical: confidence,
+      fundamental: fundamentalScore,
+      liquidity: fundamentalSnapshot.liquidityScore,
+    });
+    confidence = clampConfidence(0.6 * confidence + 0.4 * edgeScore, derivativesRisk?.riskLevel === "cool" ? 0.95 : 0.9);
     const ultra = isUltraSignal({
       setupWinrate,
       regimeWinrate,
@@ -344,11 +380,29 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
       atrPct: last.atrPct,
       socialBias,
     });
-    const enriched = { ...c, confidence, ultra, setupWinrate, regimeWinrate, meta: { ...c.meta, derivativesRisk } };
+    const enriched = {
+      ...c,
+      confidence,
+      ultra,
+      setupWinrate,
+      regimeWinrate,
+      meta: { ...c.meta, derivativesRisk, fundamentalScore, fundamentalSnapshot, edgeScore, htfHealthy },
+    };
     if (confidence > bestConfidence) {
       bestConfidence = confidence;
       best = enriched;
     }
+  }
+
+  if (!best || !best.direction) {
+    return {
+      action: "wait",
+      reason: derivativesRisk?.riskLevel === "hot" ? "Derivatives risk hot" : "no candidate",
+      confidence: 0.45,
+      tp: null,
+      sl: null,
+      meta: { derivativesRisk, regimeLabel, htfHealthy, fundamentalScore },
+    };
   }
 
   return {
@@ -367,6 +421,7 @@ export const buildSignalsV3 = ({ indicatorSeries = [], marketRegime, smartMoney,
       ...best.meta,
       setupWinrate: best.setupWinrate,
       regimeWinrate: best.regimeWinrate,
+      dailyGate,
     },
   };
 };
