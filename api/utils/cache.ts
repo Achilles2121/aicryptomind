@@ -1,26 +1,39 @@
 type CacheEntry<T> = { value: T; expires: number };
 
+/**
+ * Schlanker In-Memory-Cache mit TTL und defensivem Verhalten.
+ * Wird als Singleton an globalThis gehängt, damit Vercel-Dev/Hot-Reload
+ * nicht bei jeder Ausführung einen neuen Cache erzeugt.
+ */
 class MemoryCache {
   private store: Map<string, CacheEntry<unknown>>;
-  private ttlMs: number;
+  private readonly ttlMs: number;
 
-  constructor(ttlMs = 500) {
+  constructor(ttlMs = 30_000) {
     this.ttlMs = ttlMs;
     this.store = new Map();
   }
 
   get<T>(key: string): T | undefined {
-    const entry = this.store.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expires) {
-      this.store.delete(key);
+    try {
+      const entry = this.store.get(key);
+      if (!entry) return undefined;
+      if (Date.now() > entry.expires) {
+        this.store.delete(key);
+        return undefined;
+      }
+      return entry.value as T;
+    } catch {
       return undefined;
     }
-    return entry.value as T;
   }
 
   set<T>(key: string, value: T): T {
-    this.store.set(key, { value, expires: Date.now() + this.ttlMs });
+    try {
+      this.store.set(key, { value, expires: Date.now() + this.ttlMs });
+    } catch {
+      // bei Fehler Cache ignorieren
+    }
     return value;
   }
 
@@ -33,7 +46,8 @@ class MemoryCache {
   }
 }
 
-export const cache = new MemoryCache(500);
+const globalAny = globalThis as typeof globalThis & { __VAI_CACHE__?: MemoryCache };
 
-export const cacheKey = (...parts: (string | number | undefined)[]) =>
-  parts.filter(Boolean).join(":");
+export const cache: MemoryCache = globalAny.__VAI_CACHE__ ?? (globalAny.__VAI_CACHE__ = new MemoryCache());
+
+export const cacheKey = (...parts: (string | number | undefined)[]) => parts.filter(Boolean).join(":");
