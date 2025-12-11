@@ -3,6 +3,8 @@ import { getCachedUserTier } from "../firebase";
 import { apiUrl } from "../lib/http";
 import type { ApiHealthStatus } from "../lib/safeFetch";
 import { computeDerivativesComposite } from "../lib/derivativesRisk.js";
+import { getActiveProviders } from "../config/dataSources";
+import { fetchDerivativesFromProvider, type StandardizedDerivatives } from "./providers/openProviders";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
 type LogCb = (source: string, level: "info" | "warn" | "error", message?: string, meta?: Record<string, unknown>) => void;
@@ -10,11 +12,32 @@ type ToastCb = (message: string, type?: "warn" | "error" | "info") => void;
 
 const DEFAULT_SYMBOL = "DERIBIT_PERPETUAL_BTC_USD";
 
+const fetchFromOpenProviders = async (
+  symbolId: string,
+  onHealthUpdate?: HealthCb,
+  onLog?: LogCb
+): Promise<StandardizedDerivatives | null> => {
+  const providers = getActiveProviders("derivatives");
+  for (const provider of providers) {
+    try {
+      const res = await fetchDerivativesFromProvider(provider, symbolId);
+      if (res) {
+        onHealthUpdate?.(provider.id, "ok");
+        return res;
+      }
+    } catch (err: any) {
+      onHealthUpdate?.(provider.id, "warn", err?.message || "derivatives provider failed");
+      onLog?.(provider.id, "warn", err?.message || "derivatives provider failed");
+    }
+  }
+  return null;
+};
+
 export const fetchDerivativesLive = async (
   symbolId: string = DEFAULT_SYMBOL,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  onToast?: ToastCb
+  _onToast?: ToastCb
 ) => {
   const tier = getCachedUserTier();
   if (tier !== "pro" && tier !== "elite") {
@@ -41,7 +64,7 @@ export const fetchDerivativesLive = async (
       retries: 1,
       onHealthUpdate,
       onLog,
-      onToast,
+      uiLevel: "status",
     });
     const fundingSeries =
       res?.data?.funding?.map((r) => ({ time: r.time, value: Number(r.value ?? 0) })).filter((r) => Number.isFinite(r.value)) || [];
@@ -66,6 +89,20 @@ export const fetchDerivativesLive = async (
       updatedAt: Date.now(),
     };
   } catch (err: any) {
+    const fallback = await fetchFromOpenProviders(symbolId, onHealthUpdate, onLog);
+    if (fallback) {
+      onHealthUpdate?.("DERIVATIVES_PRIMARY", "ok");
+      return {
+        fundingSeries: fallback.fundingSeries,
+        oiSeries: fallback.oiSeries,
+        fundingZ: fallback.fundingZ,
+        oiZ: fallback.oiZ,
+        composite: fallback.composite,
+        score: fallback.score,
+        riskLevel: fallback.riskLevel,
+        updatedAt: Date.now(),
+      };
+    }
     onHealthUpdate?.("DERIVATIVES_PRIMARY", "error", err?.message || "derivatives fetch failed");
     onLog?.("DERIVATIVES_PRIMARY", "error", err?.message || "derivatives fetch failed");
     return {

@@ -8,7 +8,10 @@ import {
 
 import type { ToastFn, ToastType } from "./toast";
 export type { ToastFn, ToastType } from "./toast";
-export type ApiHealthStatus = "ok" | "warn" | "error" | "disabled";
+export type ApiHealthStatus = "ok" | "warn" | "error" | "degraded" | "disabled";
+
+// allow use in browser/edge without Node globals
+declare const process: { env?: Record<string, string | undefined> } | undefined;
 export type ApiHealthUpdateFn = (service: string, status: ApiHealthStatus, message?: string) => void;
 
 export type SourceHealthEntry = {
@@ -65,6 +68,7 @@ export type SafeFetchOptions = RequestInit & {
   onLog?: (source: string, level: ToastType, message?: string, meta?: Record<string, unknown>) => void;
   onToast?: ToastFn;
   serviceName?: string;
+  uiLevel?: "silent" | "status" | "toast";
 };
 
 export class AppError extends Error {
@@ -110,6 +114,19 @@ const isCorsError = (err: Error) => {
   return msg.includes("failed to fetch") || msg.includes("network request failed") || msg.includes("cors");
 };
 
+const hasMissingKeys = (sourceKey: DataSourceKey | null) => {
+  if (!sourceKey) return [];
+  const cfg = dataSources[sourceKey];
+  if (!cfg?.premium || !cfg.requiredKeys?.length) return [];
+  const missing = cfg.requiredKeys.filter((key) => {
+    const val =
+      (import.meta as any)?.env?.[key] ??
+      (typeof process !== "undefined" && process?.env ? (process as any)?.env?.[key] : undefined);
+    return !val;
+  });
+  return missing;
+};
+
 const buildDisabledError = (source: DataSourceKey) => {
   const err = new AppError(`${source} disabled`, 503, source);
   (err as AppError & { code?: string }).code = DISABLED_SOURCE_CODE;
@@ -125,7 +142,7 @@ const normalizeError = (error: AppError & { code?: string }, isFinalAttempt: boo
   }
   const statusCode = error?.status ?? (error as any)?.statusCode;
   if (statusCode === 401 || statusCode === 403) {
-    return { status: "warn", message: `HTTP ${statusCode}`, code: `HTTP_${statusCode}` };
+    return { status: "degraded", message: `HTTP ${statusCode} (auth/key)`, code: `HTTP_${statusCode}` };
   }
   if (error?.name === "AbortError") {
     return { status: isFinalAttempt ? "error" : "warn", message: "timeout", code: "TIMEOUT" };
@@ -157,20 +174,22 @@ type FailureContext = {
   onHealthUpdate?: SafeFetchOptions["onHealthUpdate"];
   onLog?: SafeFetchOptions["onLog"];
   onToast?: SafeFetchOptions["onToast"];
+  uiLevel: SafeFetchOptions["uiLevel"];
 };
 
 const handleFailure = async (
   error: AppError & { code?: string },
   ctx: FailureContext
 ): Promise<boolean> => {
-  const { attempt, retries, retryDelayMs, sourceKey, serviceName, onHealthUpdate, onLog, onToast } = ctx;
+  const { attempt, retries, retryDelayMs, sourceKey, serviceName, onHealthUpdate, onLog, onToast, uiLevel } = ctx;
   const isFinalAttempt = attempt >= retries;
   const normalized = normalizeError(error, isFinalAttempt);
   if (sourceKey) emitHealth(sourceKey, normalized.status as DataSourceStatus, normalized.message, normalized.code);
   if (serviceName && onHealthUpdate) onHealthUpdate(serviceName, normalized.status, normalized.message);
   const logLevel = normalized.status === "error" ? "error" : "warn";
   if (onLog) onLog(serviceName || sourceKey || "fetch", logLevel, normalized.message, { attempt, code: normalized.code });
-  if (normalized.status === "error" && onToast && isFinalAttempt) {
+  const shouldToast = uiLevel === "toast";
+  if (normalized.status === "error" && onToast && isFinalAttempt && shouldToast) {
     onToast(`${serviceName || sourceKey || "service"}: ${normalized.message}`, "error");
   }
   const disabled = normalized.status === "disabled" || normalized.code === DISABLED_SOURCE_CODE;
@@ -201,12 +220,19 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
     onLog,
     onToast,
     serviceName,
+    uiLevel = "status",
     ...rest
   } = init;
 
   let lastErr: Error | null = null;
   const sourceKey = resolveSourceKey(serviceName, input);
   ensureSourceEnabled(sourceKey, serviceName, onHealthUpdate);
+  const missingKeys = hasMissingKeys(sourceKey);
+  if (missingKeys.length && sourceKey) {
+    const msg = `API key missing (${missingKeys.join(", ")})`;
+    emitHealth(sourceKey, "degraded", msg, "MISSING_KEY");
+    onHealthUpdate?.(serviceName || sourceKey, "degraded", msg);
+  }
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const controller = new AbortController();
@@ -229,6 +255,7 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
         onHealthUpdate,
         onLog,
         onToast,
+        uiLevel,
       });
       if (!shouldRetry) break;
     }

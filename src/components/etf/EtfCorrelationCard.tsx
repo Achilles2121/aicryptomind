@@ -28,6 +28,7 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
+  const [isDisabled, setIsDisabled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,20 +37,22 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
       setData(res.data || []);
       setLastUpdated(res.lastUpdated);
       setCorrelationCache(res.data || [], res.lastUpdated);
-      setError(res.error || !res.data?.length ? "ETF-Korrelationen aktuell nicht verfügbar." : "");
+      setError(res.error || ((!res.data?.length && !isDisabled) ? "ETF-Korrelationen aktuell nicht verfügbar." : ""));
+      setIsDisabled(res.status === "disabled");
     } catch (err) {
       console.error("etf correlation fetch failed", err);
       setError("ETF-Korrelationen aktuell nicht verfügbar.");
     } finally {
       setLoading(false);
     }
-  }, [onHealthUpdate, onToast]);
+  }, [onHealthUpdate, onToast, isDisabled]);
 
   useEffect(() => {
     load();
+    if (isDisabled) return undefined;
     const timer = setInterval(load, 10 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, isDisabled]);
 
   const assets = ["BTC", "ETH", "^GSPC", "XAU"];
   const etfs = ["IBIT", "FBTC", "ARKB", "BITB", "HODL"];

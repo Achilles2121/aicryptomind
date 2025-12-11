@@ -15,18 +15,52 @@ type Res = {
 };
 
 type Candle = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+  provider?: string;
+  time?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  volume?: number;
 };
 
 const symbolToId: Record<string, string> = {
   BTCUSDT: "bitcoin",
   ETHUSDT: "ethereum",
   SOLUSDT: "solana",
+};
+
+const isAbortError = (error: unknown) => {
+  const message = (error as Error)?.message?.toLowerCase?.() || "";
+  return (error as Error)?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
+};
+
+const normalizeError = (source: string, error: unknown) => {
+  const message = (error as Error)?.message || "Provider failed";
+  const statusCode = isAbortError(error) ? 504 : 502;
+  return {
+    source,
+    message,
+    statusCode,
+    hint: statusCode === 504 ? "Upstream timeout/abort detected" : "Upstream provider unavailable",
+  };
+};
+
+const mapInterval = (value: string | number | undefined) => {
+  const minutes = Number.isFinite(Number(value)) ? Number(value) : 60;
+  if (minutes >= 1440) return { minutes: 1440, binance: "1d", kraken: 1440 };
+  if (minutes >= 240) return { minutes: 240, binance: "4h", kraken: 240 };
+  if (minutes >= 120) return { minutes: 120, binance: "2h", kraken: 60 };
+  if (minutes >= 60) return { minutes: 60, binance: "1h", kraken: 60 };
+  if (minutes >= 30) return { minutes: 30, binance: "30m", kraken: 30 };
+  if (minutes >= 15) return { minutes: 15, binance: "15m", kraken: 15 };
+  return { minutes: 5, binance: "5m", kraken: 5 };
 };
 
 const send = (res: Res, status: number, body: unknown) => {
@@ -50,6 +84,12 @@ const generateFakeSeries = (limit: number, base = 60_000) => {
     const high = Math.max(open, close) + 40;
     const low = Math.min(open, close) - 40;
     candles.push({
+      t,
+      o: Number(open.toFixed(2)),
+      h: Number(high.toFixed(2)),
+      l: Number(low.toFixed(2)),
+      c: Number(close.toFixed(2)),
+      v: Number((Math.abs(Math.sin(i)) * 1200 + 300).toFixed(2)),
       time: t,
       open: Number(open.toFixed(2)),
       high: Number(high.toFixed(2)),
@@ -69,19 +109,27 @@ async function fetchBinance(symbol: string, interval: string, limit: number) {
     attempts: 2,
   });
   return data.map((row) => ({
+    t: Number(row[0]),
+    o: Number(row[1]),
+    h: Number(row[2]),
+    l: Number(row[3]),
+    c: Number(row[4]),
+    v: Number(row[5]),
     time: Number(row[0]),
     open: Number(row[1]),
     high: Number(row[2]),
     low: Number(row[3]),
     close: Number(row[4]),
     volume: Number(row[5]),
+    provider: "binance",
   }));
 }
 
 async function fetchKraken(symbol: string, interval: string, limit: number) {
   const pair = symbol.replace("/", "").toUpperCase();
   const mapped = pair === "BTCUSDT" ? "XBTUSDT" : pair;
-  const url = `https://api.kraken.com/0/public/OHLC?pair=${mapped}&interval=${interval === "1h" ? 60 : 15}`;
+  const intervalMinutes = mapInterval(interval).kraken;
+  const url = `https://api.kraken.com/0/public/OHLC?pair=${mapped}&interval=${intervalMinutes}`;
   const data = await safeFetchJson<{ result: Record<string, (number | string)[]> }>(
     url,
     undefined,
@@ -91,12 +139,19 @@ async function fetchKraken(symbol: string, interval: string, limit: number) {
   if (!Array.isArray(first)) throw new Error("No Kraken OHLC");
   const sliced = (first as unknown as (number | string)[][]).slice(-limit);
   return sliced.map((row) => ({
+    t: Number(row[0]) * 1000,
+    o: Number(row[1]),
+    h: Number(row[2]),
+    l: Number(row[3]),
+    c: Number(row[4]),
+    v: Number(row[6]),
     time: Number(row[0]) * 1000,
     open: Number(row[1]),
     high: Number(row[2]),
     low: Number(row[3]),
     close: Number(row[4]),
     volume: Number(row[6]),
+    provider: "kraken",
   }));
 }
 
@@ -107,69 +162,156 @@ async function fetchCoinGecko(symbol: string, limit: number) {
     timeoutMs: 3200,
     attempts: 2,
   });
-  return data.slice(-limit).map((row) => ({
-    time: Number(row[0]),
-    open: Number(row[1]),
-    high: Number(row[2]),
-    low: Number(row[3]),
-    close: Number(row[4]),
-    volume: Number(row[4]),
-  }));
+  return data.slice(-limit).map((row) => {
+    const t = Number(row[0]);
+    const o = Number(row[1]);
+    const h = Number(row[2]);
+    const l = Number(row[3]);
+    const c = Number(row[4]);
+    const v = Number(row[4]);
+    return {
+      t,
+      o,
+      h,
+      l,
+      c,
+      v,
+      time: t,
+      open: o,
+      high: h,
+      low: l,
+      close: c,
+      volume: v,
+      provider: "coingecko",
+    };
+  });
 }
 
-async function resolveOHLC(symbol: string, interval: string, limit: number) {
+async function resolveOHLC(
+  symbols: { symbol: string; krakenPair: string; binanceSymbol: string },
+  interval: string,
+  limit: number
+) {
   const providers = [
-    () => fetchBinance(symbol, interval, limit),
-    () => fetchKraken(symbol, interval, limit),
-    () => fetchCoinGecko(symbol, limit),
+    { name: "binance", exec: () => fetchBinance(symbols.binanceSymbol, interval, limit) },
+    { name: "kraken", exec: () => fetchKraken(symbols.krakenPair, interval, limit) },
+    { name: "coingecko", exec: () => fetchCoinGecko(symbols.symbol, limit) },
   ];
+  const errors: ReturnType<typeof normalizeError>[] = [];
   for (const provider of providers) {
     try {
-      const candles = await provider();
-      if (candles?.length) return candles;
-    } catch {
-      // continue
+      const candles = await provider.exec();
+      if (candles?.length) return { candles, provider: provider.name, errors };
+    } catch (err) {
+      errors.push(normalizeError(provider.name, err));
     }
   }
-  return generateFakeSeries(limit);
+  const aggregate = new Error("All OHLC providers failed");
+  (aggregate as any).errors = errors;
+  throw aggregate;
 }
 
 export default async function handler(req: Req, res: Res) {
+  const intervalValue =
+    (typeof req.query?.interval === "string" ? req.query?.interval : undefined) ?? "60";
+  const { minutes: intervalMinutes, binance: binanceInterval } = mapInterval(intervalValue);
   try {
-    const symbol =
+    const rawSymbol =
       (typeof req.query?.symbol === "string"
         ? req.query?.symbol
         : Array.isArray(req.query?.symbol)
         ? req.query?.symbol[0]
-        : undefined) ?? "BTCUSDT";
-    const interval = (typeof req.query?.interval === "string" ? req.query?.interval : "1h") ?? "1h";
+        : undefined) ??
+      (typeof req.query?.asset === "string"
+        ? req.query?.asset
+        : Array.isArray(req.query?.asset)
+        ? req.query?.asset[0]
+        : undefined) ??
+      (typeof req.query?.pair === "string"
+        ? req.query?.pair
+        : Array.isArray(req.query?.pair)
+        ? req.query?.pair[0]
+        : undefined) ??
+      "BTCUSDT";
+    const symbol = rawSymbol.toUpperCase();
+    const krakenPair =
+      (typeof req.query?.pair === "string"
+        ? req.query?.pair
+        : Array.isArray(req.query?.pair)
+        ? req.query?.pair[0]
+        : undefined) || symbol;
+    const binanceSymbol =
+      (typeof req.query?.binance === "string"
+        ? req.query?.binance
+        : Array.isArray(req.query?.binance)
+        ? req.query?.binance[0]
+        : undefined) || symbol;
     const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 60;
     const limit = Number.isFinite(limitParam) ? Math.max(20, Math.min(500, limitParam)) : 120;
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`ohlc:${rateKey}`)) {
-      return send(res, 429, { ok: false, error: "rate_limited" });
+      return send(res, 429, {
+        ok: false,
+        status: "degraded",
+        source: "ohlc",
+        statusCode: 429,
+        message: "rate limited",
+        hint: "Slow down requests",
+        data: [],
+      });
     }
 
-    const key = cacheKey("ohlc", symbol, interval, limit);
-    const cached = cache.get<{ candles: Candle[] }>(key);
+    const key = cacheKey("ohlc", symbol, binanceSymbol, krakenPair, binanceInterval, limit);
+    const cached = cache.get<{ candles: Candle[]; provider?: string; krakenPair?: string; binanceSymbol?: string }>(key);
     if (cached) {
-      return send(res, 200, { ok: true, symbol, interval, candles: cached.candles, cached: true });
+      return send(res, 200, {
+        ok: true,
+        status: "ok",
+        statusCode: 200,
+        data: { candles: cached.candles },
+        symbol,
+        interval: intervalMinutes,
+        provider: cached.provider,
+        krakenPair: cached.krakenPair,
+        binanceSymbol: cached.binanceSymbol,
+        cached: true,
+      });
     }
 
-    const candles = await resolveOHLC(symbol, interval, limit);
-    const payload = { candles };
+    const { candles, provider, errors } = await resolveOHLC(
+      { symbol, krakenPair, binanceSymbol },
+      binanceInterval,
+      limit
+    );
+    const payload = { candles, provider, interval: intervalMinutes, krakenPair, binanceSymbol };
     cache.set(key, payload);
-    return send(res, 200, { ok: true, symbol, interval, ...payload, cached: false });
-  } catch (error) {
     return send(res, 200, {
       ok: true,
-      symbol: "BTCUSDT",
-      interval: "1h",
-      candles: generateFakeSeries(60),
-      cached: true,
-      note: "auto-recovered",
-      error: (error as Error)?.message,
+      status: "ok",
+      statusCode: 200,
+      source: "ohlc",
+      data: { candles },
+      symbol,
+      interval: intervalMinutes,
+      provider,
+      cached: false,
+      errors,
+    });
+  } catch (error) {
+    const errors: ReturnType<typeof normalizeError>[] = (error as any)?.errors || [];
+    const primary = errors[0] ?? normalizeError("ohlc", error);
+    const statusCode = primary.statusCode || 502;
+    const fallback = generateFakeSeries(60).map((c) => ({ ...c, provider: "fallback" }));
+    return send(res, statusCode, {
+      ok: false,
+      status: statusCode === 503 ? "disabled" : "degraded",
+      source: "ohlc",
+      statusCode,
+      message: primary.message || "OHLC feed unavailable",
+      hint: primary.hint || "Serving synthetic fallback candles",
+      data: { candles: fallback },
+      errors,
     });
   }
 }

@@ -31,13 +31,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { auth, login as fbLogin, signup as fbSignup, logout as fbLogout, saveUserTier, startUserTrial } from "./firebase";
+import { auth, login as fbLogin, signup as fbSignup, logout as fbLogout, saveUserTier } from "./firebase";
 import { useUserTier } from "./context/UserTierContext";
 import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import { dataSources } from "./config/dataSources";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
+import { useEliteTrial } from "./hooks/useEliteTrial";
 import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
 const EtfHoldingsCard = lazy(() => import("./components/etf/EtfHoldingsCard"));
 const EtfProviderQualityCard = lazy(() => import("./components/etf/EtfProviderQualityCard"));
@@ -70,6 +71,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const POLL_INTERVAL = 30 * 1000; // 30 seconds
 const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const ASSETS = [
   { id: "bitcoin", label: "BTC / USD", binance: "btcusdt", kraken: "XXBTZUSD", cc: "BTC" },
@@ -840,16 +842,12 @@ function App() {
   const isDevBuild = import.meta.env?.DEV ?? false;
   const {
     user: authUser,
-    effectiveTier,
-    isTrialActive,
-    trialStart,
-    trialEndsAt,
-    trialExpired,
-    trialRemainingDays,
-    trialRemainingMs,
+    effectiveTier: ctxTier,
     loading: tierLoading,
     refreshUserTier,
   } = useUserTier();
+  const { isTrialActive, trialExpiresAt, remainingMs, remainingFormatted, startedAt: localTrialStart } = useEliteTrial();
+  const effectiveTier = isTrialActive && ctxTier !== "elite" ? "elite" : ctxTier;
   const [asset, setAsset] = useState(ASSETS[0]);
   const [priceState, setPriceState] = useState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
   const [fearGreed, setFearGreed] = useState(null);
@@ -896,6 +894,10 @@ function App() {
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
   const [mobileTab, setMobileTab] = useState("overview");
+  const trialRemainingDays = Math.max(0, Math.floor(remainingMs / DAY_MS));
+  const trialEnd = trialExpiresAt ? trialExpiresAt.toLocaleDateString() : null;
+  const trialStart = localTrialStart;
+  const trialExpired = !isTrialActive && Boolean(trialStart);
   const [apiHealth, setApiHealth] = useState({
     coingecko: { status: "ok", ts: Date.now() },
     cryptocompare: { status: "ok", ts: Date.now() },
@@ -935,13 +937,9 @@ function App() {
   const [blink, setBlink] = useState(true);
   const trialActive = Boolean(isTrialActive);
   const hasProAccess = useMemo(() => TIER_ORDER.indexOf(effectiveTier) >= TIER_ORDER.indexOf("pro"), [effectiveTier]);
-  const trialEnd = useMemo(() => {
-    if (!trialEndsAt) return null;
-    return new Date(trialEndsAt).toLocaleDateString();
-  }, [trialEndsAt]);
   const trialBadgeText = useMemo(() => {
     if (!trialActive) return null;
-    const remainingHours = Number.isFinite(trialRemainingMs) ? Math.floor((trialRemainingMs / (1000 * 60 * 60)) % 24) : 0;
+    const remainingHours = Number.isFinite(remainingMs) ? Math.floor((remainingMs / (1000 * 60 * 60)) % 24) : 0;
     const daysSuffix =
       Number.isFinite(trialRemainingDays) && trialRemainingDays >= 0
         ? lang === "de"
@@ -952,7 +950,7 @@ function App() {
     return lang === "de"
       ? `7-Tage-Test aktiv${daysSuffix}${endSuffix ? `.${endSuffix}` : ""}`
       : `7-day trial active${daysSuffix}${endSuffix ? `. ${endSuffix}` : ""}`;
-  }, [trialActive, trialRemainingDays, trialRemainingMs, trialEnd, lang]);
+  }, [trialActive, trialRemainingDays, remainingMs, trialEnd, lang]);
 
   const tierLabels = useMemo(
     () => ({
@@ -975,15 +973,18 @@ function App() {
     }
   };
 
-  const addToast = (message, type = "error") => {
+  const addToast = (message, type = "error", opts = {}) => {
+    const { allowInfoWarn = false } = opts;
+    if (type !== "error" && !allowInfoWarn) return;
     const now = Date.now();
-    const key = `${type}:${message}`;
+    const { key: customKey, cooldownMs = 20000 } = opts;
+    const key = customKey || `${type}:${message}`;
     const last = toastRecent.current.get(key);
-    if (last && now - last < 12000) return;
+    if (last && now - last < cooldownMs) return;
     toastRecent.current.set(key, now);
     const id = `${now}-${Math.random().toString(16).slice(2)}`;
     setToasts((prev) => {
-      const next = [{ id, message, type }, ...prev];
+      const next = [{ id, message, type, key }, ...prev.filter((t) => t.key !== key)];
       return next.slice(0, 3);
     });
     toastTimers.current[id] = setTimeout(() => removeToast(id), 5200);
@@ -1014,8 +1015,11 @@ function App() {
       else console.log("[log]", payload);
     }
     const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
-    if (!isEtfService && (level === "error" || level === "warn")) {
-      addToast(`${source}: ${message || level}`, level === "warn" ? "warn" : "error");
+    if (!isEtfService && level === "error") {
+      addToast(`${source}: ${message || level}`, "error", {
+        key: source || message,
+        cooldownMs: 30000,
+      });
     }
   };
 
@@ -1045,7 +1049,7 @@ function App() {
       reconcileEtfAggregator();
       const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
       if ((prevStatus === "error" || prevStatus === "degraded" || prevStatus === "fallback") && status === "ok") {
-        if (!isEtfService) addToast(`${source} wiederhergestellt`, "info");
+        if (!isEtfService) addToast(`${source} wiederhergestellt`, "info", { allowInfoWarn: true });
       } else if (status === "error" || status === "degraded" || status === "fallback") {
         logEvent(source, status === "error" ? "error" : "warn", message || "API issue");
       }
@@ -1111,7 +1115,7 @@ function App() {
       retries: 0,
       onHealthUpdate: updateApiHealth,
       onLog: logEvent,
-      onToast: addToast,
+      uiLevel: "status",
     });
     relayProxyHealth(response?.health);
     if (response?.error) throw new Error(response.error);
@@ -1683,48 +1687,14 @@ function App() {
   };
 
   const handleStartTrial = async () => {
-    if (!authUser) {
-      addToast(lang === "de" ? "Bitte logge dich ein, um die Testversion zu starten." : "Please log in to start your trial.", "warn");
-      setHighlightAuthCard(true);
-      focusAuthSection();
-      return;
-    }
-    if (trialActive) {
-      addToast(lang === "de" ? "Testversion bereits aktiv." : "Trial already active.", "info");
-      return;
-    }
-    if (trialStart) {
-      addToast(lang === "de" ? "Die Testversion wurde bereits genutzt." : "Trial already used.", "warn");
-      return;
-    }
-    setIsStartingTrial(true);
-    try {
-      const result = await startUserTrial(authUser.uid);
-      if (!result?.ok) {
-        const message =
-          lang === "de"
-            ? result?.reason === "TRIAL_ALREADY_USED"
-              ? "Testversion wurde bereits genutzt."
-              : "Trial konnte nicht gestartet werden."
-            : result?.reason === "TRIAL_ALREADY_USED"
-            ? "Trial already used."
-            : "Could not start trial.";
-        addToast(message, result?.reason === "TRIAL_ALREADY_USED" ? "info" : "error");
-        return;
-      }
-      addToast(lang === "de" ? "7-Tage-Testversion aktiviert." : "7-day trial activated.", "info");
-      await refreshUserTier();
-    } catch (err) {
-      console.error("start trial failed", err);
-      addToast(lang === "de" ? "Trial konnte nicht gestartet werden." : "Failed to start trial.", "error");
-    } finally {
-      setIsStartingTrial(false);
-    }
+    addToast(lang === "de" ? "Elite-Test läuft automatisch für 7 Tage." : "Elite trial runs automatically for 7 days.", "info", {
+      allowInfoWarn: true,
+    });
   };
 
   const persistTier = async (tier) => {
     if (!auth || !auth.currentUser) {
-      addToast(lang === "de" ? "Login nötig, um den Plan zu ändern." : "Login required to change plan.", "warn");
+      addToast(lang === "de" ? "Login nötig, um den Plan zu ändern." : "Login required to change plan.", "warn", { allowInfoWarn: true });
       return;
     }
     try {
@@ -1911,8 +1881,10 @@ function App() {
   }, [indicatorSeries]);
 
   useEffect(() => {
-    if (!indicatorSeries.length) return;
-    const closes = indicatorSeries.map((c) => c.close).filter((v) => Number.isFinite(v));
+    const predictorSeries =
+      asset?.id === "bitcoin" && htfOhlcv?.h4?.length ? htfOhlcv.h4 : indicatorSeries;
+    if (!predictorSeries.length) return;
+    const closes = predictorSeries.map((c) => c.close).filter((v) => Number.isFinite(v));
     if (!closes.length) return;
     const lastClose = closes[closes.length - 1];
     const base = closes[Math.max(0, closes.length - 12)];
@@ -1925,7 +1897,7 @@ function App() {
       trend: drift >= 0 ? "bullish" : "bearish",
       refreshedAt: Date.now(),
     });
-  }, [indicatorSeries]);
+  }, [indicatorSeries, htfOhlcv, asset?.id]);
 
   useEffect(() => {
     if (!indicatorSeries.length) return;
@@ -2017,6 +1989,7 @@ function App() {
     if (status === "ok") return "text-emerald-300";
     if (status === "error") return "text-red-300";
     if (status === "disabled") return "text-slate-400";
+    if (status === "degraded") return "text-amber-300";
     return "text-amber-300";
   };
 
@@ -2030,6 +2003,8 @@ function App() {
         return "CORS";
       case "disabled":
         return "Disabled";
+      case "degraded":
+        return "Degraded";
       default:
         return "Warn";
     }
@@ -2046,6 +2021,9 @@ function App() {
           status: entry?.status || fallbackStatus,
           message: entry?.message || (cfg.enabled ? "" : "Quelle deaktiviert"),
         };
+      }).sort((a, b) => {
+        const order = { ok: 0, warn: 1, degraded: 1, fallback: 1, error: 2, cors: 2, disabled: 3 };
+        return (order[a.status] ?? 4) - (order[b.status] ?? 4);
       }),
     [sourceHealth]
   );
@@ -2294,15 +2272,47 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       setupWinrates: backtestStats?.setupWinrates,
       regimeWinrates: backtestStats?.regimeWinrates,
     };
-    return buildSignalsV3({
-      indicatorSeries,
-      marketRegime,
-      smartMoney,
-      sentimentMetrics,
-      backtestStats: enrichedBacktest,
-      htfRegime,
-      derivativesRisk,
-    });
+    const defaultSignal = {
+      action: "wait",
+      reason: lang === "de" ? "Kein klares Setup." : "Waiting for alignment.",
+      confidence: 0,
+      score: 0,
+      meta: {},
+    };
+    const baseSignal =
+      buildSignalsV3({
+        indicatorSeries,
+        marketRegime,
+        smartMoney,
+        sentimentMetrics,
+        backtestStats: enrichedBacktest,
+        htfRegime,
+        derivativesRisk,
+      }) || defaultSignal;
+    const predictorStrong = aiPredict?.trend === "bullish" && (aiPredict?.confidence ?? 0) >= 70;
+    const predictorNeutral = (aiPredict?.confidence ?? 0) < 60 || aiPredict?.trend === "neutral";
+    if (baseSignal?.action && predictorNeutral && baseSignal.action !== "wait") {
+      return {
+        ...baseSignal,
+        action: "wait",
+        reason:
+          lang === "de"
+            ? "AI Predictor (4h) neutral/geringe Sicherheit – wir warten."
+            : "AI predictor (4h) neutral/low confidence – waiting.",
+        meta: { ...(baseSignal.meta || {}), predictorAligned: false },
+      };
+    }
+    if (baseSignal?.action === "long" && predictorStrong) {
+      return {
+        ...baseSignal,
+        reason:
+          lang === "de"
+            ? `AI Predictor (4h Kraken) bullisch mit hoher Sicherheit; ${baseSignal.reason || "Setup bestätigt."}`
+            : `AI predictor (4h Kraken) bullish with solid confidence; ${baseSignal.reason || "setup confirmed."}`,
+        meta: { ...(baseSignal.meta || {}), predictorAligned: true },
+      };
+    }
+    return { ...baseSignal, meta: { ...(baseSignal.meta || {}), predictorAligned: !predictorNeutral } };
   }, [
     indicatorSeries,
     indicators.macd,
@@ -2316,6 +2326,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     backtestStats?.avgRR,
     htfRegime,
     derivativesRisk,
+    aiPredict?.trend,
+    aiPredict?.confidence,
+    lang,
   ]);
 
   // backtestStats handled via state setter to avoid duplicate declarations
@@ -2351,19 +2364,20 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   if (tierLoading) {
     return <FullScreenLoader message="Session wird geladen..." />;
   }
+  const showTrialBanner = false;
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
-      {trialActive ? (
+      {showTrialBanner && trialActive ? (
         <div className="bg-emerald-500/10 border-b border-emerald-500/40 text-emerald-100 text-sm px-4 py-2 text-center">
           7-Tage-Testversion aktiv. Läuft ab am {trialEnd || "-"}
         </div>
       ) : null}
       {toasts.length ? (
-        <div className="fixed top-4 right-4 z-50 space-y-2">
+        <div className="fixed right-3 left-3 top-16 md:left-auto md:top-4 md:right-4 z-50 space-y-2 pointer-events-none">
           {toasts.map((t) => (
             <div
               key={t.id}
-              className={`flex items-start gap-3 rounded-xl border px-3 py-2 shadow-lg ${
+              className={`pointer-events-auto flex items-start gap-3 rounded-xl border px-3 py-2 shadow-lg ${
                 t.type === "warn"
                   ? "border-amber-500/50 bg-amber-500/10 text-amber-50"
                   : t.type === "info"
@@ -2375,7 +2389,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 {t.type === "warn" ? "Warn" : t.type === "info" ? "Info" : "Error"}
               </span>
               <p className="text-sm leading-snug">{t.message}</p>
-              <button onClick={() => removeToast(t.id)} className="text-xs text-slate-200/80 hover:text-white ml-auto">
+              <button onClick={() => removeToast(t.id)} className="ml-auto text-xs text-slate-200/80 hover:text-white">
                 ×
               </button>
             </div>
@@ -2478,11 +2492,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <button
                     type="button"
                     onClick={handleStartTrial}
-                    disabled={isStartingTrial || trialActive || Boolean(trialStart)}
+                    disabled
                     className={`rounded px-2 py-1 text-[11px] font-semibold text-amber-950 transition-colors ${
-                      isStartingTrial || trialActive || trialStart
-                        ? "bg-amber-500/40 cursor-not-allowed"
-                        : "bg-amber-500/80 hover:bg-amber-400"
+                      "bg-amber-500/40 cursor-not-allowed"
                     }`}
                   >
                     {trialActive ? t("trialActive") : t("startTrial")}
@@ -4119,11 +4131,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <button
                   type="button"
                   onClick={handleStartTrial}
-                  disabled={isStartingTrial || trialActive || Boolean(trialStart)}
+                  disabled
                   className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
-                    isStartingTrial || trialActive || trialStart
-                      ? "bg-amber-500/40 cursor-not-allowed"
-                      : "bg-amber-500/80 hover:bg-amber-400"
+                    "bg-amber-500/40 cursor-not-allowed"
                   }`}
                 >
                   {trialActive ? t("trialActive") : t("startTrial")}

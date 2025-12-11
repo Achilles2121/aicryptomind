@@ -1,8 +1,17 @@
 import { fetchHistoricalMarketCap } from "../_lib/providers/fmp.js";
-import { fetchJson, jsonResponse, errorResponse } from "../_lib/http.js";
+import { fetchJson, jsonResponse } from "../_lib/http.js";
 import { createHealthTracker } from "../_lib/health.js";
 
 export const config = { runtime: "edge" };
+
+const isAbortError = (err: unknown) => {
+  const message = (err as Error)?.message?.toLowerCase?.() || "";
+  return (err as Error)?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
+};
+
+const isDisabledFlag = () => {
+  return process.env.ETF_CORRELATIONS_DISABLED === "true";
+};
 
 // FIX: Add ETF correlation proxy so the dashboard can load live correlation matrices.
 const DEFAULT_SYMBOLS = (process.env.ETF_SYMBOLS || "IBIT,FBTC,ARKB,BITB,HODL").split(",").map((s) => s.trim().toUpperCase());
@@ -104,8 +113,9 @@ export const fetchEtfSeriesSafe = async (
     tracker.set("ETF_CORR_FALLBACK", series.length ? "warn" : "error", series.length ? "fallback stooq" : "stooq empty");
     return series;
   } catch (err: any) {
-    tracker.set("ETF_CORR_FALLBACK", "error", err?.message || "fallback failed");
-    throw err;
+    const message = isAbortError(err) ? "Fetch aborted" : err?.message || "fallback failed";
+    tracker.set("ETF_CORR_FALLBACK", isAbortError(err) ? "warn" : "error", message);
+    return [];
   }
 };
 
@@ -140,17 +150,37 @@ const correlate = (lhs: SeriesPoint[], rhs: SeriesPoint[], window = 30) => {
   return pearson(aVals, bVals);
 };
 
+const normalizeError = (error: unknown) => {
+  const message = (error as Error)?.message || "ETF correlation failed";
+  const statusCode = isAbortError(error) ? 504 : 502;
+  return {
+    ok: false,
+    status: statusCode === 504 ? "timeout" : "error",
+    statusCode,
+    message,
+    hint: statusCode === 504 ? "Primary correlation fetch was aborted/timeout" : "Provider unavailable",
+    source: "etf_correlations",
+  };
+};
+
 export default async function handler(req: Request) {
   const tracker = createHealthTracker();
-  const devDisabled = process.env.NODE_ENV === "development" && process.env.ETF_CORRELATIONS_DISABLED === "true";
-  if (devDisabled) {
-    return jsonResponse({
-      status: "disabled",
-      reason: "ETF correlation disabled in local dev",
-      data: [],
-      health: tracker.toArray(),
-      generatedAt: new Date().toISOString(),
-    });
+  const devDisabled = process.env.NODE_ENV === "development" && isDisabledFlag();
+  const hardDisabled = isDisabledFlag();
+  if (devDisabled || hardDisabled) {
+    return jsonResponse(
+      {
+        ok: false,
+        status: "disabled",
+        statusCode: 503,
+        source: "etf_correlations",
+        hint: "ETF-Korrelationen sind für dieses Environment deaktiviert.",
+        data: [],
+        health: tracker.toArray(),
+        generatedAt: new Date().toISOString(),
+      },
+      { status: 503 }
+    );
   }
   try {
     const { searchParams } = new URL(req.url);
@@ -158,6 +188,7 @@ export default async function handler(req: Request) {
     const assets = ["BTC", "ETH", "^GSPC", "XAU"];
 
     const assetSeries: Record<string, SeriesPoint[]> = {};
+    let upstreamStatus: "ok" | "warn" | "error" = "ok";
 
     try {
       assetSeries.BTC = await fetchCoinGeckoSeries("bitcoin");
@@ -165,6 +196,7 @@ export default async function handler(req: Request) {
     } catch (err: any) {
       tracker.set("coingecko:btc", "warn", err?.message || "coingecko BTC failed");
       assetSeries.BTC = [];
+      upstreamStatus = "warn";
     }
 
     try {
@@ -173,6 +205,7 @@ export default async function handler(req: Request) {
     } catch (err: any) {
       tracker.set("coingecko:eth", "warn", err?.message || "coingecko ETH failed");
       assetSeries.ETH = [];
+      upstreamStatus = "warn";
     }
 
     try {
@@ -181,6 +214,7 @@ export default async function handler(req: Request) {
     } catch (err: any) {
       tracker.set("fmp:sp500", "warn", err?.message || "FMP ^GSPC failed");
       assetSeries["^GSPC"] = [];
+      upstreamStatus = "warn";
     }
 
     try {
@@ -189,6 +223,7 @@ export default async function handler(req: Request) {
     } catch (err: any) {
       tracker.set("coingecko:gold", "warn", err?.message || "gold proxy failed");
       assetSeries.XAU = [];
+      upstreamStatus = "warn";
     }
 
     const data = [];
@@ -203,25 +238,48 @@ export default async function handler(req: Request) {
           });
         }
       } catch (err: any) {
-        tracker.set("ETF_CORR_FMP", "error", err?.message || "ETF correlation failed");
+        const normalized = normalizeError(err);
+        tracker.set("ETF_CORR_FMP", "error", normalized.message || "ETF correlation failed");
+        upstreamStatus = normalized.status === "timeout" ? "warn" : "error";
         for (const asset of assets) {
           data.push({ pair: `${symbol}-${asset}`, corr7d: null, corr30d: null });
         }
       }
     }
 
-    return jsonResponse({
-      status: "ok",
+    const status: "ok" | "warn" | "degraded" = upstreamStatus === "error" ? "degraded" : upstreamStatus;
+    const responseBody = {
+      ok: upstreamStatus !== "error",
+      status,
+      statusCode: upstreamStatus === "error" ? 502 : 200,
+      source: "etf_correlations",
+      hint: upstreamStatus === "error" ? "Upstream provider unavailable, fallback used" : undefined,
       data,
       health: tracker.toArray(),
       generatedAt: new Date().toISOString(),
-    });
+    };
+    const httpStatus = upstreamStatus === "error" ? 502 : 200;
+    return jsonResponse(responseBody, { status: httpStatus });
   } catch (err: any) {
+    const normalized = normalizeError(err);
     console.error("ETF correlations failed", err);
-    tracker.set("etfCorrelations", "error", err?.message || "ETF correlations failed");
+    tracker.set(
+      "etfCorrelations",
+      normalized.status === "timeout" ? "warn" : "error",
+      normalized.message || "ETF correlations failed"
+    );
     return jsonResponse(
-      { status: "error", reason: "ETF provider unavailable", data: [], health: tracker.toArray() },
-      { status: 503 }
+      {
+        ok: false,
+        status: normalized.status === "timeout" ? "warn" : "error",
+        statusCode: normalized.statusCode,
+        reason: normalized.message,
+        hint: normalized.hint,
+        data: [],
+        health: tracker.toArray(),
+        generatedAt: new Date().toISOString(),
+      },
+      { status: normalized.statusCode }
     );
   }
 }

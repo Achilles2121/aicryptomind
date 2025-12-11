@@ -2,6 +2,8 @@ import { safeFetch } from "../lib/safeFetch";
 import { getCachedUserTier } from "../firebase";
 import type { ApiHealthStatus } from "../lib/safeFetch";
 import { apiUrl } from "../lib/http";
+import { getActiveProviders } from "../config/dataSources";
+import { fetchOhlcFromProvider, type StandardizedOhlc } from "./providers/openProviders";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
 type LogCb = (source: string, level: "info" | "warn" | "error", message?: string, meta?: Record<string, unknown>) => void;
@@ -47,13 +49,42 @@ type OhlcApiResponse = {
   data?: any[] | null;
 };
 
-const toastCooldown = new Map<string, number>();
-const shouldToast = (key: string, cooldownMs = 180000) => {
-  const now = Date.now();
-  const last = toastCooldown.get(key) || 0;
-  if (now - last < cooldownMs) return false;
-  toastCooldown.set(key, now);
-  return true;
+const mapStandardizedOhlc = (rows: StandardizedOhlc[] = []): OhlcRow[] =>
+  rows.map((row) => {
+    const rawTs = row.t ?? row.time ?? row.closeTime ?? row.openTime;
+    const ts = toSeconds(rawTs ?? Date.now());
+    const date = new Date(ts * 1000);
+    return {
+      time: ts,
+      label: date.toISOString(),
+      open: Number(row.o ?? row.open ?? 0),
+      high: Number(row.h ?? row.high ?? 0),
+      low: Number(row.l ?? row.low ?? 0),
+      close: Number(row.c ?? row.close ?? 0),
+      volume: Number(row.v ?? row.volume ?? 0),
+    };
+  });
+
+const fetchOpenProviderOhlc = async (
+  pair: string,
+  interval: number,
+  onHealthUpdate?: HealthCb,
+  onLog?: LogCb
+): Promise<OhlcRow[]> => {
+  const providers = getActiveProviders("spot");
+  for (const provider of providers) {
+    try {
+      const rows = await fetchOhlcFromProvider(provider, { symbol: pair, interval });
+      if (rows?.length) {
+        onHealthUpdate?.(provider.id, "ok");
+        return mapStandardizedOhlc(rows);
+      }
+    } catch (err: any) {
+      onLog?.(provider.id, "warn", err?.message || "open provider ohlc failed");
+      onHealthUpdate?.(provider.id, "warn", err?.message || "open provider ohlc failed");
+    }
+  }
+  return [];
 };
 
 const fetchProxyHtf = async (
@@ -61,7 +92,7 @@ const fetchProxyHtf = async (
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  onToast?: ToastCb
+  _onToast?: ToastCb
 ) => {
   // FIX: Use the kraken OHLC proxy (with apiUrl) and accept both data/candles shapes.
   const url = apiUrl(`/api/kraken/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=240`);
@@ -72,7 +103,7 @@ const fetchProxyHtf = async (
       retries: 1,
       onHealthUpdate,
       onLog,
-      onToast,
+      uiLevel: "status",
     });
     const apiRes = res as OhlcApiResponse & { candles?: any[]; data?: any[] };
     if (apiRes?.ok === false) {
@@ -80,12 +111,12 @@ const fetchProxyHtf = async (
       const message = apiRes.error || "Price data temporarily unavailable";
       const healthStatus: ApiHealthStatus = status === "timeout" ? "warn" : "error";
       onHealthUpdate?.("MARKET_HTF_PRIMARY", healthStatus, message);
-      if (shouldToast("MARKET_HTF_PRIMARY")) {
-        onToast?.("Price data temporarily unavailable, retrying...", "warn");
-      }
       return [];
     }
-    const rows = Array.isArray(apiRes?.data)
+    const nestedCandles = (apiRes as { data?: { candles?: any[] } })?.data?.candles;
+    const rows = Array.isArray(nestedCandles)
+      ? nestedCandles
+      : Array.isArray(apiRes?.data)
       ? apiRes.data
       : Array.isArray(apiRes?.candles)
       ? apiRes.candles
@@ -100,9 +131,6 @@ const fetchProxyHtf = async (
   } catch (err: any) {
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
-    if (shouldToast("MARKET_HTF_PRIMARY")) {
-      onToast?.("Price data temporarily unavailable, retrying...", "warn");
-    }
     return [];
   }
 };
@@ -112,7 +140,7 @@ const fetchProxyHtfFallback = async (
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  onToast?: ToastCb
+  _onToast?: ToastCb
 ) => {
   const url = apiUrl(`/api/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=240`);
   try {
@@ -122,7 +150,7 @@ const fetchProxyHtfFallback = async (
       retries: 1,
       onHealthUpdate,
       onLog,
-      onToast,
+      uiLevel: "status",
     });
     const apiRes = res as OhlcApiResponse & { candles?: any[]; data?: any[] };
     if (apiRes?.ok === false) {
@@ -132,7 +160,10 @@ const fetchProxyHtfFallback = async (
       onHealthUpdate?.("MARKET_HTF_FALLBACK", healthStatus, message);
       return [];
     }
-    const rows = Array.isArray(apiRes?.data)
+    const nestedCandles = (apiRes as { data?: { candles?: any[] } })?.data?.candles;
+    const rows = Array.isArray(nestedCandles)
+      ? nestedCandles
+      : Array.isArray(apiRes?.data)
       ? apiRes.data
       : Array.isArray(apiRes?.candles)
       ? apiRes.candles
@@ -170,8 +201,18 @@ export const fetchHtfOhlc = async (
       fetchProxyHtf(pair, 1440, onHealthUpdate, onLog, onToast),
     ]);
 
-    const h4 = h4Primary?.length ? h4Primary : await fetchProxyHtfFallback(pair, 240, onHealthUpdate, onLog, onToast);
-    const d1 = d1Primary?.length ? d1Primary : await fetchProxyHtfFallback(pair, 1440, onHealthUpdate, onLog, onToast);
+    const h4 =
+      h4Primary?.length
+        ? h4Primary
+        : await fetchProxyHtfFallback(pair, 240, onHealthUpdate, onLog, onToast).then((rows) =>
+            rows.length ? rows : fetchOpenProviderOhlc(pair, 240, onHealthUpdate, onLog)
+          );
+    const d1 =
+      d1Primary?.length
+        ? d1Primary
+        : await fetchProxyHtfFallback(pair, 1440, onHealthUpdate, onLog, onToast).then((rows) =>
+            rows.length ? rows : fetchOpenProviderOhlc(pair, 1440, onHealthUpdate, onLog)
+          );
 
     const hasDataPrimary: ApiHealthStatus = h4Primary?.length || d1Primary?.length ? "ok" : "warn";
     onHealthUpdate?.("MARKET_HTF_PRIMARY", hasDataPrimary, hasDataPrimary === "ok" ? "" : "HTF data empty");
@@ -181,9 +222,6 @@ export const fetchHtfOhlc = async (
   } catch (err: any) {
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     onHealthUpdate?.("MARKET_HTF_PRIMARY", "error", err?.message || "primary HTF failed");
-    if (shouldToast("MARKET_HTF_PRIMARY")) {
-      onToast?.("Price data temporarily unavailable, retrying...", "warn");
-    }
     return { h4: [], d1: [] };
   }
 };

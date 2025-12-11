@@ -21,6 +21,22 @@ const symbolToId: Record<string, string> = {
   SOLUSDT: "solana",
 };
 
+const isAbortError = (error: unknown) => {
+  const message = (error as Error)?.message?.toLowerCase?.() || "";
+  return (error as Error)?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
+};
+
+const normalizeError = (source: string, error: unknown) => {
+  const message = (error as Error)?.message || "Provider failed";
+  const statusCode = isAbortError(error) ? 504 : 502;
+  return {
+    source,
+    message,
+    statusCode,
+    hint: statusCode === 504 ? "Upstream timeout/abort detected" : "Upstream provider unavailable",
+  };
+};
+
 const send = (res: Res, status: number, body: unknown) => {
   if (res.setHeader) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -92,54 +108,83 @@ async function fetchCoinGecko(symbol: string) {
 
 async function resolvePrice(symbol: string) {
   const providers = [fetchBinance, fetchKraken, fetchCoinGecko];
-  const errors: unknown[] = [];
+  const errors: ReturnType<typeof normalizeError>[] = [];
   for (const provider of providers) {
     try {
-      return await provider(symbol);
+      const data = await provider(symbol);
+      return { data, errors };
     } catch (error) {
-      errors.push(error);
+      errors.push(normalizeError(provider.name || "price", error));
     }
   }
-  return {
-    source: "fallback" as const,
-    symbol: symbol.replace("/", "").toUpperCase(),
-    price: generateFallbackPrice(symbol),
-    timestamp: now(),
-    note: "served-from-cache",
-  };
+  const aggregate = new Error("All providers failed");
+  (aggregate as any).errors = errors;
+  throw aggregate;
 }
 
 export default async function handler(req: Req, res: Res) {
   try {
-    const symbol =
+    const symbolParam =
       (typeof req.query?.symbol === "string"
         ? req.query?.symbol
         : Array.isArray(req.query?.symbol)
         ? req.query?.symbol[0]
-        : undefined) ?? "BTCUSDT";
+        : undefined) ??
+      (typeof req.query?.asset === "string"
+        ? req.query?.asset
+        : Array.isArray(req.query?.asset)
+        ? req.query?.asset[0]
+        : undefined);
+    const symbol = (symbolParam || "BTCUSDT").toUpperCase();
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`price:${rateKey}`)) {
-      return send(res, 429, { ok: false, error: "rate_limited" });
+      return send(res, 429, {
+        ok: false,
+        status: "degraded",
+        source: "price",
+        statusCode: 429,
+        message: "rate limited",
+        hint: "Slow down requests",
+      });
     }
 
     const key = cacheKey("price", symbol);
-    const cached = cache.get<unknown>(key);
+    const cached = cache.get<unknown>(key) as any;
     if (cached) {
-      return send(res, 200, { ok: true, ...cached, cached: true });
+      return send(res, 200, { ok: true, status: "ok", statusCode: 200, source: "price", data: cached, cached: true });
     }
 
-    const price = await resolvePrice(symbol);
-    cache.set(key, price);
-    return send(res, 200, { ok: true, ...price, cached: false });
+    const { data, errors } = await resolvePrice(symbol);
+    const payload = {
+      value: data.price,
+      change24h: null,
+      source: data.source,
+      symbol: data.symbol,
+      updatedAt: new Date(data.timestamp).toISOString(),
+    };
+    cache.set(key, payload);
+    return send(res, 200, { ok: true, status: "ok", statusCode: 200, source: "price", data: payload, cached: false, errors });
   } catch (error) {
-    return send(res, 200, {
-      ok: true,
+    const errors: ReturnType<typeof normalizeError>[] = (error as any)?.errors || [];
+    const primary = errors[0] ?? normalizeError("price", error);
+    const statusCode = primary.statusCode || 502;
+    const fallback = {
+      value: generateFallbackPrice("BTCUSDT"),
+      change24h: null,
       source: "fallback",
-      price: generateFallbackPrice("BTCUSDT"),
-      timestamp: now(),
-      note: "auto-recovered",
-      error: (error as Error)?.message,
+      symbol: "BTCUSDT",
+      updatedAt: new Date().toISOString(),
+    };
+    return send(res, statusCode, {
+      ok: false,
+      status: statusCode === 503 ? "disabled" : "degraded",
+      source: "price",
+      statusCode,
+      message: primary.message || "Price feed unavailable",
+      hint: primary.hint || "Serving synthetic fallback price",
+      data: fallback,
+      errors,
     });
   }
 }

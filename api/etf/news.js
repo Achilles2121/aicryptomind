@@ -1,9 +1,23 @@
 import { fetchCoinstatsNews } from "../_lib/providers/coinstats.js";
 import { fetchEtfNews } from "../_lib/providers/fmp.js";
-import { jsonResponse, errorResponse } from "../_lib/http.js";
+import { jsonResponse } from "../_lib/http.js";
 import { createHealthTracker } from "../_lib/health.js";
 
 export const config = { runtime: "edge" };
+
+const isAbortError = (err) => {
+  const message = (err?.message || "").toLowerCase();
+  return err?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
+};
+
+const normalizeError = (error) => {
+  const statusCode = isAbortError(error) ? 504 : 502;
+  return {
+    statusCode,
+    message: error?.message || "ETF news unavailable",
+    hint: statusCode === 504 ? "Provider timeout or aborted request" : "Provider unavailable",
+  };
+};
 
 const normalizeNews = (rows = []) =>
   rows
@@ -21,6 +35,7 @@ export default async function handler(req) {
   const { searchParams } = new URL(req.url);
   const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 8, 1), 20);
   const tracker = createHealthTracker();
+  let lastError = null;
   const attempts = [
     {
       key: "ETF_NEWS_COINSTATS",
@@ -48,9 +63,24 @@ export default async function handler(req) {
       return jsonResponse({ data: items.slice(0, limit), health: tracker.toArray(), generatedAt: new Date().toISOString() });
     } catch (err) {
       const status = i === attempts.length - 1 ? "error" : "degraded";
+      lastError = err;
       tracker.set(attempt.key, status, err?.message || "fetch failed");
     }
   }
 
-  return errorResponse("Failed to fetch ETF news", 502, { health: tracker.toArray() });
+  const normalized = normalizeError(lastError || new Error("ETF news failed"));
+  return jsonResponse(
+    {
+      ok: false,
+      source: "etfNews",
+      status: normalized.statusCode === 504 ? "timeout" : "error",
+      statusCode: normalized.statusCode,
+      message: normalized.message,
+      hint: normalized.hint,
+      data: [],
+      health: tracker.toArray(),
+      generatedAt: new Date().toISOString(),
+    },
+    normalized.statusCode
+  );
 }
