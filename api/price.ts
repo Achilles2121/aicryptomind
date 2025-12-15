@@ -4,7 +4,7 @@ import { isRateLimited } from "./utils/rateLimit";
 import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
 import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
 import { fetchOhlcFromProvider } from "../src/services/providers/openProviders";
-import { fail, ok, sendEnvelope } from "./utils/apiEnvelope";
+import { fail, ok, sendEnvelope } from "./utils/apiEnvelope.ts";
 import type { ApiEnvelope } from "./utils/response";
 
 type Req = {

@@ -1,7 +1,7 @@
 import { fetchHistoricalMarketCap } from "../_lib/providers/fmp.js";
 import { fetchJson } from "../_lib/http.js";
 import { createHealthTracker } from "../_lib/health.js";
-import { fail, ok, sendEnvelope } from "../utils/apiEnvelope";
+import { fail, ok, sendEnvelope } from "../utils/apiEnvelope.ts";
 
 export const config = { runtime: "edge" };
 

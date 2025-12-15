@@ -7,6 +7,7 @@ export default defineConfig({
   base: "/",
   plugins: [react()],
   envPrefix: "VITE_",
+  assetsInclude: ["**/*.html"],
   server: {
     proxy: {
       "/api": {
