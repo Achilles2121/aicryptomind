@@ -214,38 +214,33 @@ export default async function handler(req: Req, res: Res) {
   let requestedAssetId = DEFAULT_MARKET_ID;
   let requestedSymbol = "BTCUSDT";
   try {
-    const assetParam =
+    const assetParamRaw =
       (typeof req.query?.asset === "string"
         ? req.query?.asset
         : Array.isArray(req.query?.asset)
         ? req.query?.asset[0]
         : undefined) || undefined;
+    const assetParam = assetParamRaw?.toUpperCase?.();
+
     const symbolParam =
       (typeof req.query?.symbol === "string"
         ? req.query?.symbol
         : Array.isArray(req.query?.symbol)
         ? req.query?.symbol[0]
         : undefined) || undefined;
-    const market = assetParam ? findMarketById(assetParam) : undefined;
-    if (assetParam && !market) {
+
+    const supportedAssets = ["BTCUSD", "BTCUSDT", "EURUSD", "XAUUSD"];
+    if (!assetParam || !supportedAssets.includes(assetParam)) {
       return sendEnvelope(
         res,
         fail("invalid_request", {
           source: "price",
           statusCode: 400,
-          message: "Unknown asset id",
-          hint: "Unknown asset id",
+          message: "Invalid or missing asset. Supported: BTCUSD, BTCUSDT, EURUSD, XAUUSD",
+          hint: "BAD_REQUEST",
         })
       );
     }
-    const resolvedMarket = market ?? getMarketById(assetParam || DEFAULT_MARKET_ID);
-    requestedAssetId = resolvedMarket.id;
-    const symbol =
-      (symbolParam ||
-        findProviderSymbol(resolvedMarket, "binance") ||
-        findProviderSymbol(resolvedMarket, resolvedMarket.defaultProvider) ||
-        "BTCUSDT")?.toUpperCase();
-    requestedSymbol = symbol;
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`price:${rateKey}`)) {
@@ -260,110 +255,117 @@ export default async function handler(req: Req, res: Res) {
       );
     }
 
-    const isFx = resolvedMarket.assetClass === "fx";
-    const isMetal = resolvedMarket.assetClass === "commodity" || /^XA(U|G)/i.test(resolvedMarket.base || symbol);
-    const key = cacheKey("price", assetParam ? resolvedMarket.id : symbol);
-    const cached = cache.get<unknown>(key) as any;
-    if (cached) {
-      return sendEnvelope(
-        res,
-        ok(cached, {
-          source: "price",
-          statusCode: 200,
-          cached: true,
-        })
-      );
+    requestedSymbol = assetParam;
+
+    // Fast-path for required assets
+    if (assetParam.startsWith("BTC")) {
+      try {
+        const btc = await fetchBtcUsd();
+        const payload = { asset: "BTCUSD", value: btc.price, ts: btc.timestamp, source: btc.source };
+        return sendEnvelope(res, ok(payload, { source: "price", statusCode: 200 }) as ApiEnvelope);
+      } catch (err: any) {
+        console.error("[price] btc fetch error", err);
+        return sendEnvelope(
+          res,
+          fail("error", {
+            source: "price",
+            statusCode: 500,
+            message: err?.message || "BTC price fetch failed",
+            hint: "INTERNAL_ERROR",
+          }) as ApiEnvelope
+        );
+      }
     }
 
+    if (assetParam === "EURUSD") {
+      try {
+        const fx = await fetchFxFromExchangeRateHost("EUR", "USD");
+        if (!Number.isFinite(fx.price)) throw new Error("Invalid FX price");
+        const payload = { asset: "EURUSD", value: fx.price, ts: fx.timestamp, source: fx.provider };
+        return sendEnvelope(res, ok(payload, { source: "price", statusCode: 200 }) as ApiEnvelope);
+      } catch (err: any) {
+        console.error("[price] fx fetch error", err);
+        return sendEnvelope(
+          res,
+          fail("error", {
+            source: "price",
+            statusCode: 500,
+            message: err?.message || "FX price fetch failed",
+            hint: "INTERNAL_ERROR",
+          }) as ApiEnvelope
+        );
+      }
+    }
+
+    if (assetParam === "XAUUSD") {
+      try {
+        if (!process.env.METALS_DEV_KEY && !process.env.METALS_API_KEY && !process.env.METALPRICEAPI_KEY && !process.env.GOLDAPI_KEY) {
+          return sendEnvelope(
+            res,
+            fail("error", {
+              source: "price",
+              statusCode: 500,
+              message: "Missing metals API key",
+              hint: "Set METALS_API_KEY or METALS_DEV_KEY or METALPRICEAPI_KEY",
+            }) as ApiEnvelope
+          );
+        }
+        const metal = await fetchMetalFromMetalsDev("XAU");
+        if (!Number.isFinite(metal.price)) throw new Error("Invalid metal price");
+        const payload = { asset: "XAUUSD", value: metal.price, ts: metal.timestamp, source: metal.provider };
+        return sendEnvelope(res, ok(payload, { source: "price", statusCode: 200 }) as ApiEnvelope);
+      } catch (err: any) {
+        console.error("[price] metal fetch error", err);
+        return sendEnvelope(
+          res,
+          fail("error", {
+            source: "price",
+            statusCode: 500,
+            message: err?.message || "Metal price fetch failed",
+            hint: "INTERNAL_ERROR",
+          }) as ApiEnvelope
+        );
+      }
+    }
+
+    // Fallback to legacy market config for other assets (kept for compatibility)
+    const market = assetParam ? findMarketById(assetParam) : undefined;
+    const resolvedMarket = market ?? getMarketById(assetParam || DEFAULT_MARKET_ID);
+    requestedAssetId = resolvedMarket.id;
+    const symbol =
+      (symbolParam ||
+        findProviderSymbol(resolvedMarket, "binance") ||
+        findProviderSymbol(resolvedMarket, resolvedMarket.defaultProvider) ||
+        assetParam ||
+        "BTCUSDT")?.toUpperCase();
     const isCrypto = resolvedMarket.assetClass === "crypto";
     let data: any;
     let errors: ReturnType<typeof normalizeError>[] = [];
-    try {
-      if (isCrypto) {
-        // Simple BTC/USD first, then legacy providers
-        if (requestedSymbol.startsWith("BTC")) {
-          const btc = await fetchBtcUsd();
-          data = { source: btc.source, symbol: "BTCUSD", price: btc.price, timestamp: btc.timestamp };
-        } else {
-          const result = await resolvePrice(symbol);
-          data = result.data;
-          errors = result.errors;
-        }
-      } else if (isFx) {
-        const fxRes = await fetchFxFromExchangeRateHost(resolvedMarket.base || symbol.slice(0, 3), resolvedMarket.quote || symbol.slice(3));
-        data = { source: fxRes.provider, symbol: `${fxRes.base}${fxRes.quote}`, price: fxRes.price, timestamp: fxRes.timestamp };
-      } else if (isMetal) {
-        const metalRes = await fetchMetalFromMetalsDev(resolvedMarket.base || symbol);
-        data = { source: metalRes.provider, symbol: metalRes.symbol, price: metalRes.price, timestamp: metalRes.timestamp };
-      } else {
-        const result = await fetchMarketPrice(resolvedMarket);
-        data = result.data;
-        errors = result.errors;
-      }
-    } catch (err: any) {
-      const primary = normalizeError(resolvedMarket.assetClass || "price", err);
-      const fallback = {
-        value: generateFallbackPrice(requestedSymbol || "BTCUSDT"),
-        change24h: null,
-        source: "fallback",
-        symbol: requestedAssetId || "BTCUSDT",
-        updatedAt: new Date().toISOString(),
-      };
-      return sendEnvelope(
-        res,
-        fail("error", {
-          source: "price",
-          statusCode: 500,
-          message: primary.message || "Price fetch failed",
-          hint: primary.hint || "fallback_served",
-          errors: [primary.message],
-          data: fallback,
-        }) as ApiEnvelope
-      );
+    if (isCrypto) {
+      const result = await resolvePrice(symbol);
+      data = result.data;
+      errors = result.errors;
+    } else {
+      const result = await fetchMarketPrice(resolvedMarket);
+      data = result.data;
+      errors = result.errors;
     }
     const payload = {
+      asset: assetParam,
       value: data.price,
-      change24h: null,
       source: data.source,
-      symbol: assetParam ? resolvedMarket.id : data.symbol,
-      updatedAt: new Date(data.timestamp).toISOString(),
+      ts: data.timestamp,
     };
-    cache.set(key, payload);
-    return sendEnvelope(
-      res,
-      ok(payload, {
-        source: "price",
-        statusCode: 200,
-        cached: false,
-        errors: errors?.map((e) => e.message),
-      }) as ApiEnvelope
-    );
+    return sendEnvelope(res, ok(payload, { source: "price", errors: errors?.map((e) => e.message) }) as ApiEnvelope);
   } catch (error) {
-    console.error("[price] handler error", {
-      message: (error as any)?.message,
-      stack: (error as any)?.stack,
-      asset: requestedAssetId,
-      symbol: requestedSymbol,
-    });
-    const errors: ReturnType<typeof normalizeError>[] = (error as any)?.errors || [];
-    const primary = errors[0] ?? normalizeError("price", error);
-    const statusCode = primary.statusCode || 502;
-    const fallback = {
-      value: generateFallbackPrice(requestedSymbol || "BTCUSDT"),
-      change24h: null,
-      source: "fallback",
-      symbol: requestedAssetId || "BTCUSDT",
-      updatedAt: new Date().toISOString(),
-    };
+    console.error("[price] handler error", error);
     return sendEnvelope(
       res,
-      fail(statusCode === 503 ? "disabled" : "degraded", {
+      fail("error", {
         source: "price",
-        statusCode,
-        message: primary.message || "Price feed unavailable",
-        hint: primary.hint || "Serving synthetic fallback price",
-        errors: errors?.map((e) => e.message),
-        data: fallback,
+        statusCode: 500,
+        message: (error as any)?.message || "Internal error",
+        hint: "INTERNAL_ERROR",
       }) as ApiEnvelope
     );
   }
