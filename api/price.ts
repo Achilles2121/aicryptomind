@@ -1,12 +1,9 @@
 import { safeFetchJson } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
-import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
-import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
-import { fetchOhlcFromProvider } from "../src/services/providers/openProviders";
 import { ok, fail, sendEnvelope } from "./utils/apiEnvelope.js";
 import type { ApiEnvelope } from "./utils/response";
 
-// If this endpoint returns a Vercel Authentication HTML page in production, disable deployment protection/auth. See docs/vercel-auth.md.
+// Standalone price endpoint - no imports from /src/
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -26,14 +23,6 @@ const symbolToId: Record<string, string> = {
   ETHUSDT: "ethereum",
   SOLUSDT: "solana",
   BTCUSD: "bitcoin",
-};
-
-const normalizeProviderId = (id?: string) => (id || "").toLowerCase();
-const findProviderSymbol = (market: MarketConfig, providerId: string) =>
-  Object.entries(market.providerSymbols || {}).find(([key]) => normalizeProviderId(key) === normalizeProviderId(providerId))?.[1];
-const getActiveProviderById = (providerId?: string): MarketDataProviderConfig | undefined => {
-  if (!providerId) return undefined;
-  return getActiveProviders().find((p) => normalizeProviderId(p.id) === normalizeProviderId(providerId));
 };
 
 const isAbortError = (error: unknown) => {
@@ -193,40 +182,6 @@ async function resolvePrice(symbol: string) {
   throw aggregate;
 }
 
-const buildProviderPriority = (market: MarketConfig) =>
-  Array.from(new Set([market.defaultProvider, ...Object.keys(market.providerSymbols || {})]));
-
-async function fetchMarketPrice(market: MarketConfig) {
-  const providerIds = buildProviderPriority(market);
-  const errors: ReturnType<typeof normalizeError>[] = [];
-  for (const providerId of providerIds) {
-    const provider = getActiveProviderById(providerId);
-    const symbol = provider ? findProviderSymbol(market, provider.id) : undefined;
-    if (!provider || !symbol) continue;
-    const interval = market.supportsIntraday === false ? 1440 : 60;
-    try {
-      const rows = await fetchOhlcFromProvider(provider, { symbol, interval, limit: 2 });
-      const last = rows?.at?.(-1);
-      if (last) {
-        return {
-          data: {
-            source: provider.id,
-            symbol: market.id,
-            price: Number(last.c ?? last.close ?? last.o ?? 0),
-            timestamp: Date.now(),
-          },
-          errors,
-        };
-      }
-    } catch (error) {
-      errors.push(normalizeError(provider.id, error));
-    }
-  }
-  const aggregate = new Error("All providers failed");
-  (aggregate as any).errors = errors;
-  throw aggregate;
-}
-
 const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
   const val = query?.[key];
   if (typeof val === "string") return val;
@@ -345,34 +300,16 @@ export default async function handler(req: Req, res: Res) {
       }
     }
 
-    // Fallback to legacy market config for other assets (kept for compatibility)
-    const market = assetParam ? findMarketById(assetParam) : undefined;
-    const resolvedMarket = market ?? getMarketById(assetParam || DEFAULT_MARKET_ID);
-    const symbol =
-      (symbolParam ||
-        findProviderSymbol(resolvedMarket, "binance") ||
-        findProviderSymbol(resolvedMarket, resolvedMarket.defaultProvider) ||
-        assetParam ||
-        "BTCUSDT")?.toUpperCase();
-    const isCrypto = resolvedMarket.assetClass === "crypto";
-    let data: any;
-    let errors: ReturnType<typeof normalizeError>[] = [];
-    if (isCrypto) {
-      const result = await resolvePrice(symbol);
-      data = result.data;
-      errors = result.errors;
-    } else {
-      const result = await fetchMarketPrice(resolvedMarket);
-      data = result.data;
-      errors = result.errors;
-    }
-    const payload = {
-      asset: assetParam,
-      value: data.price,
-      source: data.source,
-      ts: data.timestamp,
-    };
-    return sendEnvelope(res, ok(payload, { source: "price", errors: errors?.map((e) => e.message) }) as ApiEnvelope);
+    // For unsupported assets, return error
+    return sendEnvelope(
+      res,
+      fail("error", {
+        source: "price",
+        statusCode: 400,
+        message: `Asset ${assetParam} not supported yet`,
+        hint: "Supported: BTCUSD, BTCUSDT, EURUSD, XAUUSD",
+      }) as ApiEnvelope
+    );
   } catch (error) {
     console.error("[price] handler error", error);
     return sendEnvelope(

@@ -1,12 +1,9 @@
 import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson, safeFetchText } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
-import { findMarketById, type MarketConfig } from "../src/config/markets";
-import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
-import { fetchOhlcFromProvider, type StandardizedOhlc } from "../src/services/providers/openProviders";
 import { ok, fail, sendEnvelope } from "./utils/apiEnvelope.js";
 
-// If this endpoint returns a Vercel Authentication HTML page in production, disable deployment protection/auth. See docs/vercel-auth.md.
+// Standalone OHLC endpoint - no imports from /src/
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -40,14 +37,6 @@ const symbolToId: Record<string, string> = {
   BTCUSDT: "bitcoin",
   ETHUSDT: "ethereum",
   SOLUSDT: "solana",
-};
-
-const normalizeProviderId = (id?: string) => (id || "").toLowerCase();
-const findProviderSymbol = (market: MarketConfig, providerId: string) =>
-  Object.entries(market.providerSymbols || {}).find(([key]) => normalizeProviderId(key) === normalizeProviderId(providerId))?.[1];
-const getActiveProviderById = (providerId?: string): MarketDataProviderConfig | undefined => {
-  if (!providerId) return undefined;
-  return getActiveProviders().find((p) => normalizeProviderId(p.id) === normalizeProviderId(providerId));
 };
 
 const isAbortError = (error: unknown) => {
@@ -353,29 +342,7 @@ async function resolveOHLC(
   throw aggregate;
 }
 
-const buildProviderPriority = (market: MarketConfig) =>
-  Array.from(new Set([market.defaultProvider, ...Object.keys(market.providerSymbols || {})]));
-
-async function fetchMarketOhlc(market: MarketConfig, intervalMinutes: number, limit: number) {
-  const providerIds = buildProviderPriority(market);
-  const errors: ReturnType<typeof normalizeError>[] = [];
-  for (const providerId of providerIds) {
-    const provider = getActiveProviderById(providerId);
-    const symbol = provider ? findProviderSymbol(market, provider.id) : undefined;
-    if (!provider || !symbol) continue;
-    try {
-      const rows = await fetchOhlcFromProvider(provider, { symbol, interval: intervalMinutes, limit });
-      if (rows?.length) {
-        return { candles: mapStandardized(rows), provider: provider.id, errors };
-      }
-    } catch (error) {
-      errors.push(normalizeError(provider.id, error));
-    }
-  }
-  const aggregate = new Error("All OHLC providers failed");
-  (aggregate as any).errors = errors;
-  throw aggregate;
-}
+// Removed buildProviderPriority and fetchMarketOhlc - they used imports from /src/ which don't work in Vercel
 
 const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
   const val = query?.[key];
@@ -384,12 +351,26 @@ const getQueryParam = (query: Record<string, string | string[]> | undefined, key
   return undefined;
 };
 
+// Simple market lookup for supported assets (standalone, no /src imports)
+const SUPPORTED_MARKETS: Record<string, { id: string; assetClass: string; base?: string; quote?: string }> = {
+  BTC: { id: "BTC", assetClass: "crypto", base: "BTC", quote: "USD" },
+  BTCUSD: { id: "BTCUSD", assetClass: "crypto", base: "BTC", quote: "USD" },
+  ETH: { id: "ETH", assetClass: "crypto", base: "ETH", quote: "USD" },
+  ETHUSD: { id: "ETHUSD", assetClass: "crypto", base: "ETH", quote: "USD" },
+  EURUSD: { id: "EURUSD", assetClass: "fx", base: "EUR", quote: "USD" },
+  XAUUSD: { id: "XAUUSD", assetClass: "commodity", base: "XAU", quote: "USD" },
+  SPX: { id: "SPX", assetClass: "index", base: "SPX", quote: "USD" },
+  SP500: { id: "SP500", assetClass: "index", base: "SPX", quote: "USD" },
+};
+
+const findMarket = (assetId: string) => SUPPORTED_MARKETS[assetId?.toUpperCase()];
+
 export default async function handler(req: Req, res: Res) {
   const intervalValue = getQueryParam(req.query, "interval") ?? "60";
   const { minutes: intervalMinutes, binance: binanceInterval } = mapInterval(intervalValue);
   try {
     const assetParam = getQueryParam(req.query, "asset");
-    const market = assetParam ? findMarketById(assetParam) : undefined;
+    const market = assetParam ? findMarket(assetParam) : undefined;
     if (assetParam && !market) {
       return sendEnvelope(
         res,
