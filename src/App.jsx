@@ -18,7 +18,6 @@ import {
   Area,
   Bar,
   BarChart,
-  Cell,
   CartesianGrid,
   ComposedChart,
   Customized,
@@ -65,7 +64,7 @@ import {
   calculatePearson,
 } from "./lib/indicators";
 import { computeStopAndTarget } from "./lib/riskEngine";
-import { buildAISignal, buildProSignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
+import { buildAISignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -82,7 +81,7 @@ const ASSET_CLASS_LABELS = {
   fx: "FX",
 };
 
-const API_SOURCES_OLD = [
+const _API_SOURCES_OLD = [
   {
     name: "DeFiLlama",
     desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.",
@@ -281,9 +280,9 @@ const cryptoDataService = {
         })
       );
       return res;
-    } catch (err) {
-      console.error("funding fallback", err);
-      onHealthUpdate?.("binance", "degraded", err.message);
+    } catch (_err) {
+      console.error("funding fallback", _err);
+      onHealthUpdate?.("binance", "degraded", _err.message);
       return [
         { symbol: "BTCUSDT", rate: 0.00021, mark: null },
         { symbol: "ETHUSDT", rate: 0.00015, mark: null },
@@ -297,7 +296,7 @@ const formatClock = (ts) => {
   if (!ts) return "--:--";
   try {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch (err) {
+  } catch {
     return "--:--";
   }
 };
@@ -832,7 +831,7 @@ const renderLastDot = (count, color = "#22c55e") => {
   LastDot.displayName = "LastDot";
   return LastDot;
 };
-const sumFlows = (flows = [], days = 7) =>
+const _sumFlows = (flows = [], days = 7) =>
   flows.slice(-days).reduce((acc, f) => acc + (Number.isFinite(f.flow ?? f.netFlowUsd) ? (f.flow ?? f.netFlowUsd) : 0), 0);
 function App() {
   const isDevBuild = import.meta.env?.DEV ?? false;
@@ -842,7 +841,7 @@ function App() {
     loading: tierLoading,
     refreshUserTier,
   } = useUserTier();
-  const { isTrialActive, trialExpiresAt, remainingMs, remainingFormatted, startedAt: localTrialStart } = useEliteTrial();
+  const { isTrialActive, trialExpiresAt, remainingMs, remainingFormatted: _remainingFormatted, startedAt: localTrialStart } = useEliteTrial();
   const effectiveTier = isTrialActive && ctxTier !== "elite" ? "elite" : ctxTier;
   const marketOptions = useMemo(() => MARKET_OPTIONS, []);
   const [selectedAssetId, setSelectedAssetId] = useState(DEFAULT_MARKET_ID);
@@ -888,10 +887,10 @@ function App() {
   const [lang, setLang] = useState("de");
   const [apiStatuses, setApiStatuses] = useState({});
   const [userEmail, setUserEmail] = useState("");
-  const [geoInfo, setGeoInfo] = useState(null);
+  const [_geoInfo, setGeoInfo] = useState(null);
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
-  const [isStartingTrial, setIsStartingTrial] = useState(false);
+  const [_isStartingTrial, _setIsStartingTrial] = useState(false);
   const [highlightAuthCard, setHighlightAuthCard] = useState(false);
   const [consentGeo, setConsentGeo] = useState(() => localStorage.getItem("consent:geo") === "true");
   const [saveTierMessage, setSaveTierMessage] = useState("");
@@ -1705,7 +1704,7 @@ function App() {
     }
   };
 
-  const focusAuthSection = () => {
+  const _focusAuthSection = () => {
     if (typeof window === "undefined") return;
     const prefersDesktop = window.matchMedia("(min-width: 768px)").matches;
     const sectionRef = (prefersDesktop ? desktopAuthRef.current : mobileAuthRef.current) || desktopAuthRef.current || mobileAuthRef.current;
