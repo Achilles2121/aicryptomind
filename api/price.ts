@@ -46,13 +46,6 @@ async function safeFetch<T>(url: string, options?: { timeoutMs?: number }): Prom
   }
 }
 
-const symbolToId: Record<string, string> = {
-  BTCUSDT: "bitcoin",
-  ETHUSDT: "ethereum",
-  SOLUSDT: "solana",
-  BTCUSD: "bitcoin",
-};
-
 const now = () => Date.now();
 
 type FxPrice = { base: string; quote: string; price: number; provider: string; timestamp: number };
