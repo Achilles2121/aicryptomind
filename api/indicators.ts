@@ -1,13 +1,4 @@
-import { cache, cacheKey } from "./utils/cache";
-import { safeFetchJson } from "./utils/safeFetch";
-import { isRateLimited } from "./utils/rateLimit";
-import { ema as emaCalc } from "../server/indicators/ema.js";
-import { rsi as rsiCalc } from "../server/indicators/rsi.js";
-import { macd as macdCalc } from "../server/indicators/macd.js";
-import { stochastic as stochCalc } from "../server/indicators/stoch.js";
-import { atr as atrCalc } from "../server/indicators/atr.js";
-import { trendStrength } from "../server/indicators/trend.js";
-import { smartMoneyFlow } from "../server/indicators/smf.js";
+// STANDALONE INDICATORS ENDPOINT - NO EXTERNAL IMPORTS
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -18,7 +9,6 @@ type Res = {
   status: (code: number) => Res;
   json: (body: unknown) => void;
   setHeader?: (name: string, value: string) => void;
-  end?: (body?: string) => void;
 };
 
 type Candle = {
@@ -30,23 +20,64 @@ type Candle = {
   volume: number;
 };
 
+// Simple in-memory cache
+const indicatorCache = new Map<string, { data: unknown; expires: number }>();
+const CACHE_TTL = 30000; // 30 seconds
+
+function getCached(key: string) {
+  const entry = indicatorCache.get(key);
+  if (entry && Date.now() < entry.expires) return entry.data;
+  indicatorCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: unknown) {
+  indicatorCache.set(key, { data, expires: Date.now() + CACHE_TTL });
+  return data;
+}
+
+// Simple rate limiting
+const rateLimitMap = new Map<string, number>();
+const RATE_LIMIT_MS = 500;
+
+function isRateLimited(key: string): boolean {
+  const last = rateLimitMap.get(key);
+  const now = Date.now();
+  if (last && now - last < RATE_LIMIT_MS) return true;
+  rateLimitMap.set(key, now);
+  return false;
+}
+
+// Simple fetch with timeout
+async function safeFetch<T>(url: string, options?: { timeoutMs?: number }): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options?.timeoutMs || 5000);
+  
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "Accept": "application/json" },
+    });
+    clearTimeout(timeout);
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json() as T;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
+}
+
 const symbolToId: Record<string, string> = {
   BTCUSDT: "bitcoin",
   ETHUSDT: "ethereum",
   SOLUSDT: "solana",
-};
-
-const send = (res: Res, status: number, body: unknown) => {
-  if (res.setHeader) res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (typeof res.json === "function") {
-    res.status(status).json(body);
-  } else if (res.end) {
-    res.end(JSON.stringify(body));
-  }
+  BTCUSD: "bitcoin",
 };
 
 const now = () => Date.now();
 
+// Generate synthetic candles for fallback
 const generateFakeSeries = (limit: number, base = 60_000): Candle[] => {
   const candles: Candle[] = [];
   for (let i = 0; i < limit; i += 1) {
@@ -68,13 +99,147 @@ const generateFakeSeries = (limit: number, base = 60_000): Candle[] => {
   return candles;
 };
 
-async function fetchBinance(symbol: string, interval: string, limit: number) {
+// ===== INLINE INDICATOR IMPLEMENTATIONS =====
+
+function ema(values: number[], period = 14): number[] {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const k = 2 / (period + 1);
+  const out: number[] = [];
+  values.forEach((value, idx) => {
+    if (idx === 0) {
+      out.push(value);
+    } else {
+      const prev = out[idx - 1];
+      out.push(value * k + prev * (1 - k));
+    }
+  });
+  return out;
+}
+
+function rsi(values: number[], period = 14): number[] {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const deltas = values.slice(1).map((c, i) => c - values[i]);
+  let gains = 0;
+  let losses = 0;
+  deltas.slice(0, period).forEach((d) => {
+    if (d >= 0) gains += d;
+    else losses -= d;
+  });
+  const result = Array(values.length).fill(50);
+  let avgGain = gains / period;
+  let avgLoss = losses / period || 1;
+  for (let i = period; i < deltas.length; i += 1) {
+    const delta = deltas[i];
+    avgGain = (avgGain * (period - 1) + Math.max(delta, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-delta, 0)) / period || 1;
+    const rs = avgGain / avgLoss;
+    result[i + 1] = 100 - 100 / (1 + rs);
+  }
+  return result;
+}
+
+function macd(values: number[]) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return { line: [], signal: [], histogram: [] };
+  }
+  const ema12 = ema(values, 12);
+  const ema26 = ema(values, 26);
+  const macdLine = ema12.map((v, i) => v - ema26[i]);
+  const signal = ema(macdLine, 9);
+  const histogram = macdLine.map((v, i) => v - signal[i]);
+  return { line: macdLine, signal, histogram };
+}
+
+function smooth(values: number[], period: number): number[] {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const out: number[] = [];
+  for (let i = 0; i < values.length; i += 1) {
+    const start = Math.max(0, i - period + 1);
+    const slice = values.slice(start, i + 1);
+    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+    out.push(avg);
+  }
+  return out;
+}
+
+function stochastic(candles: Candle[], period = 14, smoothing = 3) {
+  if (!Array.isArray(candles) || candles.length === 0) {
+    return { k: [], d: [] };
+  }
+  const values: number[] = [];
+  for (let i = period; i <= candles.length; i += 1) {
+    const slice = candles.slice(i - period, i);
+    const high = Math.max(...slice.map((c) => c.high ?? 0));
+    const low = Math.min(...slice.map((c) => c.low ?? 0));
+    const lastClose = slice[slice.length - 1]?.close ?? 0;
+    const k = high === low ? 50 : ((lastClose - low) / (high - low)) * 100;
+    values.push(k);
+  }
+  const d = smooth(values, smoothing);
+  return { k: values, d };
+}
+
+function atr(candles: Candle[], period = 14): number[] {
+  if (!Array.isArray(candles) || candles.length === 0) return [];
+  const trs: number[] = [];
+  for (let i = 1; i < candles.length; i += 1) {
+    const current = candles[i];
+    const prevClose = candles[i - 1]?.close ?? current.close ?? 0;
+    const tr = Math.max(
+      (current.high ?? 0) - (current.low ?? 0),
+      Math.abs((current.high ?? 0) - prevClose),
+      Math.abs((current.low ?? 0) - prevClose)
+    );
+    trs.push(tr);
+  }
+  if (trs.length === 0) return [];
+  const out: number[] = [];
+  let prev = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out.push(prev);
+  for (let i = period; i < trs.length; i += 1) {
+    prev = (prev * (period - 1) + trs[i]) / period;
+    out.push(prev);
+  }
+  return out;
+}
+
+function trendStrength(emaFast: number[], emaSlow: number[]): number {
+  const lastFast = emaFast?.[emaFast.length - 1] ?? 0;
+  const lastSlow = emaSlow?.[emaSlow.length - 1] ?? 0;
+  return lastFast - lastSlow;
+}
+
+function smartMoneyFlow(candles: Candle[]): number {
+  if (!Array.isArray(candles) || candles.length === 0) return 0;
+  let flow = 0;
+  candles.forEach((candle) => {
+    const high = candle.high ?? 0;
+    const low = candle.low ?? 0;
+    const close = candle.close ?? 0;
+    const volume = candle.volume ?? 0;
+    const multiplier = high === low ? 0 : ((close - low) - (high - close)) / (high - low);
+    flow += multiplier * volume;
+  });
+  return flow;
+}
+
+function volatility(closes: number[], period = 20): number[] {
+  const vols: number[] = [];
+  for (let i = period; i <= closes.length; i += 1) {
+    const slice = closes.slice(i - period, i);
+    const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+    const variance = slice.reduce((a, b) => a + (b - mean) * (b - mean), 0) / slice.length;
+    vols.push(Math.sqrt(variance));
+  }
+  return vols;
+}
+
+// ===== DATA FETCHING =====
+
+async function fetchBinance(symbol: string, interval: string, limit: number): Promise<Candle[]> {
   const pair = symbol.replace("/", "").toUpperCase();
   const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=${limit}`;
-  const data = await safeFetchJson<(number | string)[][]>(url, undefined, {
-    timeoutMs: 3000,
-    attempts: 2,
-  });
+  const data = await safeFetch<(number | string)[][]>(url, { timeoutMs: 3000 });
   return data.map((row) => ({
     time: Number(row[0]),
     open: Number(row[1]),
@@ -85,18 +250,14 @@ async function fetchBinance(symbol: string, interval: string, limit: number) {
   }));
 }
 
-async function fetchKraken(symbol: string, interval: string, limit: number) {
+async function fetchKraken(symbol: string, intervalMinutes: number, limit: number): Promise<Candle[]> {
   const pair = symbol.replace("/", "").toUpperCase();
   const mapped = pair === "BTCUSDT" ? "XBTUSDT" : pair;
-  const url = `https://api.kraken.com/0/public/OHLC?pair=${mapped}&interval=${interval === "1h" ? 60 : 15}`;
-  const data = await safeFetchJson<{ result: Record<string, (number | string)[]> }>(
-    url,
-    undefined,
-    { timeoutMs: 3200, attempts: 2 }
-  );
-  const first = Object.values(data.result ?? {})[0];
+  const url = `https://api.kraken.com/0/public/OHLC?pair=${mapped}&interval=${intervalMinutes}`;
+  const data = await safeFetch<{ result: Record<string, unknown[]> }>(url, { timeoutMs: 3200 });
+  const first = Object.values(data.result ?? {})[0] as (number | string)[][] | undefined;
   if (!Array.isArray(first)) throw new Error("No Kraken OHLC");
-  const sliced = (first as unknown as (number | string)[][]).slice(-limit);
+  const sliced = first.slice(-limit);
   return sliced.map((row) => ({
     time: Number(row[0]) * 1000,
     open: Number(row[1]),
@@ -107,13 +268,10 @@ async function fetchKraken(symbol: string, interval: string, limit: number) {
   }));
 }
 
-async function fetchCoinGecko(symbol: string, limit: number) {
+async function fetchCoinGecko(symbol: string, limit: number): Promise<Candle[]> {
   const id = symbolToId[symbol.replace("/", "").toUpperCase()] ?? "bitcoin";
   const url = `https://api.coingecko.com/api/v3/coins/${id}/ohlc?vs_currency=usd&days=1`;
-  const data = await safeFetchJson<(number | string)[][]>(url, undefined, {
-    timeoutMs: 3200,
-    attempts: 2,
-  });
+  const data = await safeFetch<(number | string)[][]>(url, { timeoutMs: 3200 });
   return data.slice(-limit).map((row) => ({
     time: Number(row[0]),
     open: Number(row[1]),
@@ -124,45 +282,33 @@ async function fetchCoinGecko(symbol: string, limit: number) {
   }));
 }
 
-async function resolveOHLC(symbol: string, interval: string, limit: number) {
-  const providers = [
-    () => fetchBinance(symbol, interval, limit),
-    () => fetchKraken(symbol, interval, limit),
-    () => fetchCoinGecko(symbol, limit),
-  ];
-  for (const provider of providers) {
-    try {
-      const candles = await provider();
-      if (candles?.length) return candles;
-    } catch {
-      // continue
-    }
+async function resolveOHLC(symbol: string, interval: string, intervalMinutes: number, limit: number): Promise<Candle[]> {
+  const errors: string[] = [];
+  
+  try {
+    const candles = await fetchBinance(symbol, interval, limit);
+    if (candles?.length) return candles;
+  } catch (err) {
+    errors.push(`binance: ${(err as Error)?.message}`);
   }
+  
+  try {
+    const candles = await fetchKraken(symbol, intervalMinutes, limit);
+    if (candles?.length) return candles;
+  } catch (err) {
+    errors.push(`kraken: ${(err as Error)?.message}`);
+  }
+  
+  try {
+    const candles = await fetchCoinGecko(symbol, limit);
+    if (candles?.length) return candles;
+  } catch (err) {
+    errors.push(`coingecko: ${(err as Error)?.message}`);
+  }
+  
+  console.log("[indicators] All providers failed:", errors);
   return generateFakeSeries(limit);
 }
-
-const volatility = (closes: number[], period = 20) => {
-  const vols: number[] = [];
-  for (let i = period; i <= closes.length; i += 1) {
-    const slice = closes.slice(i - period, i);
-    const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
-    const variance =
-      slice.reduce((a, b) => a + (b - mean) * (b - mean), 0) / slice.length;
-    vols.push(Math.sqrt(variance));
-  }
-  return vols;
-};
-
-const smooth = (values: number[], window = 3) => {
-  if (!values.length) return [];
-  const out: number[] = [];
-  for (let i = 0; i < values.length; i += 1) {
-    const start = Math.max(0, i - window + 1);
-    const slice = values.slice(start, i + 1);
-    out.push(slice.reduce((a, b) => a + b, 0) / slice.length);
-  }
-  return out;
-};
 
 const fallbackIndicators = (length = 60) => ({
   rsi: Array(length).fill(50),
@@ -175,139 +321,91 @@ const fallbackIndicators = (length = 60) => ({
   smartMoneyFlow: 0,
 });
 
+const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
+  const val = query?.[key];
+  if (typeof val === "string") return val;
+  if (Array.isArray(val)) return val[0];
+  return undefined;
+};
+
+const mapInterval = (value: string | undefined) => {
+  if (value === "1d" || value === "1440") return { interval: "1d", minutes: 1440 };
+  if (value === "4h" || value === "240") return { interval: "4h", minutes: 240 };
+  if (value === "1h" || value === "60") return { interval: "1h", minutes: 60 };
+  if (value === "15m" || value === "15") return { interval: "15m", minutes: 15 };
+  if (value === "5m" || value === "5") return { interval: "5m", minutes: 5 };
+  return { interval: "1h", minutes: 60 };
+};
+
 export default async function handler(req: Req, res: Res) {
   try {
-    const symbol =
-      (typeof req.query?.symbol === "string"
-        ? req.query?.symbol
-        : Array.isArray(req.query?.symbol)
-        ? req.query?.symbol[0]
-        : undefined) ?? "BTCUSDT";
-    const interval =
-      (typeof req.query?.interval === "string" ? req.query?.interval : "1h") ?? "1h";
+    const symbol = getQueryParam(req.query, "symbol")?.toUpperCase() ?? "BTCUSDT";
+    const intervalParam = getQueryParam(req.query, "interval") ?? "1h";
+    const { interval, minutes: intervalMinutes } = mapInterval(intervalParam);
     const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 120;
     const limit = Number.isFinite(limitParam) ? Math.max(40, Math.min(400, limitParam)) : 180;
-    const version = typeof req.query?.v === "string" ? req.query.v : "3";
-    const type = typeof req.query?.type === "string" ? req.query.type : "all";
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`indicators:${rateKey}`)) {
-      return send(res, 429, { ok: false, error: "rate_limited" });
+      return res.status(429).json({ ok: false, status: "rate_limited", error: "Rate limited" });
     }
 
-    const key = cacheKey("indicators", symbol, interval, limit);
-    const cached = cache.get<unknown>(key);
+    const cacheKey = `indicators:${symbol}:${interval}:${limit}`;
+    const cached = getCached(cacheKey);
     if (cached) {
-      return send(res, 200, { ok: true, cached: true, ...(cached as object) });
+      return res.status(200).json({
+        ok: true,
+        status: "ok",
+        data: cached,
+        meta: { symbol, interval, limit, cached: true },
+      });
     }
 
-    const timeframes = version === "4" || version === "5" ? ["5m", "15m", "1h", "4h", "1d"] : [interval];
-    const frameResults: Record<string, unknown> = {};
-
-    for (const tf of timeframes) {
-      const candles = await resolveOHLC(symbol, tf, limit);
-      const closes = candles.map((c) => c.close);
-      const ema21 = emaCalc(closes, 21);
-      const ema50 = emaCalc(closes, 50);
-      const baseIndicators = {
-        rsi: rsiCalc(closes),
-        macd: macdCalc(closes),
-        stochastic: stochCalc(candles),
-        ema: { ema21, ema50 },
-        atr: atrCalc(candles),
-        trendStrength: trendStrength(ema21, ema50),
-        volatility: volatility(closes),
-        smartMoneyFlow: smartMoneyFlow(candles.slice(-50)),
-      };
-
-      const smoothed = {
-        rsi: smooth(baseIndicators.rsi),
-        macd: {
-          line: smooth(baseIndicators.macd.macdLine),
-          signal: smooth(baseIndicators.macd.signal),
-          histogram: smooth(baseIndicators.macd.histogram),
-        },
-        stochastic: {
-          k: smooth(baseIndicators.stochastic.k),
-          d: smooth(baseIndicators.stochastic.d),
-        },
-        ema: {
-          ema21: smooth(baseIndicators.ema.ema21),
-          ema50: smooth(baseIndicators.ema.ema50),
-        },
-        atr: smooth(baseIndicators.atr),
-        trendStrength: baseIndicators.trendStrength,
-        volatility: smooth(baseIndicators.volatility),
-        smartMoneyFlow: baseIndicators.smartMoneyFlow,
-      };
-
-      const framePayload =
-        type === "all"
-          ? { candles: candles.slice(-120), indicators: smoothed }
-          : { candles: candles.slice(-120), indicators: { [type]: smoothed[type as keyof typeof smoothed] ?? null } };
-
-      frameResults[tf] = framePayload;
-
-      // Keep backward-compatible top-level when interval matches
-      if (tf === interval) {
-        Object.assign(frameResults, {
-          candles: framePayload.candles,
-          indicators: framePayload.indicators,
-        });
-      }
+    // Fetch candle data
+    const candles = await resolveOHLC(symbol, interval, intervalMinutes, limit);
+    
+    if (!candles || candles.length < 30) {
+      const fallback = fallbackIndicators(limit);
+      return res.status(200).json({
+        ok: true,
+        status: "degraded",
+        data: fallback,
+        meta: { symbol, interval, limit, provider: "synthetic" },
+      });
     }
 
-    // HTF confirmation: combine 4h + 1h + 15m RSI/trend
-    const h4 = frameResults["4h"] as { indicators?: any };
-    const h1 = frameResults["1h"] as { indicators?: any };
-    const m15 = frameResults["15m"] as { indicators?: any };
-    const rsiH4 = h4?.indicators?.rsi?.slice(-1)[0] ?? 50;
-    const rsiH1 = h1?.indicators?.rsi?.slice(-1)[0] ?? 50;
-    const rsiM15 = m15?.indicators?.rsi?.slice(-1)[0] ?? 50;
-    const trendH4 = h4?.indicators?.trendStrength ?? 0;
-    const trendH1 = h1?.indicators?.trendStrength ?? 0;
-    const trendM15 = m15?.indicators?.trendStrength ?? 0;
-    const htfConfirmation = {
-      bullish: rsiH4 > 55 && rsiH1 > 55 && rsiM15 > 55 && trendH4 >= 0 && trendH1 >= 0 && trendM15 >= 0,
-      bearish: rsiH4 < 45 && rsiH1 < 45 && rsiM15 < 45 && trendH4 <= 0 && trendH1 <= 0 && trendM15 <= 0,
-      composite: {
-        rsi: { h4: rsiH4, h1: rsiH1, m15: rsiM15 },
-        trend: { h4: trendH4, h1: trendH1, m15: trendM15 },
-      },
+    // Calculate indicators
+    const closes = candles.map((c) => c.close);
+    const ema21 = ema(closes, 21);
+    const ema50 = ema(closes, 50);
+
+    const indicators = {
+      rsi: rsi(closes, 14),
+      macd: macd(closes),
+      stochastic: stochastic(candles, 14, 3),
+      ema: { ema21, ema50 },
+      atr: atr(candles, 14),
+      trendStrength: trendStrength(ema21, ema50),
+      volatility: volatility(closes, 20),
+      smartMoneyFlow: smartMoneyFlow(candles),
     };
 
-    const payload = {
+    setCache(cacheKey, indicators);
+
+    return res.status(200).json({
       ok: true,
-      cached: false,
-      version,
-      type,
-      symbol,
-      interval,
-      frames: frameResults,
-      htfConfirmation,
-      timestamp: now(),
-    };
-
-    cache.set(key, payload);
-    return send(res, 200, payload);
+      status: "ok",
+      data: indicators,
+      meta: { symbol, interval, limit, cached: false },
+    });
   } catch (error) {
-    return send(res, 200, {
+    console.error("[indicators] handler error", error);
+    const fallback = fallbackIndicators(60);
+    return res.status(200).json({
       ok: true,
-      version: typeof req.query?.v === "string" ? req.query.v : "4",
-      type: typeof req.query?.type === "string" ? req.query.type : "all",
-      symbol: "BTCUSDT",
-      interval: "1h",
-      frames: {
-        "1h": { candles: generateFakeSeries(120), indicators: fallbackIndicators(120) },
-      },
-      htfConfirmation: {
-        bullish: false,
-        bearish: false,
-        composite: { rsi: { h4: 50, h1: 50, m15: 50 }, trend: { h4: 0, h1: 0, m15: 0 } },
-      },
-      timestamp: now(),
-      note: "auto-recovered",
-      error: (error as Error)?.message,
+      status: "degraded",
+      data: fallback,
+      meta: { provider: "synthetic", error: (error as Error)?.message },
     });
   }
 }

@@ -1,120 +1,127 @@
-import { cache, cacheKey } from "./utils/cache";
-import { safeFetchJson } from "./utils/safeFetch";
-import { sendEnvelope, buildErrorEnvelope, type ApiEnvelope } from "./utils/response";
+// STANDALONE HEALTH ENDPOINT - NO EXTERNAL IMPORTS
 
 type Res = {
   status: (code: number) => Res;
   json: (body: unknown) => void;
   setHeader?: (name: string, value: string) => void;
-  end?: (body?: string) => void;
-};
-
-const isAbortError = (error: unknown) => {
-  const message = (error as Error)?.message?.toLowerCase?.() || "";
-  return (error as Error)?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
 };
 
 type ProviderStatus = "ok" | "warn" | "error";
 
-type ProviderConfig = {
+type ProviderResult = {
   key: string;
-  url?: string;
-  requiresKey?: string;
-  optional?: boolean;
+  status: ProviderStatus;
+  message: string;
+  latency?: number;
 };
 
-const metalApiKey = process.env.METALS_API_KEY;
-const metalPriceKey = process.env.METALPRICEAPI_KEY;
-const metalsDevKey = process.env.METALS_DEV_KEY;
-const finnhubKey = process.env.FINNHUB_API_KEY;
-const fmpKey = process.env.FMP_API_KEY || process.env.VITE_FMP_KEY;
-const alphaKey = process.env.ALPHAVANTAGE_API_KEY;
-const coreProviders = new Set(["coingecko", "cryptocompare", "binance", "kraken", "fmp", "openExchangeRate", "stooq"]);
+// Simple in-memory cache for health checks (persists across warm invocations)
+const healthCache = new Map<string, { data: ProviderResult; expires: number }>();
+const CACHE_TTL = 30000; // 30 seconds
 
-const providers: ProviderConfig[] = [
-  { key: "coingecko", url: "https://api.coingecko.com/api/v3/ping" },
-  { key: "cryptocompare", url: "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC&tsyms=USD" },
-  { key: "fmp", requiresKey: fmpKey ? undefined : "FMP_API_KEY", url: fmpKey ? "https://financialmodelingprep.com/api/v3/is-the-market-open" : undefined },
-  { key: "binance", url: "https://api.binance.com/api/v3/ping" },
-  { key: "kraken", url: "https://api.kraken.com/0/public/Time" },
-  { key: "openExchangeRate", url: "https://open.er-api.com/v6/latest/USD" },
-  { key: "stooq", url: "https://stooq.pl/q/d/l/?s=^spx&i=d" },
-  { key: "alphavantage", requiresKey: alphaKey ? undefined : "ALPHAVANTAGE_API_KEY", url: alphaKey ? `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=IBM&apikey=${alphaKey}` : undefined, optional: true },
-  { key: "finnhub", requiresKey: finnhubKey ? undefined : "FINNHUB_API_KEY", url: finnhubKey ? `https://finnhub.io/api/v1/forex/exchange?token=${finnhubKey}` : undefined, optional: true },
-  { key: "metals-api", requiresKey: metalApiKey ? undefined : "METALS_API_KEY", url: metalApiKey ? `https://metals-api.com/api/latest?access_key=${metalApiKey}&base=USD&symbols=XAU` : undefined, optional: true },
-  { key: "metalpriceapi", requiresKey: metalPriceKey ? undefined : "METALPRICEAPI_KEY", url: metalPriceKey ? `https://api.metalpriceapi.com/v1/latest?api_key=${metalPriceKey}&base=USD&currencies=XAU` : undefined, optional: true },
-  { key: "metals.dev", requiresKey: metalsDevKey ? undefined : "METALS_DEV_KEY", url: metalsDevKey ? `https://api.metals.dev/v1/latest?api_key=${metalsDevKey}&symbols=XAU` : undefined, optional: true },
+function getCached(key: string): ProviderResult | null {
+  const entry = healthCache.get(key);
+  if (entry && Date.now() < entry.expires) {
+    return entry.data;
+  }
+  healthCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: ProviderResult): ProviderResult {
+  healthCache.set(key, { data, expires: Date.now() + CACHE_TTL });
+  return data;
+}
+
+// Providers to check
+const PROVIDERS = [
+  { key: "coingecko", url: "https://api.coingecko.com/api/v3/ping", core: true },
+  { key: "cryptocompare", url: "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC&tsyms=USD", core: true },
+  { key: "binance", url: "https://api.binance.com/api/v3/ping", core: true },
+  { key: "kraken", url: "https://api.kraken.com/0/public/Time", core: true },
+  { key: "openExchangeRate", url: "https://open.er-api.com/v6/latest/USD", core: true },
+  { key: "stooq", url: "https://stooq.pl/q/d/l/?s=^spx&i=d", core: true },
 ];
 
-const normalizeStatus = (status: ProviderStatus, message = "") => ({
-  status,
-  message,
-  checkedAt: new Date().toISOString(),
-});
-
-async function probeProvider(config: ProviderConfig) {
-  const cacheId = cacheKey("health", config.key);
-  const cached = cache.get<ReturnType<typeof normalizeStatus>>(cacheId);
+async function probeProvider(provider: typeof PROVIDERS[0]): Promise<ProviderResult> {
+  const cached = getCached(provider.key);
   if (cached) return cached;
 
-  if (config.requiresKey && !process.env[config.requiresKey] && !(config.key === "fmp" && process.env.VITE_FMP_KEY)) {
-    const msg = config.optional ? "optional provider, no api key" : "API key missing";
-    return cache.set(cacheId, normalizeStatus("warn", msg));
-  }
-
-  if (!config.url) {
-    const msg = config.optional ? "optional provider, no probe" : "No probe configured";
-    return cache.set(cacheId, normalizeStatus("warn", msg));
-  }
-
+  const start = Date.now();
   try {
-    await safeFetchJson(config.url, undefined, { timeoutMs: 1500, attempts: 1 });
-    return cache.set(cacheId, normalizeStatus("ok"));
-  } catch (err: any) {
-    const isCore = coreProviders.has(config.key);
-    let status: ProviderStatus;
-    if (isCore) {
-      status = isAbortError(err) ? "warn" : "error";
-    } else {
-      status = "warn";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    
+    const response = await fetch(provider.url, {
+      signal: controller.signal,
+      headers: { "Accept": "application/json" },
+    });
+    
+    clearTimeout(timeout);
+    const latency = Date.now() - start;
+
+    if (response.ok || response.status < 500) {
+      return setCache(provider.key, {
+        key: provider.key,
+        status: "ok",
+        message: `${latency}ms`,
+        latency,
+      });
     }
-    const message = err?.message || (isCore ? "probe failed" : "optional provider unavailable");
-    return cache.set(cacheId, normalizeStatus(status, message));
+
+    return setCache(provider.key, {
+      key: provider.key,
+      status: "warn",
+      message: `HTTP ${response.status}`,
+      latency,
+    });
+  } catch (err: unknown) {
+    const latency = Date.now() - start;
+    const isTimeout = (err as Error)?.name === "AbortError";
+    return setCache(provider.key, {
+      key: provider.key,
+      status: provider.core ? "error" : "warn",
+      message: isTimeout ? "timeout" : (err as Error)?.message || "failed",
+      latency,
+    });
   }
 }
 
 export default async function handler(_req: unknown, res: Res) {
   try {
-    const entries = await Promise.all(providers.map((provider) => probeProvider(provider)));
-    const providersStatus = providers.reduce<Record<string, ProviderStatus>>((acc, provider, idx) => {
-      acc[provider.key] = entries[idx].status;
-      return acc;
-    }, {});
+    // Probe all providers in parallel
+    const results = await Promise.all(PROVIDERS.map(probeProvider));
 
-    return sendEnvelope(res, {
-      ok: true,
-      status: "ok",
+    // Build status object
+    const providers: Record<string, ProviderStatus> = {};
+    const meta: Record<string, string> = {};
+    let hasError = false;
+    let hasWarn = false;
+
+    for (const result of results) {
+      providers[result.key] = result.status;
+      if (result.message) meta[result.key] = result.message;
+      if (result.status === "error") hasError = true;
+      if (result.status === "warn") hasWarn = true;
+    }
+
+    const overallStatus = hasError ? "degraded" : hasWarn ? "partial" : "ok";
+
+    return res.status(200).json({
+      ok: !hasError,
+      status: overallStatus,
       timestamp: new Date().toISOString(),
-      providers: providersStatus,
-      meta: entries.reduce<Record<string, string>>((acc, provider, idx) => {
-        const status = entries[idx];
-        if (status.message) acc[providers[idx].key] = status.message;
-        return acc;
-      }, {}),
-    } as ApiEnvelope);
+      providers,
+      meta,
+    });
   } catch (err: unknown) {
     const errMsg = (err as Error)?.message || "Health probe failed";
-    const statusCode = isAbortError(err) ? 504 : 500;
-    return sendEnvelope(
-      res,
-      buildErrorEnvelope({
-        status: statusCode === 504 ? "disabled" : "degraded",
-        statusCode,
-        source: "health",
-        message: errMsg,
-        hint: statusCode === 504 ? "Health probe timeout" : "Probe failed",
-        errors: [errMsg],
-      })
-    );
+    return res.status(500).json({
+      ok: false,
+      status: "error",
+      timestamp: new Date().toISOString(),
+      error: errMsg,
+      providers: {},
+    });
   }
 }
