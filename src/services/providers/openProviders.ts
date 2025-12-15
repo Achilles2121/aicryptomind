@@ -119,6 +119,20 @@ export async function fetchSpotPriceFromProvider(
 
 type OhlcParams = { symbol: string; interval: number; limit?: number };
 
+const getBinanceInterval = (minutes: number): string => {
+  if (minutes >= 1440) return "1d";
+  if (minutes >= 240) return "4h";
+  if (minutes >= 60) return "1h";
+  return "15m";
+};
+
+const getKrakenInterval = (minutes: number): number => {
+  if (minutes >= 1440) return 1440;
+  if (minutes >= 240) return 240;
+  if (minutes >= 60) return 60;
+  return 15;
+};
+
 export async function fetchOhlcFromProvider(
   provider: MarketDataProviderConfig,
   params: OhlcParams
@@ -145,7 +159,7 @@ export async function fetchOhlcFromProvider(
         });
       }
       case "BINANCE": {
-        const interval = params.interval >= 1440 ? "1d" : params.interval >= 240 ? "4h" : params.interval >= 60 ? "1h" : "15m";
+        const interval = getBinanceInterval(params.interval);
         const pair = `${base}USDT`;
         const res = await safeFetch<(number | string)[][]>(
           `${provider.baseUrl}/klines?symbol=${pair}&interval=${interval}&limit=${params.limit || 120}`,
@@ -163,7 +177,7 @@ export async function fetchOhlcFromProvider(
         });
       }
       case "KRAKEN": {
-        const interval = params.interval >= 1440 ? 1440 : params.interval >= 240 ? 240 : params.interval >= 60 ? 60 : 15;
+        const interval = getKrakenInterval(params.interval);
         const mapped = base === "BTC" ? "XBTUSD" : `${base}USD`;
         const res = await safeFetch<{ result: Record<string, any[]> }>(
           `${provider.baseUrl}/public/OHLC?pair=${mapped}&interval=${interval}`,
@@ -183,7 +197,7 @@ export async function fetchOhlcFromProvider(
       }
       case "STOOQ":
       case "FX_PROVIDER": {
-        const granularity = params.interval >= 1440 ? "d" : "d";
+        const granularity = "d";
         const symbol = params.symbol.toLowerCase();
         const res = await safeFetch<string>(`${provider.baseUrl}/q/d/l/?s=${encodeURIComponent(symbol)}&i=${granularity}`, {
           uiLevel: "status",

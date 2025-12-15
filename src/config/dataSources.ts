@@ -249,7 +249,14 @@ export const isSourceEnabled = (key: DataSourceKey) => CONFIG_MAP[key]?.enabled 
 
 export const identifySource = (url?: string | RequestInfo): DataSourceKey | null => {
   if (!url) return null;
-  const target = typeof url === "string" ? url : typeof url === "object" && "url" in url ? (url as any).url : String(url);
+  let target: string;
+  if (typeof url === "string") {
+    target = url;
+  } else if (typeof url === "object" && "url" in url) {
+    target = (url as { url: string }).url;
+  } else {
+    target = String(url);
+  }
   return (
     CONFIG_LIST.find((cfg) => cfg.matchers.some((m) => (m instanceof RegExp ? m.test(target) : target.includes(m))))?.key || null
   );

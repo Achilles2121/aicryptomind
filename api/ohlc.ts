@@ -1,7 +1,7 @@
 import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson, safeFetchText } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
-import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
+import { findMarketById, type MarketConfig } from "../src/config/markets";
 import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
 import { fetchOhlcFromProvider, type StandardizedOhlc } from "../src/services/providers/openProviders";
 import { ok, fail, sendEnvelope } from "./utils/apiEnvelope.js";
@@ -377,17 +377,18 @@ async function fetchMarketOhlc(market: MarketConfig, intervalMinutes: number, li
   throw aggregate;
 }
 
+const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
+  const val = query?.[key];
+  if (typeof val === "string") return val;
+  if (Array.isArray(val)) return val[0];
+  return undefined;
+};
+
 export default async function handler(req: Req, res: Res) {
-  const intervalValue =
-    (typeof req.query?.interval === "string" ? req.query?.interval : undefined) ?? "60";
+  const intervalValue = getQueryParam(req.query, "interval") ?? "60";
   const { minutes: intervalMinutes, binance: binanceInterval } = mapInterval(intervalValue);
   try {
-    const assetParam =
-      (typeof req.query?.asset === "string"
-        ? req.query?.asset
-        : Array.isArray(req.query?.asset)
-        ? req.query?.asset[0]
-        : undefined) || undefined;
+    const assetParam = getQueryParam(req.query, "asset");
     const market = assetParam ? findMarketById(assetParam) : undefined;
     if (assetParam && !market) {
       return sendEnvelope(
@@ -458,28 +459,34 @@ export default async function handler(req: Req, res: Res) {
         if (isMetal) {
           const base = market.base || "XAU";
           const priceFetcher = async () => {
-            const key = cacheKey("metal_price", base);
-            const cachedPrice = cache.get<number>(key);
+            const cacheId = cacheKey("metal_price", base);
+            const cachedPrice = cache.get<number>(cacheId);
             if (cachedPrice) return cachedPrice;
-            const url = process.env.METALS_DEV_KEY
-              ? `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${base}`
-              : process.env.METALS_API_KEY
-              ? `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${base}`
-              : process.env.METALPRICEAPI_KEY
-              ? `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${base}`
-              : "";
+            const buildMetalUrl = (symbol: string): string => {
+              if (process.env.METALS_DEV_KEY) {
+                return `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${symbol}`;
+              }
+              if (process.env.METALS_API_KEY) {
+                return `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${symbol}`;
+              }
+              if (process.env.METALPRICEAPI_KEY) {
+                return `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${symbol}`;
+              }
+              return "";
+            };
+            const url = buildMetalUrl(base);
             if (!url) throw new Error("Metal API key missing");
-            const res = await safeFetchJson<any>(url, undefined, { timeoutMs: 4500, attempts: 1 });
+            const apiRes = await safeFetchJson<any>(url, undefined, { timeoutMs: 4500, attempts: 1 });
             const rate =
-              res?.data?.[base]?.price ??
-              res?.rates?.[base] ??
-              res?.rates?.[`${base}USD`] ??
-              res?.price ??
-              res?.[base] ??
-              res?.[`${base}USD`];
+              apiRes?.data?.[base]?.price ??
+              apiRes?.rates?.[base] ??
+              apiRes?.rates?.[`${base}USD`] ??
+              apiRes?.price ??
+              apiRes?.[base] ??
+              apiRes?.[`${base}USD`];
             const price = Number(rate);
             if (!Number.isFinite(price)) throw new Error("Metal price missing");
-            cache.set(key, price);
+            cache.set(cacheId, price);
             return price;
           };
           const candles = await fetchMetalFlatSeries(`${base}USD`, priceFetcher, limit);
@@ -542,31 +549,10 @@ export default async function handler(req: Req, res: Res) {
       }
     }
 
-    const rawSymbol =
-      (typeof req.query?.symbol === "string"
-        ? req.query?.symbol
-        : Array.isArray(req.query?.symbol)
-        ? req.query?.symbol[0]
-        : undefined) ??
-      (typeof req.query?.pair === "string"
-        ? req.query?.pair
-        : Array.isArray(req.query?.pair)
-        ? req.query?.pair[0]
-        : undefined) ??
-      "BTCUSDT";
+    const rawSymbol = getQueryParam(req.query, "symbol") ?? getQueryParam(req.query, "pair") ?? "BTCUSDT";
     const symbol = rawSymbol.toUpperCase();
-    const krakenPair =
-      (typeof req.query?.pair === "string"
-        ? req.query?.pair
-        : Array.isArray(req.query?.pair)
-        ? req.query?.pair[0]
-        : undefined) || symbol;
-    const binanceSymbol =
-      (typeof req.query?.binance === "string"
-        ? req.query?.binance
-        : Array.isArray(req.query?.binance)
-        ? req.query?.binance[0]
-        : undefined) || symbol;
+    const krakenPair = getQueryParam(req.query, "pair") || symbol;
+    const binanceSymbol = getQueryParam(req.query, "binance") || symbol;
 
     const key = cacheKey("ohlc", symbol, binanceSymbol, krakenPair, binanceInterval, limit);
     const cached = cache.get<{ candles: Candle[]; provider?: string; krakenPair?: string; binanceSymbol?: string }>(key);

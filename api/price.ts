@@ -1,4 +1,3 @@
-import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
 import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
@@ -92,16 +91,23 @@ const fetchFxFromExchangeRateHost = async (base: string, quote: string): Promise
   return { base, quote, price: rate, provider: "exchangerate.host", timestamp: now() };
 };
 
+const buildMetalApiUrl = (symbol: string): string => {
+  if (process.env.METALS_DEV_KEY) {
+    return `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${symbol}`;
+  }
+  if (process.env.METALS_API_KEY) {
+    return `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${symbol}`;
+  }
+  if (process.env.METALPRICEAPI_KEY) {
+    return `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${symbol}`;
+  }
+  return `https://www.goldapi.io/api/${symbol}/USD`;
+};
+
 const fetchMetalFromMetalsDev = async (symbol: string): Promise<MetalPrice> => {
   const key = process.env.METALS_DEV_KEY || process.env.METALS_API_KEY || process.env.METALPRICEAPI_KEY || process.env.GOLDAPI_KEY;
   if (!key) throw new Error("Metal API key missing");
-  const url = process.env.METALS_DEV_KEY
-    ? `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${symbol}`
-    : process.env.METALS_API_KEY
-    ? `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${symbol}`
-    : process.env.METALPRICEAPI_KEY
-    ? `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${symbol}`
-    : `https://www.goldapi.io/api/${symbol}/USD`;
+  const url = buildMetalApiUrl(symbol);
 
   const res = await safeFetchJson<any>(url, process.env.GOLDAPI_KEY ? { headers: { "x-access-token": process.env.GOLDAPI_KEY } } : undefined, {
     timeoutMs: 4500,
@@ -221,24 +227,19 @@ async function fetchMarketPrice(market: MarketConfig) {
   throw aggregate;
 }
 
+const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
+  const val = query?.[key];
+  if (typeof val === "string") return val;
+  if (Array.isArray(val)) return val[0];
+  return undefined;
+};
+
 export default async function handler(req: Req, res: Res) {
-  let requestedAssetId = DEFAULT_MARKET_ID;
-  let requestedSymbol = "BTCUSDT";
   try {
-    const assetParamRaw =
-      (typeof req.query?.asset === "string"
-        ? req.query?.asset
-        : Array.isArray(req.query?.asset)
-        ? req.query?.asset[0]
-        : undefined) || undefined;
+    const assetParamRaw = getQueryParam(req.query, "asset");
     const assetParam = assetParamRaw?.toUpperCase?.();
 
-    const symbolParam =
-      (typeof req.query?.symbol === "string"
-        ? req.query?.symbol
-        : Array.isArray(req.query?.symbol)
-        ? req.query?.symbol[0]
-        : undefined) || undefined;
+    const symbolParam = getQueryParam(req.query, "symbol");
 
     const supportedAssets = ["BTCUSD", "BTCUSDT", "EURUSD", "XAUUSD"];
     if (!assetParam || !supportedAssets.includes(assetParam)) {
@@ -265,8 +266,6 @@ export default async function handler(req: Req, res: Res) {
         })
       );
     }
-
-    requestedSymbol = assetParam;
 
     // Fast-path for required assets
     if (assetParam.startsWith("BTC")) {
@@ -349,7 +348,6 @@ export default async function handler(req: Req, res: Res) {
     // Fallback to legacy market config for other assets (kept for compatibility)
     const market = assetParam ? findMarketById(assetParam) : undefined;
     const resolvedMarket = market ?? getMarketById(assetParam || DEFAULT_MARKET_ID);
-    requestedAssetId = resolvedMarket.id;
     const symbol =
       (symbolParam ||
         findProviderSymbol(resolvedMarket, "binance") ||

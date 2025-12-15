@@ -72,7 +72,12 @@ async function probeProvider(config: ProviderConfig) {
     return cache.set(cacheId, normalizeStatus("ok"));
   } catch (err: any) {
     const isCore = coreProviders.has(config.key);
-    const status: ProviderStatus = isCore ? (isAbortError(err) ? "warn" : "error") : "warn";
+    let status: ProviderStatus;
+    if (isCore) {
+      status = isAbortError(err) ? "warn" : "error";
+    } else {
+      status = "warn";
+    }
     const message = err?.message || (isCore ? "probe failed" : "optional provider unavailable");
     return cache.set(cacheId, normalizeStatus(status, message));
   }

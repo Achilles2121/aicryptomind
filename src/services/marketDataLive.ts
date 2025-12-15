@@ -15,6 +15,16 @@ const toSeconds = (value: number) => {
   return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
 };
 
+const extractCandlesArray = (res: unknown): any[] => {
+  if (Array.isArray(res)) return res;
+  const apiRes = res as Record<string, unknown>;
+  const nestedCandles = (apiRes?.data as Record<string, unknown>)?.candles;
+  if (Array.isArray(nestedCandles)) return nestedCandles;
+  if (Array.isArray(apiRes?.data)) return apiRes.data as any[];
+  if (Array.isArray(apiRes?.candles)) return apiRes.candles as any[];
+  return [];
+};
+
 type OhlcRow = {
   time: number;
   label: string;
@@ -134,16 +144,7 @@ const fetchProxyHtf = async (
       onHealthUpdate?.("MARKET_HTF_PRIMARY", healthStatus, message);
       return [];
     }
-    const nestedCandles = (apiRes as { data?: { candles?: any[] } })?.data?.candles;
-    const rows = Array.isArray(nestedCandles)
-      ? nestedCandles
-      : Array.isArray(apiRes?.data)
-      ? apiRes.data
-      : Array.isArray(apiRes?.candles)
-      ? apiRes.candles
-      : Array.isArray(res)
-      ? (res as any[])
-      : [];
+    const rows = extractCandlesArray(res);
     if (!rows.length) {
       onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", "Empty OHLC response");
       return [];
@@ -181,16 +182,7 @@ const fetchProxyHtfFallback = async (
       onHealthUpdate?.("MARKET_HTF_FALLBACK", healthStatus, message);
       return [];
     }
-    const nestedCandles = (apiRes as { data?: { candles?: any[] } })?.data?.candles;
-    const rows = Array.isArray(nestedCandles)
-      ? nestedCandles
-      : Array.isArray(apiRes?.data)
-      ? apiRes.data
-      : Array.isArray(apiRes?.candles)
-      ? apiRes.candles
-      : Array.isArray(res)
-      ? (res as any[])
-      : [];
+    const rows = extractCandlesArray(res);
     if (!rows.length) {
       onHealthUpdate?.("MARKET_HTF_FALLBACK", "warn", "Empty OHLC response");
       return [];
