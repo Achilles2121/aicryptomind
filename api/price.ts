@@ -117,51 +117,6 @@ const fetchMetalFromMetalsDev = async (symbol: string): Promise<MetalPrice> => {
   return { symbol, price, provider: "metals", timestamp: now() };
 };
 
-// Legacy provider fallbacks
-async function fetchBinance(symbol: string) {
-  const pair = symbol.replace("/", "").toUpperCase();
-  const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
-  const data = await safeFetch<{ price: string }>(url, { timeoutMs: 2500 });
-  return {
-    source: "binance" as const,
-    symbol: pair,
-    price: Number(data.price),
-    timestamp: now(),
-  };
-}
-
-async function fetchKraken(symbol: string) {
-  const pair = symbol.replace("/", "").toUpperCase();
-  const mapped = pair === "BTCUSDT" ? "XBTUSDT" : pair;
-  const url = `https://api.kraken.com/0/public/Ticker?pair=${mapped}`;
-  const data = await safeFetch<{
-    result: Record<string, { c: [string] }>;
-  }>(url, { timeoutMs: 3000 });
-  const first = Object.values(data.result ?? {})[0];
-  const price = first?.c?.[0];
-  if (!price) throw new Error("No price from Kraken");
-  return {
-    source: "kraken" as const,
-    symbol: pair,
-    price: Number(price),
-    timestamp: now(),
-  };
-}
-
-async function fetchCoinGecko(symbol: string) {
-  const id = symbolToId[symbol.replace("/", "").toUpperCase()] ?? "bitcoin";
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`;
-  const data = await safeFetch<Record<string, { usd: number }>>(url, { timeoutMs: 3000 });
-  const entry = data[id];
-  if (!entry) throw new Error("No CoinGecko price");
-  return {
-    source: "coingecko" as const,
-    symbol: symbol.replace("/", "").toUpperCase(),
-    price: Number(entry.usd),
-    timestamp: now(),
-  };
-}
-
 const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
   const val = query?.[key];
   if (typeof val === "string") return val;
