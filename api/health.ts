@@ -29,7 +29,7 @@ const metalsDevKey = process.env.METALS_DEV_KEY;
 const finnhubKey = process.env.FINNHUB_API_KEY;
 const fmpKey = process.env.FMP_API_KEY || process.env.VITE_FMP_KEY;
 const alphaKey = process.env.ALPHAVANTAGE_API_KEY;
-const coreProviders = new Set(["coingecko", "cryptocompare", "binance", "kraken", "fmp"]);
+const coreProviders = new Set(["coingecko", "cryptocompare", "binance", "kraken", "fmp", "openExchangeRate", "stooq"]);
 
 const providers: ProviderConfig[] = [
   { key: "coingecko", url: "https://api.coingecko.com/api/v3/ping" },
@@ -37,8 +37,8 @@ const providers: ProviderConfig[] = [
   { key: "fmp", requiresKey: fmpKey ? undefined : "FMP_API_KEY", url: fmpKey ? "https://financialmodelingprep.com/api/v3/is-the-market-open" : undefined },
   { key: "binance", url: "https://api.binance.com/api/v3/ping" },
   { key: "kraken", url: "https://api.kraken.com/0/public/Time" },
-  { key: "freeforexapi", url: "https://freeforexapi.com/api/live?pairs=EURUSD" },
-  { key: "exchangeratehost", url: "https://api.exchangerate.host/convert?from=EUR&to=USD" },
+  { key: "openExchangeRate", url: "https://open.er-api.com/v6/latest/USD" },
+  { key: "stooq", url: "https://stooq.pl/q/d/l/?s=^spx&i=d" },
   { key: "alphavantage", requiresKey: alphaKey ? undefined : "ALPHAVANTAGE_API_KEY", url: alphaKey ? `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=IBM&apikey=${alphaKey}` : undefined, optional: true },
   { key: "finnhub", requiresKey: finnhubKey ? undefined : "FINNHUB_API_KEY", url: finnhubKey ? `https://finnhub.io/api/v1/forex/exchange?token=${finnhubKey}` : undefined, optional: true },
   { key: "metals-api", requiresKey: metalApiKey ? undefined : "METALS_API_KEY", url: metalApiKey ? `https://metals-api.com/api/latest?access_key=${metalApiKey}&base=USD&symbols=XAU` : undefined, optional: true },
