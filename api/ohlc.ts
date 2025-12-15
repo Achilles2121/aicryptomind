@@ -4,7 +4,9 @@ import { isRateLimited } from "./utils/rateLimit";
 import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
 import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
 import { fetchOhlcFromProvider, type StandardizedOhlc } from "../src/services/providers/openProviders";
-import { ok, fail, okEnvelope, failEnvelope, sendEnvelope, ApiStatus } from "./utils/apiEnvelope.js";
+import { ok, fail, sendEnvelope } from "./utils/apiEnvelope.js";
+
+// If this endpoint returns a Vercel Authentication HTML page in production, disable deployment protection/auth. See docs/vercel-auth.md.
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -187,6 +189,42 @@ const fetchMetalFlatSeries = async (symbol: string, priceFetcher: () => Promise<
     });
   }
   return candles;
+};
+
+const fetchStooqDaily = async (symbol: string, limit: number): Promise<Candle[]> => {
+  const url = `https://stooq.pl/q/d/l/?s=${encodeURIComponent(symbol.toLowerCase())}&i=d`;
+  const csv = await safeFetchJson<string>(url, undefined, { timeoutMs: 5000, attempts: 1 });
+  if (typeof csv !== "string") throw new Error("Stooq response invalid");
+  const lines = csv.trim().split(/\r?\n/).slice(1);
+  const rows = lines
+    .map((line) => {
+      const [date, open, high, low, close, volume] = line.split(",");
+      const t = Date.parse(date);
+      if (!Number.isFinite(t)) return null;
+      const o = Number(open);
+      const h = Number(high);
+      const l = Number(low);
+      const c = Number(close);
+      const v = Number(volume) || 0;
+      if ([o, h, l, c].some((n) => Number.isNaN(n))) return null;
+      return {
+        t,
+        o,
+        h,
+        l,
+        c,
+        v,
+        time: t,
+        open: o,
+        high: h,
+        low: l,
+        close: c,
+        volume: v,
+        provider: "stooq",
+      };
+    })
+    .filter(Boolean) as Candle[];
+  return rows.slice(-limit);
 };
 
 async function fetchBinance(symbol: string, interval: string, limit: number) {
@@ -382,8 +420,8 @@ export default async function handler(req: Req, res: Res) {
       }
       const isFx = market.assetClass === "fx";
       const isMetal = market.assetClass === "commodity" || /^XA(U|G)/i.test(market.base || "");
-      if (isFx) {
-        try {
+      try {
+        if (isFx) {
           const base = market.base || market.id.slice(0, 3);
           const quote = market.quote || market.id.slice(3);
           const candles = await fetchFxDailySeries(base, quote, limit);
@@ -400,56 +438,33 @@ export default async function handler(req: Req, res: Res) {
               cached: false,
             }) as ApiEnvelope<Candle[]>
           );
-        } catch (err: any) {
-          const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "fallback" }));
-          return sendEnvelope(
-            res,
-            fail("degraded", {
-              source: "ohlc",
-              statusCode: 502,
-              message: err?.message || "FX OHLC unavailable",
-              hint: "fx_fallback",
-              data: fallback,
-            }) as ApiEnvelope<Candle[]>
-          );
         }
-      }
-      if (isMetal) {
-        try {
+        if (isMetal) {
           const base = market.base || "XAU";
           const priceFetcher = async () => {
             const key = cacheKey("metal_price", base);
             const cachedPrice = cache.get<number>(key);
             if (cachedPrice) return cachedPrice;
-            const fetchers: Array<() => Promise<number>> = [];
-            if (process.env.METALS_API_KEY) {
-              fetchers.push(async () => {
-                const url = `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${base}USD`;
-                const res = await safeFetchJson<{ rates?: Record<string, number> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
-                const rate = res?.rates?.[`${base}USD`] ?? res?.rates?.[base];
-                if (!Number.isFinite(rate)) throw new Error("metals-api price missing");
-                return Number(rate);
-              });
-            }
-            if (process.env.METALPRICEAPI_KEY) {
-              fetchers.push(async () => {
-                const url = `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${base}USD`;
-                const res = await safeFetchJson<{ rates?: Record<string, number> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
-                const rate = res?.rates?.[`${base}USD`] ?? res?.rates?.[base];
-                if (!Number.isFinite(rate)) throw new Error("metalpriceapi price missing");
-                return Number(rate);
-              });
-            }
-            for (const fn of fetchers) {
-              try {
-                const price = await fn();
-                cache.set(key, price);
-                return price;
-              } catch {
-                // continue
-              }
-            }
-            throw new Error("No metal price");
+            const url = process.env.METALS_DEV_KEY
+              ? `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${base}`
+              : process.env.METALS_API_KEY
+              ? `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${base}`
+              : process.env.METALPRICEAPI_KEY
+              ? `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${base}`
+              : "";
+            if (!url) throw new Error("Metal API key missing");
+            const res = await safeFetchJson<any>(url, undefined, { timeoutMs: 4500, attempts: 1 });
+            const rate =
+              res?.data?.[base]?.price ??
+              res?.rates?.[base] ??
+              res?.rates?.[`${base}USD`] ??
+              res?.price ??
+              res?.[base] ??
+              res?.[`${base}USD`];
+            const price = Number(rate);
+            if (!Number.isFinite(price)) throw new Error("Metal price missing");
+            cache.set(key, price);
+            return price;
           };
           const candles = await fetchMetalFlatSeries(`${base}USD`, priceFetcher, limit);
           const payload = { candles, provider: "metals", interval: intervalMinutes };
@@ -465,35 +480,50 @@ export default async function handler(req: Req, res: Res) {
               cached: false,
             }) as ApiEnvelope<Candle[]>
           );
-        } catch (err: any) {
-          const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "fallback" }));
+        }
+        if (market.id === "SPX" || market.id === "SP500" || market.id === "SP500USD") {
+          const candles = await fetchStooqDaily("^spx", limit);
+          cache.set(cacheId, { candles, provider: "stooq" });
           return sendEnvelope(
             res,
-            fail("degraded", {
+            ok(candles, {
               source: "ohlc",
-              statusCode: 502,
-              message: err?.message || "Metal OHLC unavailable",
-              hint: "metal_fallback",
-              data: fallback,
+              statusCode: 200,
+              symbol: market.id,
+              interval: intervalMinutes,
+              provider: "stooq",
+              cached: false,
             }) as ApiEnvelope<Candle[]>
           );
         }
+        const { candles, provider, errors } = await fetchMarketOhlc(market, intervalMinutes, limit);
+        const payload = { candles, provider, interval: intervalMinutes };
+        cache.set(cacheId, payload);
+        return sendEnvelope(
+          res,
+          ok(candles, {
+            source: "ohlc",
+            statusCode: 200,
+            symbol: market.id,
+            interval: intervalMinutes,
+            provider,
+            cached: false,
+            errors: errors?.map((e) => e.message),
+          }) as ApiEnvelope<Candle[]>
+        );
+      } catch (err: any) {
+        const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "fallback" }));
+        return sendEnvelope(
+          res,
+          fail("degraded", {
+            source: "ohlc",
+            statusCode: 502,
+            message: err?.message || "OHLC fetch failed",
+            hint: "fallback_series",
+            data: fallback,
+          }) as ApiEnvelope<Candle[]>
+        );
       }
-      const { candles, provider, errors } = await fetchMarketOhlc(market, intervalMinutes, limit);
-      const payload = { candles, provider, interval: intervalMinutes };
-      cache.set(cacheId, payload);
-      return sendEnvelope(
-        res,
-        ok(candles, {
-          source: "ohlc",
-          statusCode: 200,
-          symbol: market.id,
-          interval: intervalMinutes,
-          provider,
-          cached: false,
-          errors: errors?.map((e) => e.message),
-        }) as ApiEnvelope<Candle[]>
-      );
     }
     }
 

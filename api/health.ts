@@ -98,7 +98,7 @@ export default async function handler(_req: unknown, res: Res) {
       }, {}),
     } as ApiEnvelope);
   } catch (err: any) {
-    const statusCode = isAbortError(err) ? 504 : 502;
+    const statusCode = isAbortError(err) ? 504 : 500;
     return sendEnvelope(
       res,
       buildErrorEnvelope({

@@ -4,8 +4,10 @@ import { isRateLimited } from "./utils/rateLimit";
 import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
 import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
 import { fetchOhlcFromProvider } from "../src/services/providers/openProviders";
-import { ok, fail, okEnvelope, failEnvelope, sendEnvelope, ApiStatus } from "./utils/apiEnvelope.js";
+import { ok, fail, sendEnvelope } from "./utils/apiEnvelope.js";
 import type { ApiEnvelope } from "./utils/response";
+
+// If this endpoint returns a Vercel Authentication HTML page in production, disable deployment protection/auth. See docs/vercel-auth.md.
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -24,6 +26,7 @@ const symbolToId: Record<string, string> = {
   BTCUSDT: "bitcoin",
   ETHUSDT: "ethereum",
   SOLUSDT: "solana",
+  BTCUSD: "bitcoin",
 };
 
 const normalizeProviderId = (id?: string) => (id || "").toLowerCase();
@@ -61,134 +64,52 @@ const generateFallbackPrice = (symbol: string) => {
 type FxPrice = { base: string; quote: string; price: number; provider: string; timestamp: number };
 type MetalPrice = { symbol: string; price: number; provider: string; timestamp: number };
 
-// --- FX helpers ---
-const fetchFxFromFreeForex = async (base: string, quote: string): Promise<FxPrice> => {
-  const pair = `${base}${quote}`.toUpperCase();
-  const url = `https://freeforexapi.com/api/live?pairs=${pair}`;
-  const res = await safeFetchJson<{ rates?: Record<string, { rate: number; timestamp: number }> }>(url, undefined, {
-    timeoutMs: 2500,
-    attempts: 1,
-  });
-  const entry = res?.rates?.[pair];
-  if (!entry || !Number.isFinite(entry.rate)) throw new Error("FreeForex missing rate");
-  return { base, quote, price: Number(entry.rate), provider: "freeforexapi", timestamp: (entry.timestamp || now()) * 1000 };
+// --- Simple helpers for robustness ---
+const fetchBtcUsd = async (): Promise<{ price: number; source: string; timestamp: number }> => {
+  const url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+  const data = await safeFetchJson<Record<string, { usd: number }>>(url, undefined, { timeoutMs: 4500, attempts: 1 });
+  const price = Number(data?.bitcoin?.usd);
+  if (!Number.isFinite(price)) throw new Error("CoinGecko BTC price missing");
+  return { price, source: "coingecko", timestamp: now() };
 };
 
 const fetchFxFromExchangeRateHost = async (base: string, quote: string): Promise<FxPrice> => {
   const url = `https://api.exchangerate.host/convert?from=${encodeURIComponent(base)}&to=${encodeURIComponent(quote)}`;
-  const res = await safeFetchJson<{ result?: number; info?: { rate?: number } }>(url, undefined, { timeoutMs: 3000, attempts: 1 });
+  const res = await safeFetchJson<{ result?: number; info?: { rate?: number } }>(url, undefined, { timeoutMs: 4000, attempts: 1 });
   const rate = Number(res?.result ?? res?.info?.rate);
   if (!Number.isFinite(rate)) throw new Error("ExchangeRateHost missing rate");
   return { base, quote, price: rate, provider: "exchangerate.host", timestamp: now() };
 };
 
-const fetchFxFromAlphaVantage = async (base: string, quote: string): Promise<FxPrice> => {
-  const key = process.env.ALPHAVANTAGE_API_KEY;
-  if (!key) throw new Error("AlphaVantage key missing");
-  const url = `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(
-    base
-  )}&to_currency=${encodeURIComponent(quote)}&apikey=${key}`;
-  const res = await safeFetchJson<{ "Realtime Currency Exchange Rate"?: Record<string, string> }>(url, undefined, {
-    timeoutMs: 3500,
+const fetchMetalFromMetalsDev = async (symbol: string): Promise<MetalPrice> => {
+  const key = process.env.METALS_DEV_KEY || process.env.METALS_API_KEY || process.env.METALPRICEAPI_KEY || process.env.GOLDAPI_KEY;
+  if (!key) throw new Error("Metal API key missing");
+  const url = process.env.METALS_DEV_KEY
+    ? `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${symbol}`
+    : process.env.METALS_API_KEY
+    ? `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${symbol}`
+    : process.env.METALPRICEAPI_KEY
+    ? `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${symbol}`
+    : `https://www.goldapi.io/api/${symbol}/USD`;
+
+  const res = await safeFetchJson<any>(url, process.env.GOLDAPI_KEY ? { headers: { "x-access-token": process.env.GOLDAPI_KEY } } : undefined, {
+    timeoutMs: 4500,
     attempts: 1,
   });
-  const rateStr = res?.["Realtime Currency Exchange Rate"]?.["5. Exchange Rate"];
-  const rate = Number(rateStr);
-  if (!Number.isFinite(rate)) throw new Error("AlphaVantage missing rate");
-  return { base, quote, price: rate, provider: "alphavantage", timestamp: now() };
+  const rate =
+    res?.data?.[symbol]?.price ??
+    res?.rates?.[symbol] ??
+    res?.price ??
+    res?.[symbol] ??
+    res?.[`${symbol}USD`] ??
+    res?.[symbol.toLowerCase()];
+  const price = Number(rate);
+  if (!Number.isFinite(price)) throw new Error("Metal price missing");
+  return { symbol, price, provider: "metals", timestamp: now() };
 };
 
-const fetchFxFromFinnhub = async (base: string, quote: string): Promise<FxPrice> => {
-  const key = process.env.FINNHUB_API_KEY;
-  if (!key) throw new Error("Finnhub key missing");
-  const symbol = `${base}${quote}`.toUpperCase();
-  const url = `https://finnhub.io/api/v1/forex/rate?from=${base.toUpperCase()}&to=${quote.toUpperCase()}&token=${key}`;
-  const res = await safeFetchJson<{ price?: number }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
-  const rate = Number(res?.price);
-  if (!Number.isFinite(rate)) throw new Error("Finnhub missing rate");
-  return { base, quote, price: rate, provider: "finnhub", timestamp: now() };
-};
 
-async function fetchFxRate(base: string, quote: string): Promise<{ data: FxPrice; errors: ReturnType<typeof normalizeError>[] }> {
-  const errors: ReturnType<typeof normalizeError>[] = [];
-  const attempts: Array<() => Promise<FxPrice>> = [() => fetchFxFromFreeForex(base, quote), () => fetchFxFromExchangeRateHost(base, quote)];
-  if (process.env.ALPHAVANTAGE_API_KEY) attempts.push(() => fetchFxFromAlphaVantage(base, quote));
-  if (process.env.FINNHUB_API_KEY) attempts.push(() => fetchFxFromFinnhub(base, quote));
-  for (const attempt of attempts) {
-    try {
-      const data = await attempt();
-      return { data, errors };
-    } catch (err) {
-      errors.push(normalizeError(attempt.name || "fx", err));
-    }
-  }
-  const aggregate = new Error("All FX providers failed");
-  (aggregate as any).errors = errors;
-  throw aggregate;
-}
-
-// --- Metal helpers ---
-const fetchMetalFromMetalsApi = async (symbol: string): Promise<MetalPrice> => {
-  const key = process.env.METALS_API_KEY;
-  if (!key) throw new Error("METALS_API_KEY missing");
-  const url = `https://metals-api.com/api/latest?access_key=${key}&base=USD&symbols=${symbol}`;
-  const res = await safeFetchJson<{ rates?: Record<string, number> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
-  const rate = res?.rates?.[symbol];
-  if (!Number.isFinite(rate)) throw new Error("Metals-API missing rate");
-  return { symbol, price: Number(rate), provider: "metals-api", timestamp: now() };
-};
-
-const fetchMetalFromMetalpriceapi = async (symbol: string): Promise<MetalPrice> => {
-  const key = process.env.METALPRICEAPI_KEY;
-  if (!key) throw new Error("METALPRICEAPI_KEY missing");
-  const url = `https://api.metalpriceapi.com/v1/latest?api_key=${key}&base=USD&currencies=${symbol}`;
-  const res = await safeFetchJson<{ rates?: Record<string, number> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
-  const rate = res?.rates?.[symbol];
-  if (!Number.isFinite(rate)) throw new Error("Metalpriceapi missing rate");
-  return { symbol, price: Number(rate), provider: "metalpriceapi", timestamp: now() };
-};
-
-const fetchMetalFromGoldApi = async (symbol: string): Promise<MetalPrice> => {
-  const key = process.env.GOLDAPI_KEY;
-  if (!key) throw new Error("GOLDAPI_KEY missing");
-  const url = `https://www.goldapi.io/api/${symbol}/USD`;
-  const res = await safeFetchJson<{ price?: number }>(url, { headers: { "x-access-token": key } }, { timeoutMs: 3500, attempts: 1 });
-  const rate = res?.price;
-  if (!Number.isFinite(rate)) throw new Error("GoldAPI missing rate");
-  return { symbol, price: Number(rate), provider: "goldapi", timestamp: now() };
-};
-
-const fetchMetalFromMetalsDev = async (symbol: string): Promise<MetalPrice> => {
-  const key = process.env.METALS_DEV_KEY;
-  if (!key) throw new Error("METALS_DEV_KEY missing");
-  const url = `https://api.metals.dev/v1/latest?api_key=${key}&symbols=${symbol}`;
-  const res = await safeFetchJson<{ data?: Record<string, { price?: number }> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
-  const rate = res?.data?.[symbol]?.price;
-  if (!Number.isFinite(rate)) throw new Error("metals.dev missing rate");
-  return { symbol, price: Number(rate), provider: "metals.dev", timestamp: now() };
-};
-
-async function fetchMetalPrice(symbol: string): Promise<{ data: MetalPrice; errors: ReturnType<typeof normalizeError>[] }> {
-  const sym = symbol.toUpperCase();
-  const errors: ReturnType<typeof normalizeError>[] = [];
-  const attempts: Array<() => Promise<MetalPrice>> = [];
-  if (process.env.METALS_API_KEY) attempts.push(() => fetchMetalFromMetalsApi(sym));
-  if (process.env.METALPRICEAPI_KEY) attempts.push(() => fetchMetalFromMetalpriceapi(sym));
-  if (process.env.GOLDAPI_KEY) attempts.push(() => fetchMetalFromGoldApi(sym));
-  if (process.env.METALS_DEV_KEY) attempts.push(() => fetchMetalFromMetalsDev(sym));
-  for (const attempt of attempts) {
-    try {
-      const data = await attempt();
-      return { data, errors };
-    } catch (err) {
-      errors.push(normalizeError(attempt.name || "metal", err));
-    }
-  }
-  const aggregate = new Error("All metal providers failed");
-  (aggregate as any).errors = errors;
-  throw aggregate;
-}
-
+// Legacy provider fallbacks (kept for other markets)
 async function fetchBinance(symbol: string) {
   const pair = symbol.replace("/", "").toUpperCase();
   const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
@@ -357,22 +278,48 @@ export default async function handler(req: Req, res: Res) {
     const isCrypto = resolvedMarket.assetClass === "crypto";
     let data: any;
     let errors: ReturnType<typeof normalizeError>[] = [];
-    if (isCrypto) {
-      const result = await resolvePrice(symbol);
-      data = result.data;
-      errors = result.errors;
-    } else if (isFx) {
-      const fxRes = await fetchFxRate(resolvedMarket.base || symbol.slice(0, 3), resolvedMarket.quote || symbol.slice(3));
-      data = { source: fxRes.data.provider, symbol: `${fxRes.data.base}${fxRes.data.quote}`, price: fxRes.data.price, timestamp: fxRes.data.timestamp };
-      errors = fxRes.errors;
-    } else if (isMetal) {
-      const metalRes = await fetchMetalPrice(resolvedMarket.base || symbol);
-      data = { source: metalRes.data.provider, symbol: metalRes.data.symbol, price: metalRes.data.price, timestamp: metalRes.data.timestamp };
-      errors = metalRes.errors;
-    } else {
-      const result = await fetchMarketPrice(resolvedMarket);
-      data = result.data;
-      errors = result.errors;
+    try {
+      if (isCrypto) {
+        // Simple BTC/USD first, then legacy providers
+        if (requestedSymbol.startsWith("BTC")) {
+          const btc = await fetchBtcUsd();
+          data = { source: btc.source, symbol: "BTCUSD", price: btc.price, timestamp: btc.timestamp };
+        } else {
+          const result = await resolvePrice(symbol);
+          data = result.data;
+          errors = result.errors;
+        }
+      } else if (isFx) {
+        const fxRes = await fetchFxFromExchangeRateHost(resolvedMarket.base || symbol.slice(0, 3), resolvedMarket.quote || symbol.slice(3));
+        data = { source: fxRes.provider, symbol: `${fxRes.base}${fxRes.quote}`, price: fxRes.price, timestamp: fxRes.timestamp };
+      } else if (isMetal) {
+        const metalRes = await fetchMetalFromMetalsDev(resolvedMarket.base || symbol);
+        data = { source: metalRes.provider, symbol: metalRes.symbol, price: metalRes.price, timestamp: metalRes.timestamp };
+      } else {
+        const result = await fetchMarketPrice(resolvedMarket);
+        data = result.data;
+        errors = result.errors;
+      }
+    } catch (err: any) {
+      const primary = normalizeError(resolvedMarket.assetClass || "price", err);
+      const fallback = {
+        value: generateFallbackPrice(requestedSymbol || "BTCUSDT"),
+        change24h: null,
+        source: "fallback",
+        symbol: requestedAssetId || "BTCUSDT",
+        updatedAt: new Date().toISOString(),
+      };
+      return sendEnvelope(
+        res,
+        fail("error", {
+          source: "price",
+          statusCode: 500,
+          message: primary.message || "Price fetch failed",
+          hint: primary.hint || "fallback_served",
+          errors: [primary.message],
+          data: fallback,
+        }) as ApiEnvelope
+      );
     }
     const payload = {
       value: data.price,
