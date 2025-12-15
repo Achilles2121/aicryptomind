@@ -96,17 +96,41 @@ export async function loadChart(
   return null;
 }
 
-export const buildFallbackChart = (length = 24): Candle[] => {
+/**
+ * Build realistic-looking fallback chart data with synthetic candles.
+ * Generates a random walk so indicators like RSI/MACD can still calculate values.
+ * @param length Number of candles to generate
+ * @param basePrice Starting price (default 100 for neutral display)
+ * @param volatility Price movement factor (0.01 = 1% max move per candle)
+ */
+export const buildFallbackChart = (length = 24, basePrice = 100, volatility = 0.01): Candle[] => {
   const now = Math.floor(Date.now() / 1000);
-  return Array.from({ length }, (_, idx) => ({
-    time: now - (length - idx) * 3600,
-    open: 0,
-    high: 0,
-    low: 0,
-    close: 0,
-    volume: 0,
-    provider: "fallback",
-  }));
+  let price = basePrice;
+  const candles: Candle[] = [];
+
+  for (let idx = 0; idx < length; idx++) {
+    // Random walk: each candle moves within ±volatility range
+    const changePercent = (Math.random() - 0.5) * 2 * volatility;
+    const open = price;
+    const close = price * (1 + changePercent);
+    const high = Math.max(open, close) * (1 + Math.random() * volatility * 0.5);
+    const low = Math.min(open, close) * (1 - Math.random() * volatility * 0.5);
+    const volume = Math.round(1000 + Math.random() * 9000); // 1k-10k volume range
+
+    candles.push({
+      time: now - (length - idx) * 3600,
+      open: parseFloat(open.toFixed(2)),
+      high: parseFloat(high.toFixed(2)),
+      low: parseFloat(low.toFixed(2)),
+      close: parseFloat(close.toFixed(2)),
+      volume,
+      provider: "fallback",
+    });
+
+    price = close; // Next candle starts at previous close
+  }
+
+  return candles;
 };
 
 export const showFallbackChart = () => buildFallbackChart();

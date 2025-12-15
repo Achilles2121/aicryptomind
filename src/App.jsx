@@ -1007,6 +1007,20 @@ function App() {
     return unsubscribe;
   }, []);
 
+  // Bekannte API-Fehler die keine Toast-Meldung brauchen (Rate Limits, CORS, etc.)
+  const isKnownApiIssue = (source, message) => {
+    const msg = (message || "").toLowerCase();
+    const src = (source || "").toLowerCase();
+    // Rate limits und bekannte temporäre Fehler
+    if (msg.includes("429") || msg.includes("rate limit")) return true;
+    if (msg.includes("cors") || msg.includes("network")) return true;
+    if (msg.includes("timeout") || msg.includes("abort")) return true;
+    // Bekannte Services die oft temporär ausfallen
+    const knownFlaky = ["coingecko", "binance", "kraken", "glassnode", "santiment"];
+    if (knownFlaky.some((s) => src.includes(s))) return true;
+    return false;
+  };
+
   const logEvent = (source, level = "info", message = "", meta = {}) => {
     const key = `${source}:${level}:${message || ""}`;
     const now = Date.now();
@@ -1020,10 +1034,12 @@ function App() {
       else console.log("[log]", payload);
     }
     const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
-    if (!isEtfService && level === "error") {
+    // Keine Toast-Meldungen für bekannte temporäre API-Probleme
+    const showToast = !isEtfService && level === "error" && !isKnownApiIssue(source, message);
+    if (showToast) {
       addToast(`${source}: ${message || level}`, "error", {
         key: source || message,
-        cooldownMs: 30000,
+        cooldownMs: 60000, // Längere Cooldown Zeit (1 Minute)
       });
     }
   };
@@ -1053,9 +1069,12 @@ function App() {
       };
       reconcileEtfAggregator();
       const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
+      // Keine Recovery-Toast für bekannte flaky Services oder ETF-Services
+      const showRecoveryToast = !isEtfService && !isKnownApiIssue(source, message);
       if ((prevStatus === "error" || prevStatus === "degraded" || prevStatus === "fallback") && status === "ok") {
-        if (!isEtfService) addToast(`${source} wiederhergestellt`, "info", { allowInfoWarn: true });
+        if (showRecoveryToast) addToast(`${source} wiederhergestellt`, "info", { allowInfoWarn: true });
       } else if (status === "error" || status === "degraded" || status === "fallback") {
+        // Nur loggen, Toast wird in logEvent kontrolliert
         logEvent(source, status === "error" ? "error" : "warn", message || "API issue");
       }
       return next;
