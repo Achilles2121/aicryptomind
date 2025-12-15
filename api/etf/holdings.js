@@ -78,7 +78,7 @@ async function buildHolding(symbol, tracker, fetchSoso, fetchCoinstats) {
         lastUpdated: new Date().toISOString(),
       };
     } catch (err) {
-      const status = i === attempts.length - 1 ? "error" : "degraded";
+      const status = i === attempts.length - 1 ? "warn" : "degraded";
       tracker.set(attempt.key, status, err?.message || "fetch failed");
     }
   }

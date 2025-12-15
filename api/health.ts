@@ -20,14 +20,30 @@ type ProviderConfig = {
   key: string;
   url?: string;
   requiresKey?: string;
+  optional?: boolean;
 };
+
+const metalApiKey = process.env.METALS_API_KEY;
+const metalPriceKey = process.env.METALPRICEAPI_KEY;
+const metalsDevKey = process.env.METALS_DEV_KEY;
+const finnhubKey = process.env.FINNHUB_API_KEY;
+const fmpKey = process.env.FMP_API_KEY || process.env.VITE_FMP_KEY;
+const alphaKey = process.env.ALPHAVANTAGE_API_KEY;
+const coreProviders = new Set(["coingecko", "cryptocompare", "binance", "kraken", "fmp"]);
 
 const providers: ProviderConfig[] = [
   { key: "coingecko", url: "https://api.coingecko.com/api/v3/ping" },
   { key: "cryptocompare", url: "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC&tsyms=USD" },
-  { key: "fmp", requiresKey: "FMP_API_KEY" },
+  { key: "fmp", requiresKey: fmpKey ? undefined : "FMP_API_KEY", url: fmpKey ? "https://financialmodelingprep.com/api/v3/is-the-market-open" : undefined },
   { key: "binance", url: "https://api.binance.com/api/v3/ping" },
   { key: "kraken", url: "https://api.kraken.com/0/public/Time" },
+  { key: "freeforexapi", url: "https://freeforexapi.com/api/live?pairs=EURUSD" },
+  { key: "exchangeratehost", url: "https://api.exchangerate.host/convert?from=EUR&to=USD" },
+  { key: "alphavantage", requiresKey: alphaKey ? undefined : "ALPHAVANTAGE_API_KEY", url: alphaKey ? `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=IBM&apikey=${alphaKey}` : undefined, optional: true },
+  { key: "finnhub", requiresKey: finnhubKey ? undefined : "FINNHUB_API_KEY", url: finnhubKey ? `https://finnhub.io/api/v1/forex/exchange?token=${finnhubKey}` : undefined, optional: true },
+  { key: "metals-api", requiresKey: metalApiKey ? undefined : "METALS_API_KEY", url: metalApiKey ? `https://metals-api.com/api/latest?access_key=${metalApiKey}&base=USD&symbols=XAU` : undefined, optional: true },
+  { key: "metalpriceapi", requiresKey: metalPriceKey ? undefined : "METALPRICEAPI_KEY", url: metalPriceKey ? `https://api.metalpriceapi.com/v1/latest?api_key=${metalPriceKey}&base=USD&currencies=XAU` : undefined, optional: true },
+  { key: "metals.dev", requiresKey: metalsDevKey ? undefined : "METALS_DEV_KEY", url: metalsDevKey ? `https://api.metals.dev/v1/latest?api_key=${metalsDevKey}&symbols=XAU` : undefined, optional: true },
 ];
 
 const normalizeStatus = (status: ProviderStatus, message = "") => ({
@@ -41,20 +57,23 @@ async function probeProvider(config: ProviderConfig) {
   const cached = cache.get<ReturnType<typeof normalizeStatus>>(cacheId);
   if (cached) return cached;
 
-  if (config.requiresKey && !process.env[config.requiresKey] && !process.env.VITE_FMP_KEY) {
-    return cache.set(cacheId, normalizeStatus("warn", "API key missing"));
+  if (config.requiresKey && !process.env[config.requiresKey] && !(config.key === "fmp" && process.env.VITE_FMP_KEY)) {
+    const msg = config.optional ? "optional provider, no api key" : "API key missing";
+    return cache.set(cacheId, normalizeStatus("warn", msg));
   }
 
   if (!config.url) {
-    return cache.set(cacheId, normalizeStatus("warn", "No probe configured"));
+    const msg = config.optional ? "optional provider, no probe" : "No probe configured";
+    return cache.set(cacheId, normalizeStatus("warn", msg));
   }
 
   try {
     await safeFetchJson(config.url, undefined, { timeoutMs: 1500, attempts: 1 });
     return cache.set(cacheId, normalizeStatus("ok"));
   } catch (err: any) {
-    const status: ProviderStatus = isAbortError(err) ? "warn" : "error";
-    const message = err?.message || "probe failed";
+    const isCore = coreProviders.has(config.key);
+    const status: ProviderStatus = isCore ? (isAbortError(err) ? "warn" : "error") : "warn";
+    const message = err?.message || (isCore ? "probe failed" : "optional provider unavailable");
     return cache.set(cacheId, normalizeStatus(status, message));
   }
 }

@@ -233,8 +233,8 @@ export default async function handler(req: Request) {
         }
       } catch (err: any) {
         const normalized = normalizeError(err);
-        tracker.set("ETF_CORR_FMP", "error", normalized.message || "ETF correlation failed");
-        upstreamStatus = normalized.status === "degraded" ? "warn" : "error";
+        tracker.set("ETF_CORR_FMP", "warn", normalized.message || "ETF correlation failed");
+        upstreamStatus = normalized.status === "degraded" ? "warn" : "warn";
         for (const asset of assets) {
           data.push({ pair: `${symbol}-${asset}`, corr7d: null, corr30d: null });
         }

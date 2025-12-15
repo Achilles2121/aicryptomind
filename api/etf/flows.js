@@ -33,12 +33,12 @@ const createLazy = (factory) => {
 };
 
 async function buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats) {
-  const attempts = [
-    {
-      key: "ETF_FLOWS_FMP",
-      exec: async () => {
-        const history = await fetchHistoricalMarketCap(symbol);
-        if (!history.length) throw new Error("FMP empty");
+    const attempts = [
+      {
+        key: "ETF_FLOWS_FMP",
+        exec: async () => {
+          const history = await fetchHistoricalMarketCap(symbol);
+          if (!history.length) throw new Error("FMP empty");
         return computeFlowsFromAum(history);
       },
     },
@@ -62,12 +62,12 @@ async function buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats) {
     },
   ];
 
-  for (let i = 0; i < attempts.length; i += 1) {
-    const attempt = attempts[i];
-    try {
-      const rows = await attempt.exec();
-      tracker.set(attempt.key, "ok");
-      const normalized = fillFlowSeries(rows.slice(-30), 30);
+    for (let i = 0; i < attempts.length; i += 1) {
+      const attempt = attempts[i];
+      try {
+        const rows = await attempt.exec();
+        tracker.set(attempt.key, "ok");
+        const normalized = fillFlowSeries(rows.slice(-30), 30);
       return {
         symbol,
         points: normalized,
@@ -76,11 +76,11 @@ async function buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats) {
         provider: attempt.key,
         lastUpdated: new Date().toISOString(),
       };
-    } catch (err) {
-      const status = i === attempts.length - 1 ? "error" : "degraded";
-      tracker.set(attempt.key, status, err?.message || "fetch failed");
+      } catch (err) {
+        const status = i === attempts.length - 1 ? "warn" : "degraded";
+        tracker.set(attempt.key, status, err?.message || "fetch failed");
+      }
     }
-  }
   return {
     symbol,
     points: fillFlowSeries([], 30),

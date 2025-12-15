@@ -129,6 +129,66 @@ const mapStandardized = (rows: StandardizedOhlc[] = []): Candle[] =>
     };
   });
 
+// FX daily series (close-only, turned into flat OHLC)
+const fetchFxDailySeries = async (base: string, quote: string, limit: number) => {
+  const end = new Date();
+  const start = new Date(end.getTime() - Math.max(limit, 30) * 24 * 60 * 60 * 1000);
+  const url = `https://api.exchangerate.host/timeseries?base=${encodeURIComponent(base)}&symbols=${encodeURIComponent(
+    quote
+  )}&start_date=${start.toISOString().slice(0, 10)}&end_date=${end.toISOString().slice(0, 10)}`;
+  const res = await safeFetchJson<{ rates?: Record<string, Record<string, number>> }>(url, undefined, { timeoutMs: 4000, attempts: 1 });
+  const entries = Object.entries(res?.rates || {}).sort((a, b) => Date.parse(a[0]) - Date.parse(b[0]));
+  if (!entries.length) throw new Error("ExchangeRateHost FX empty");
+  return entries
+    .slice(-limit)
+    .map(([date, quotes]) => {
+      const v = Number(quotes?.[quote]);
+      if (!Number.isFinite(v)) return null;
+      const t = Date.parse(date);
+      return {
+        t,
+        o: v,
+        h: v,
+        l: v,
+        c: v,
+        v: 0,
+        time: t,
+        open: v,
+        high: v,
+        low: v,
+        close: v,
+        volume: 0,
+        provider: "exchangerate.host",
+      };
+    })
+    .filter(Boolean) as Candle[];
+};
+
+// Metals flat series using a provided price fetcher
+const fetchMetalFlatSeries = async (symbol: string, priceFetcher: () => Promise<number>, limit: number) => {
+  const price = await priceFetcher();
+  const candles: Candle[] = [];
+  for (let i = limit - 1; i >= 0; i -= 1) {
+    const t = now() - i * 24 * 60 * 60 * 1000;
+    candles.push({
+      t,
+      o: price,
+      h: price,
+      l: price,
+      c: price,
+      v: 0,
+      time: t,
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: 0,
+      provider: "metals",
+    });
+  }
+  return candles;
+};
+
 async function fetchBinance(symbol: string, interval: string, limit: number) {
   const pair = symbol.replace("/", "").toUpperCase();
   const url = `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=${limit}`;
@@ -320,6 +380,105 @@ export default async function handler(req: Req, res: Res) {
           }) as ApiEnvelope<Candle[]>
         );
       }
+      const isFx = market.assetClass === "fx";
+      const isMetal = market.assetClass === "commodity" || /^XA(U|G)/i.test(market.base || "");
+      if (isFx) {
+        try {
+          const base = market.base || market.id.slice(0, 3);
+          const quote = market.quote || market.id.slice(3);
+          const candles = await fetchFxDailySeries(base, quote, limit);
+          const payload = { candles, provider: "exchangerate.host", interval: intervalMinutes };
+          cache.set(cacheId, payload);
+          return sendEnvelope(
+            res,
+            ok(candles, {
+              source: "ohlc",
+              statusCode: 200,
+              symbol: market.id,
+              interval: intervalMinutes,
+              provider: payload.provider,
+              cached: false,
+            }) as ApiEnvelope<Candle[]>
+          );
+        } catch (err: any) {
+          const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "fallback" }));
+          return sendEnvelope(
+            res,
+            fail("degraded", {
+              source: "ohlc",
+              statusCode: 502,
+              message: err?.message || "FX OHLC unavailable",
+              hint: "fx_fallback",
+              data: fallback,
+            }) as ApiEnvelope<Candle[]>
+          );
+        }
+      }
+      if (isMetal) {
+        try {
+          const base = market.base || "XAU";
+          const priceFetcher = async () => {
+            const key = cacheKey("metal_price", base);
+            const cachedPrice = cache.get<number>(key);
+            if (cachedPrice) return cachedPrice;
+            const fetchers: Array<() => Promise<number>> = [];
+            if (process.env.METALS_API_KEY) {
+              fetchers.push(async () => {
+                const url = `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${base}USD`;
+                const res = await safeFetchJson<{ rates?: Record<string, number> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
+                const rate = res?.rates?.[`${base}USD`] ?? res?.rates?.[base];
+                if (!Number.isFinite(rate)) throw new Error("metals-api price missing");
+                return Number(rate);
+              });
+            }
+            if (process.env.METALPRICEAPI_KEY) {
+              fetchers.push(async () => {
+                const url = `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${base}USD`;
+                const res = await safeFetchJson<{ rates?: Record<string, number> }>(url, undefined, { timeoutMs: 3500, attempts: 1 });
+                const rate = res?.rates?.[`${base}USD`] ?? res?.rates?.[base];
+                if (!Number.isFinite(rate)) throw new Error("metalpriceapi price missing");
+                return Number(rate);
+              });
+            }
+            for (const fn of fetchers) {
+              try {
+                const price = await fn();
+                cache.set(key, price);
+                return price;
+              } catch {
+                // continue
+              }
+            }
+            throw new Error("No metal price");
+          };
+          const candles = await fetchMetalFlatSeries(`${base}USD`, priceFetcher, limit);
+          const payload = { candles, provider: "metals", interval: intervalMinutes };
+          cache.set(cacheId, payload);
+          return sendEnvelope(
+            res,
+            ok(candles, {
+              source: "ohlc",
+              statusCode: 200,
+              symbol: market.id,
+              interval: intervalMinutes,
+              provider: payload.provider,
+              cached: false,
+            }) as ApiEnvelope<Candle[]>
+          );
+        } catch (err: any) {
+          const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "fallback" }));
+          return sendEnvelope(
+            res,
+            fail("degraded", {
+              source: "ohlc",
+              statusCode: 502,
+              message: err?.message || "Metal OHLC unavailable",
+              hint: "metal_fallback",
+              data: fallback,
+            }) as ApiEnvelope<Candle[]>
+          );
+        }
+      }
       const { candles, provider, errors } = await fetchMarketOhlc(market, intervalMinutes, limit);
       const payload = { candles, provider, interval: intervalMinutes };
       cache.set(cacheId, payload);
@@ -335,6 +494,7 @@ export default async function handler(req: Req, res: Res) {
           errors: errors?.map((e) => e.message),
         }) as ApiEnvelope<Candle[]>
       );
+    }
     }
 
     const rawSymbol =
