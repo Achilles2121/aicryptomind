@@ -54,13 +54,14 @@ export function fail(
     error?: unknown;
     cached?: boolean;
     health?: string;
+    message?: string;
     data?: unknown;
   } = {}
 ): ApiEnvelope<never> {
-  const { statusCode, hint, source, errors, error, cached, health, data } = opts;
+  const { statusCode, hint, source, errors, error, cached, health, message, data } = opts;
   const fallbackCode =
     statusCode ?? (status === "invalid_request" ? 400 : status === "disabled" ? 503 : status === "ok" ? 200 : 502);
-  return { ok: false, status, statusCode: fallbackCode, hint, source, errors, error, cached, health, data };
+  return { ok: false, status, statusCode: fallbackCode, hint, source, errors, error, cached, health, message, data };
 }
 
 export const okEnvelope = ok;

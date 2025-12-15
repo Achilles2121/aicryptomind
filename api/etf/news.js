@@ -1,7 +1,7 @@
 import { fetchCoinstatsNews } from "../_lib/providers/coinstats.js";
 import { fetchEtfNews } from "../_lib/providers/fmp.js";
-import { jsonResponse } from "../_lib/http.js";
 import { createHealthTracker } from "../_lib/health.js";
+import { ok, fail, sendEnvelope } from "../utils/apiEnvelope.ts";
 
 export const config = { runtime: "edge" };
 
@@ -9,15 +9,6 @@ const isAbortError = (err) => {
   const message = (err?.message || "").toLowerCase();
   return err?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
 };
-
-const buildEnvelope = (payload, status = 200) =>
-  jsonResponse(
-    {
-      statusCode: status,
-      ...payload,
-    },
-    200
-  );
 
 const normalizeError = (error) => {
   const statusCode = isAbortError(error) ? 504 : 502;
@@ -45,6 +36,7 @@ export default async function handler(req) {
   const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 8, 1), 20);
   const tracker = createHealthTracker();
   let lastError = null;
+
   const attempts = [
     {
       key: "ETF_NEWS_COINSTATS",
@@ -64,38 +56,57 @@ export default async function handler(req) {
     },
   ];
 
-  for (let i = 0; i < attempts.length; i += 1) {
-    const attempt = attempts[i];
-    try {
-      const items = await attempt.exec();
-      if (!items.length) throw new Error("empty payload");
-      return buildEnvelope({
-        ok: true,
-        status: "ok",
-        statusCode: 200,
-        source: attempt.key,
-        data: items.slice(0, limit),
+  try {
+    for (const attempt of attempts) {
+      try {
+        const news = await attempt.exec();
+        if (news?.length) {
+          return sendEnvelope(
+            ok(news.slice(0, limit), {
+              source: "etf_news",
+              statusCode: 200,
+              health: tracker.toArray(),
+              generatedAt: new Date().toISOString(),
+            })
+          );
+        }
+        tracker.set(attempt.key, "warn", "empty news");
+      } catch (err) {
+        lastError = normalizeError(err);
+        tracker.set(attempt.key, "warn", lastError.message);
+      }
+    }
+
+    const fallback = {
+      title: "ETF news temporarily unavailable",
+      source: "system",
+      url: "https://status.developer",
+      publishedAt: new Date().toISOString(),
+      description: "ETF news provider did not return data.",
+    };
+    return sendEnvelope(
+      fail("degraded", {
+        statusCode: lastError?.statusCode || 502,
+        source: "etf_news",
+        data: [fallback],
+        hint: lastError?.hint || "upstream_error",
+        errors: [lastError?.message || "ETF news unavailable"],
         health: tracker.toArray(),
         generatedAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      const status = i === attempts.length - 1 ? "error" : "degraded";
-      lastError = err;
-      tracker.set(attempt.key, status, err?.message || "fetch failed");
-    }
+      })
+    );
+  } catch (err) {
+    const normalized = normalizeError(err);
+    return sendEnvelope(
+      fail("degraded", {
+        statusCode: normalized.statusCode,
+        source: "etf_news",
+        hint: normalized.hint || "runtime_error",
+        errors: [normalized.message],
+        data: [],
+        health: tracker.toArray(),
+        generatedAt: new Date().toISOString(),
+      })
+    );
   }
-
-  const normalized = normalizeError(lastError || new Error("ETF news failed"));
-  return buildEnvelope({
-    ok: false,
-    source: "etfNews",
-    status: normalized.statusCode === 504 ? "degraded" : "degraded",
-    statusCode: normalized.statusCode,
-    message: normalized.message,
-    hint: normalized.hint,
-    data: [],
-    errors: [{ code: "UPSTREAM_ERROR", message: normalized.message }],
-    health: tracker.toArray(),
-    generatedAt: new Date().toISOString(),
-  });
 }

@@ -4,7 +4,7 @@ import { isRateLimited } from "./utils/rateLimit";
 import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
 import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
 import { fetchOhlcFromProvider, type StandardizedOhlc } from "../src/services/providers/openProviders";
-import { buildErrorEnvelope, sendEnvelope, type ApiEnvelope } from "./utils/response";
+import { ok, fail, sendEnvelope, type ApiEnvelope } from "./utils/apiEnvelope.ts";
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -276,62 +276,65 @@ export default async function handler(req: Req, res: Res) {
         : undefined) || undefined;
     const market = assetParam ? findMarketById(assetParam) : undefined;
     if (assetParam && !market) {
-      return sendEnvelope(res, {
-        ok: false,
-        status: "degraded",
-        source: "ohlc",
-        statusCode: 400,
-        message: "Unknown asset id",
-        hint: "Unknown asset id",
-        data: { candles: [] },
-      });
+      return sendEnvelope(
+        res,
+        fail("invalid_request", {
+          source: "ohlc",
+          statusCode: 400,
+          message: "Unknown asset id",
+          hint: "invalid_asset",
+          data: { candles: [] },
+        })
+      );
     }
     const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 60;
     const limit = Number.isFinite(limitParam) ? Math.max(20, Math.min(500, limitParam)) : 120;
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`ohlc:${rateKey}`)) {
-      return sendEnvelope(res, {
-        ok: false,
-        status: "degraded",
-        source: "ohlc",
-        statusCode: 429,
-        message: "rate limited",
-        hint: "Slow down requests",
-        data: { candles: [] },
-      });
+      return sendEnvelope(
+        res,
+        fail("degraded", {
+          source: "ohlc",
+          statusCode: 429,
+          message: "rate limited",
+          hint: "rate_limited",
+          data: { candles: [] },
+        })
+      );
     }
 
     if (market) {
       const cacheId = cacheKey("ohlc", market.id, intervalMinutes, limit);
       const cached = cache.get<{ candles: Candle[]; provider?: string }>(cacheId);
       if (cached) {
-        return sendEnvelope(res, {
-          ok: true,
-          status: "ok",
-          statusCode: 200,
-          data: cached.candles,
-          symbol: market.id,
-          interval: intervalMinutes,
-          provider: cached.provider,
-          cached: true,
-        } as ApiEnvelope<Candle[]>);
+        return sendEnvelope(
+          res,
+          ok(cached.candles, {
+            source: "ohlc",
+            statusCode: 200,
+            symbol: market.id,
+            interval: intervalMinutes,
+            provider: cached.provider,
+            cached: true,
+          }) as ApiEnvelope<Candle[]>
+        );
       }
       const { candles, provider, errors } = await fetchMarketOhlc(market, intervalMinutes, limit);
       const payload = { candles, provider, interval: intervalMinutes };
       cache.set(cacheId, payload);
-      return sendEnvelope(res, {
-        ok: true,
-        status: "ok",
-        statusCode: 200,
-        source: "ohlc",
-        data: candles,
-        symbol: market.id,
-        interval: intervalMinutes,
-        provider,
-        cached: false,
-        errors: errors?.map((e) => e.message),
-      } as ApiEnvelope<Candle[]>);
+      return sendEnvelope(
+        res,
+        ok(candles, {
+          source: "ohlc",
+          statusCode: 200,
+          symbol: market.id,
+          interval: intervalMinutes,
+          provider,
+          cached: false,
+          errors: errors?.map((e) => e.message),
+        }) as ApiEnvelope<Candle[]>
+      );
     }
 
     const rawSymbol =
@@ -363,18 +366,19 @@ export default async function handler(req: Req, res: Res) {
     const key = cacheKey("ohlc", symbol, binanceSymbol, krakenPair, binanceInterval, limit);
     const cached = cache.get<{ candles: Candle[]; provider?: string; krakenPair?: string; binanceSymbol?: string }>(key);
     if (cached) {
-      return sendEnvelope(res, {
-        ok: true,
-        status: "ok",
-        statusCode: 200,
-        data: cached.candles,
-        symbol,
-        interval: intervalMinutes,
-        provider: cached.provider,
-        krakenPair: cached.krakenPair,
-        binanceSymbol: cached.binanceSymbol,
-        cached: true,
-      } as ApiEnvelope<Candle[]>);
+      return sendEnvelope(
+        res,
+        ok(cached.candles, {
+          source: "ohlc",
+          statusCode: 200,
+          symbol,
+          interval: intervalMinutes,
+          provider: cached.provider,
+          krakenPair: cached.krakenPair,
+          binanceSymbol: cached.binanceSymbol,
+          cached: true,
+        }) as ApiEnvelope<Candle[]>
+      );
     }
 
     const { candles, provider, errors } = await resolveOHLC(
@@ -384,18 +388,18 @@ export default async function handler(req: Req, res: Res) {
     );
     const payload = { candles, provider, interval: intervalMinutes, krakenPair, binanceSymbol };
     cache.set(key, payload);
-    return sendEnvelope(res, {
-      ok: true,
-      status: "ok",
-      statusCode: 200,
-      source: "ohlc",
-      data: candles,
-      symbol,
-      interval: intervalMinutes,
-      provider,
-      cached: false,
-      errors: errors?.map((e) => e.message),
-    } as ApiEnvelope<Candle[]>);
+    return sendEnvelope(
+      res,
+      ok(candles, {
+        source: "ohlc",
+        statusCode: 200,
+        symbol,
+        interval: intervalMinutes,
+        provider,
+        cached: false,
+        errors: errors?.map((e) => e.message),
+      }) as ApiEnvelope<Candle[]>
+    );
   } catch (error) {
     const errors: ReturnType<typeof normalizeError>[] = (error as any)?.errors || [];
     const primary = errors[0] ?? normalizeError("ohlc", error);
@@ -403,13 +407,13 @@ export default async function handler(req: Req, res: Res) {
     const fallback = generateFakeSeries(60).map((c) => ({ ...c, provider: "fallback" }));
     return sendEnvelope(
       res,
-      buildErrorEnvelope({
-        status: statusCode === 503 ? "disabled" : "degraded",
+      fail(statusCode === 503 ? "disabled" : "degraded", {
         statusCode,
         source: "ohlc",
         message: primary.message || "OHLC feed unavailable",
         hint: primary.hint || "Serving synthetic fallback candles",
         errors: errors?.map((e) => e.message),
+        data: fallback,
       }) as ApiEnvelope<Candle[]>
     );
   }
