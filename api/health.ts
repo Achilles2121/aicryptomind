@@ -102,17 +102,18 @@ export default async function handler(_req: unknown, res: Res) {
         return acc;
       }, {}),
     } as ApiEnvelope);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = (err as Error)?.message || "Health probe failed";
     const statusCode = isAbortError(err) ? 504 : 500;
     return sendEnvelope(
       res,
       buildErrorEnvelope({
-        status: statusCode === 503 ? "disabled" : "degraded",
+        status: statusCode === 504 ? "disabled" : "degraded",
         statusCode,
         source: "health",
-        message: err?.message || "Health probe failed",
+        message: errMsg,
         hint: statusCode === 504 ? "Health probe timeout" : "Probe failed",
-        errors: [err?.message || "health probe failed"],
+        errors: [errMsg],
       })
     );
   }

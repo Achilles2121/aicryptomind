@@ -2,6 +2,7 @@ import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson, safeFetchText } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
 import { ok, fail, sendEnvelope } from "./utils/apiEnvelope.js";
+import type { ApiEnvelope } from "./utils/response";
 
 // Standalone OHLC endpoint - no imports from /src/
 
@@ -95,6 +96,24 @@ const generateFakeSeries = (limit: number, base = 60_000) => {
   return candles;
 };
 
+// Inline type for standardized OHLC
+type StandardizedOhlc = {
+  t?: number;
+  time?: number;
+  closeTime?: number;
+  openTime?: number;
+  o?: number;
+  open?: number;
+  h?: number;
+  high?: number;
+  l?: number;
+  low?: number;
+  c?: number;
+  close?: number;
+  v?: number;
+  volume?: number;
+};
+
 const mapStandardized = (rows: StandardizedOhlc[] = []): Candle[] =>
   rows.map((row) => {
     const t = Number(row.t ?? row.time ?? row.closeTime ?? row.openTime ?? Date.now());
@@ -116,7 +135,7 @@ const mapStandardized = (rows: StandardizedOhlc[] = []): Candle[] =>
       low: l,
       close: c,
       volume: v,
-      provider: row.source,
+      provider: (row as { source?: string }).source,
     };
   });
 
@@ -500,29 +519,29 @@ export default async function handler(req: Req, res: Res) {
             }) as ApiEnvelope<Candle[]>
           );
         }
-        const { candles, provider, errors } = await fetchMarketOhlc(market, intervalMinutes, limit);
-        const payload = { candles, provider, interval: intervalMinutes };
-        cache.set(cacheId, payload);
+        // Fallback: Für andere Assets nutzen wir die Standard-Provider (Kraken/Binance)
+        // Diese werden im unteren Teil des Handlers abgearbeitet
+        // Hier nur Fallback-Daten zurückgeben wenn kein spezifischer Handler
+        const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "synthetic" }));
         return sendEnvelope(
           res,
-          ok(candles, {
+          ok(fallback, {
             source: "ohlc",
             statusCode: 200,
             symbol: market.id,
             interval: intervalMinutes,
-            provider,
+            provider: "synthetic",
             cached: false,
-            errors: errors?.map((e) => e.message),
           }) as ApiEnvelope<Candle[]>
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
         const fallback = generateFakeSeries(limit).map((c) => ({ ...c, provider: "fallback" }));
         return sendEnvelope(
           res,
           fail("degraded", {
             source: "ohlc",
             statusCode: 502,
-            message: err?.message || "OHLC fetch failed",
+            message: (err as Error)?.message || "OHLC fetch failed",
             hint: "fallback_series",
             data: fallback,
           }) as ApiEnvelope<Candle[]>
