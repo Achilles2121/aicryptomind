@@ -30,7 +30,10 @@ const fetchCandles = async (url: string, providerKey: string, options: SafeFetch
     ...options,
     serviceName: options.serviceName ? `${options.serviceName}:${providerKey}` : providerKey,
   };
-  const response = await safeFetch<{ data?: Candle[]; error?: string } | Candle[]>(url, fetchOptions);
+  const response = await safeFetch<{ ok?: boolean; status?: string; data?: Candle[]; error?: string } | Candle[]>(url, fetchOptions);
+  if ((response as any)?.ok === false) {
+    return [];
+  }
   if ((response as any)?.error) throw new Error((response as any).error);
   const rows = Array.isArray((response as any)?.data) ? (response as any).data : response;
   const normalized = normalizeSeries(rows as any[], providerKey);
@@ -41,6 +44,7 @@ const fetchCandles = async (url: string, providerKey: string, options: SafeFetch
 };
 
 export type ChartLoadConfig = {
+  assetId?: string;
   pair?: string;
   binanceSymbol?: string;
   interval?: number;
@@ -48,24 +52,35 @@ export type ChartLoadConfig = {
 };
 
 export async function loadChart(
-  { pair = "XXBTZUSD", binanceSymbol = "BTCUSDT", interval = 60, limit = 160 }: ChartLoadConfig,
+  { assetId, pair = "XXBTZUSD", binanceSymbol = "BTCUSDT", interval = 60, limit = 160 }: ChartLoadConfig,
   options: SafeFetchOptions = {}
 ): Promise<Candle[] | null> {
-  if (!pair && !binanceSymbol) return null;
-  const attempts = [
-    {
+  if (!assetId && !pair && !binanceSymbol) return null;
+  const attempts: { key: string; url: string }[] = [];
+  if (assetId) {
+    attempts.push({
+      key: `asset:${assetId}`,
+      url: `/api/ohlc?asset=${encodeURIComponent(assetId)}&interval=${interval}&limit=${limit}`,
+    });
+  }
+  if (pair) {
+    attempts.push({
       key: "kraken",
       url: `/api/kraken/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}`,
-    },
-    {
+    });
+  }
+  if (binanceSymbol) {
+    attempts.push({
       key: "binance",
       url: `/api/binance/klines?symbol=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=${limit}`,
-    },
-    {
+    });
+  }
+  if (!assetId) {
+    attempts.push({
       key: "proxy",
       url: `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=${limit}`,
-    },
-  ];
+    });
+  }
   for (const attempt of attempts) {
     try {
       const candles = await fetchCandles(attempt.url, attempt.key, options);

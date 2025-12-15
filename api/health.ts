@@ -1,20 +1,12 @@
 import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson } from "./utils/safeFetch";
+import { sendEnvelope, buildErrorEnvelope, type ApiEnvelope } from "./utils/response";
 
 type Res = {
   status: (code: number) => Res;
   json: (body: unknown) => void;
   setHeader?: (name: string, value: string) => void;
   end?: (body?: string) => void;
-};
-
-const send = (res: Res, status: number, body: unknown) => {
-  if (res.setHeader) res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (typeof res.json === "function") {
-    res.status(status).json(body);
-  } else if (res.end) {
-    res.end(JSON.stringify(body));
-  }
 };
 
 const isAbortError = (error: unknown) => {
@@ -75,8 +67,9 @@ export default async function handler(_req: unknown, res: Res) {
       return acc;
     }, {});
 
-    return send(res, 200, {
+    return sendEnvelope(res, {
       ok: true,
+      status: "ok",
       timestamp: new Date().toISOString(),
       providers: providersStatus,
       meta: entries.reduce<Record<string, string>>((acc, provider, idx) => {
@@ -84,16 +77,19 @@ export default async function handler(_req: unknown, res: Res) {
         if (status.message) acc[providers[idx].key] = status.message;
         return acc;
       }, {}),
-    });
+    } as ApiEnvelope);
   } catch (err: any) {
     const statusCode = isAbortError(err) ? 504 : 502;
-    return send(res, statusCode, {
-      ok: false,
-      statusCode,
-      message: err?.message || "Health probe failed",
-      hint: statusCode === 504 ? "Health probe timeout" : "Probe failed",
-      timestamp: new Date().toISOString(),
-      providers: {},
-    });
+    return sendEnvelope(
+      res,
+      buildErrorEnvelope({
+        status: statusCode === 503 ? "disabled" : "degraded",
+        statusCode,
+        source: "health",
+        message: err?.message || "Health probe failed",
+        hint: statusCode === 504 ? "Health probe timeout" : "Probe failed",
+        errors: [err?.message || "health probe failed"],
+      })
+    );
   }
 }

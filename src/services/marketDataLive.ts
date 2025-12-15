@@ -2,8 +2,9 @@ import { safeFetch } from "../lib/safeFetch";
 import { getCachedUserTier } from "../firebase";
 import type { ApiHealthStatus } from "../lib/safeFetch";
 import { apiUrl } from "../lib/http";
-import { getActiveProviders } from "../config/dataSources";
+import { getActiveProviders, type MarketDataProviderConfig } from "../config/dataSources";
 import { fetchOhlcFromProvider, type StandardizedOhlc } from "./providers/openProviders";
+import { DEFAULT_MARKET_ID, MARKETS, type MarketConfig } from "../config/markets";
 
 type HealthCb = (service: string, status: ApiHealthStatus, message?: string) => void;
 type LogCb = (source: string, level: "info" | "warn" | "error", message?: string, meta?: Record<string, unknown>) => void;
@@ -22,6 +23,19 @@ type OhlcRow = {
   low: number;
   close: number;
   volume: number;
+};
+
+const normalizeProviderId = (value?: string) => (value || "").toLowerCase();
+const findProviderSymbol = (market: MarketConfig, providerId: string) =>
+  Object.entries(market.providerSymbols || {}).find(([key]) => normalizeProviderId(key) === normalizeProviderId(providerId))?.[1];
+const getMarket = (assetId?: string): MarketConfig => {
+  if (!assetId) return MARKETS[DEFAULT_MARKET_ID];
+  const key = assetId.toUpperCase();
+  return MARKETS[key] || MARKETS[DEFAULT_MARKET_ID];
+};
+const getActiveProviderById = (providerId?: string): MarketDataProviderConfig | undefined => {
+  if (!providerId) return undefined;
+  return getActiveProviders().find((p) => normalizeProviderId(p.id) === normalizeProviderId(providerId));
 };
 
 const mapOhlcSeries = (rows: any[] = []): OhlcRow[] =>
@@ -66,15 +80,20 @@ const mapStandardizedOhlc = (rows: StandardizedOhlc[] = []): OhlcRow[] =>
   });
 
 const fetchOpenProviderOhlc = async (
-  pair: string,
+  market: MarketConfig,
   interval: number,
+  limit = 120,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb
 ): Promise<OhlcRow[]> => {
-  const providers = getActiveProviders("spot");
-  for (const provider of providers) {
+  const providerOrder = Array.from(new Set([market.defaultProvider, ...Object.keys(market.providerSymbols || {})]));
+  for (const providerId of providerOrder) {
+    const provider = getActiveProviderById(providerId);
+    if (!provider) continue;
+    const symbol = findProviderSymbol(market, providerId);
+    if (!symbol) continue;
     try {
-      const rows = await fetchOhlcFromProvider(provider, { symbol: pair, interval });
+      const rows = await fetchOhlcFromProvider(provider, { symbol, interval, limit });
       if (rows?.length) {
         onHealthUpdate?.(provider.id, "ok");
         return mapStandardizedOhlc(rows);
@@ -88,14 +107,16 @@ const fetchOpenProviderOhlc = async (
 };
 
 const fetchProxyHtf = async (
-  pair: string,
+  market: MarketConfig,
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
   _onToast?: ToastCb
 ) => {
-  // FIX: Use the kraken OHLC proxy (with apiUrl) and accept both data/candles shapes.
-  const url = apiUrl(`/api/kraken/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=240`);
+  const krakenPair = findProviderSymbol(market, "kraken");
+  const url = krakenPair
+    ? apiUrl(`/api/kraken/ohlc?pair=${encodeURIComponent(krakenPair)}&interval=${interval}&limit=240`)
+    : apiUrl(`/api/ohlc?asset=${encodeURIComponent(market.id)}&interval=${interval}&limit=240`);
   try {
     const res = await safeFetch<OhlcApiResponse | { candles?: any[]; data?: any[] } | any[]>(url, {
       serviceName: "MARKET_HTF_PRIMARY",
@@ -136,13 +157,13 @@ const fetchProxyHtf = async (
 };
 
 const fetchProxyHtfFallback = async (
-  pair: string,
+  market: MarketConfig,
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
   _onToast?: ToastCb
 ) => {
-  const url = apiUrl(`/api/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=240`);
+  const url = apiUrl(`/api/ohlc?asset=${encodeURIComponent(market.id)}&interval=${interval}&limit=240`);
   try {
     const res = await safeFetch<OhlcApiResponse | { candles?: any[]; data?: any[] } | any[]>(url, {
       serviceName: "MARKET_HTF_FALLBACK",
@@ -184,12 +205,12 @@ const fetchProxyHtfFallback = async (
 };
 
 export const fetchHtfOhlc = async (
-  pair: string,
-  _symbolId: string,
+  assetId?: string,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
   onToast?: ToastCb
 ) => {
+  const market = getMarket(assetId);
   const tier = getCachedUserTier();
   if (tier !== "pro" && tier !== "elite") {
     onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", "Tier required");
@@ -197,21 +218,21 @@ export const fetchHtfOhlc = async (
   }
   try {
     const [h4Primary, d1Primary] = await Promise.all([
-      fetchProxyHtf(pair, 240, onHealthUpdate, onLog, onToast),
-      fetchProxyHtf(pair, 1440, onHealthUpdate, onLog, onToast),
+      fetchProxyHtf(market, 240, onHealthUpdate, onLog, onToast),
+      fetchProxyHtf(market, 1440, onHealthUpdate, onLog, onToast),
     ]);
 
     const h4 =
       h4Primary?.length
         ? h4Primary
-        : await fetchProxyHtfFallback(pair, 240, onHealthUpdate, onLog, onToast).then((rows) =>
-            rows.length ? rows : fetchOpenProviderOhlc(pair, 240, onHealthUpdate, onLog)
+        : await fetchProxyHtfFallback(market, 240, onHealthUpdate, onLog, onToast).then((rows) =>
+            rows.length ? rows : fetchOpenProviderOhlc(market, 240, 240, onHealthUpdate, onLog)
           );
     const d1 =
       d1Primary?.length
         ? d1Primary
-        : await fetchProxyHtfFallback(pair, 1440, onHealthUpdate, onLog, onToast).then((rows) =>
-            rows.length ? rows : fetchOpenProviderOhlc(pair, 1440, onHealthUpdate, onLog)
+        : await fetchProxyHtfFallback(market, 1440, onHealthUpdate, onLog, onToast).then((rows) =>
+            rows.length ? rows : fetchOpenProviderOhlc(market, 1440, 240, onHealthUpdate, onLog)
           );
 
     const hasDataPrimary: ApiHealthStatus = h4Primary?.length || d1Primary?.length ? "ok" : "warn";

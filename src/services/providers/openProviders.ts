@@ -44,15 +44,39 @@ const coinGeckoMap: Record<string, string> = {
 };
 
 const resolveBaseSymbol = (symbol: string) => symbol.replace("/", "").replace(/USDT$/i, "").toUpperCase();
+const normalizeProviderId = (id?: string) => (id || "").toUpperCase();
+
+const parseStooqCsv = (csv?: string) => {
+  if (!csv || typeof csv !== "string") return null;
+  const lines = csv.trim().split(/\r?\n/);
+  if (!lines.length) return null;
+  const rows = lines.slice(1);
+  const mapped = rows
+    .map((line) => {
+      const [date, open, high, low, close, volume] = line.split(",");
+      const t = Date.parse(date);
+      if (!Number.isFinite(t)) return null;
+      const o = Number(open);
+      const h = Number(high);
+      const l = Number(low);
+      const c = Number(close);
+      const v = Number(volume) || 0;
+      if ([o, h, l, c].some((n) => Number.isNaN(n))) return null;
+      return { t, o, h, l, c, v, time: t, source: "STOOQ" };
+    })
+    .filter(Boolean) as StandardizedOhlc[];
+  return mapped.length ? mapped : null;
+};
 
 export async function fetchSpotPriceFromProvider(
   provider: MarketDataProviderConfig,
   symbol: string
 ): Promise<StandardizedPrice | null> {
   const base = resolveBaseSymbol(symbol);
+  const providerKey = normalizeProviderId(provider.id);
   try {
-    switch (provider.id) {
-      case "coingecko": {
+    switch (providerKey) {
+      case "COINGECKO": {
         const id = coinGeckoMap[base] || "bitcoin";
         const res = await safeFetch<Record<string, { usd: number }>>(
           `${provider.baseUrl}/simple/price?ids=${id}&vs_currencies=usd`,
@@ -62,7 +86,7 @@ export async function fetchSpotPriceFromProvider(
         if (!Number.isFinite(price)) return null;
         return { symbol: `${base}USD`, price: Number(price), ts: Date.now(), source: provider.id };
       }
-      case "binance": {
+      case "BINANCE": {
         const pair = `${base}USDT`;
         const res = await safeFetch<{ price: string }>(`${provider.baseUrl}/ticker/price?symbol=${pair}`, {
           uiLevel: "status",
@@ -71,6 +95,19 @@ export async function fetchSpotPriceFromProvider(
         });
         if (!res?.price) return null;
         return { symbol: pair, price: Number(res.price), ts: Date.now(), source: provider.id };
+      }
+      case "STOOQ":
+      case "FX_PROVIDER": {
+        const symbolParam = symbol.toLowerCase();
+        const res = await safeFetch<string>(`${provider.baseUrl}/q/d/l/?s=${encodeURIComponent(symbolParam)}&i=d`, {
+          uiLevel: "status",
+          serviceName: provider.id,
+          timeoutMs: 6000,
+        });
+        const parsed = parseStooqCsv(res);
+        const last = parsed?.at(-1);
+        if (!last) return null;
+        return { symbol: symbolParam.toUpperCase(), price: last.c, ts: last.t ?? Date.now(), source: provider.id };
       }
       default:
         return null;
@@ -87,9 +124,10 @@ export async function fetchOhlcFromProvider(
   params: OhlcParams
 ): Promise<StandardizedOhlc[] | null> {
   const base = resolveBaseSymbol(params.symbol);
+  const providerKey = normalizeProviderId(provider.id);
   try {
-    switch (provider.id) {
-      case "coingecko": {
+    switch (providerKey) {
+      case "COINGECKO": {
         const id = coinGeckoMap[base] || "bitcoin";
         const res = await safeFetch<(number | string)[][]>(
           `${provider.baseUrl}/coins/${id}/ohlc?vs_currency=usd&days=1`,
@@ -106,7 +144,7 @@ export async function fetchOhlcFromProvider(
           return { t, o, h, l, c, v, source: provider.id, time: t, open: o, high: h, low: l, close: c, volume: v };
         });
       }
-      case "binance": {
+      case "BINANCE": {
         const interval = params.interval >= 1440 ? "1d" : params.interval >= 240 ? "4h" : params.interval >= 60 ? "1h" : "15m";
         const pair = `${base}USDT`;
         const res = await safeFetch<(number | string)[][]>(
@@ -124,7 +162,7 @@ export async function fetchOhlcFromProvider(
           return { t, o, h, l, c, v, source: provider.id, time: t, open: o, high: h, low: l, close: c, volume: v };
         });
       }
-      case "kraken": {
+      case "KRAKEN": {
         const interval = params.interval >= 1440 ? 1440 : params.interval >= 240 ? 240 : params.interval >= 60 ? 60 : 15;
         const mapped = base === "BTC" ? "XBTUSD" : `${base}USD`;
         const res = await safeFetch<{ result: Record<string, any[]> }>(
@@ -142,6 +180,28 @@ export async function fetchOhlcFromProvider(
           const v = Number(row[6]);
           return { t, o, h, l, c, v, source: provider.id, time: t, open: o, high: h, low: l, close: c, volume: v };
         });
+      }
+      case "STOOQ":
+      case "FX_PROVIDER": {
+        const granularity = params.interval >= 1440 ? "d" : "d";
+        const symbol = params.symbol.toLowerCase();
+        const res = await safeFetch<string>(`${provider.baseUrl}/q/d/l/?s=${encodeURIComponent(symbol)}&i=${granularity}`, {
+          uiLevel: "status",
+          serviceName: provider.id,
+          timeoutMs: 6000,
+        });
+        const parsed = parseStooqCsv(res);
+        if (!parsed?.length) return null;
+        const rows = parsed.slice(-(params.limit || 120)).map((row) => ({
+          ...row,
+          source: provider.id,
+          open: row.o,
+          high: row.h,
+          low: row.l,
+          close: row.c,
+          volume: row.v,
+        }));
+        return rows;
       }
       default:
         return null;

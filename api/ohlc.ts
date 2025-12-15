@@ -1,6 +1,10 @@
 import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
+import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
+import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
+import { fetchOhlcFromProvider, type StandardizedOhlc } from "../src/services/providers/openProviders";
+import { buildErrorEnvelope, sendEnvelope, type ApiEnvelope } from "./utils/response";
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -36,6 +40,14 @@ const symbolToId: Record<string, string> = {
   SOLUSDT: "solana",
 };
 
+const normalizeProviderId = (id?: string) => (id || "").toLowerCase();
+const findProviderSymbol = (market: MarketConfig, providerId: string) =>
+  Object.entries(market.providerSymbols || {}).find(([key]) => normalizeProviderId(key) === normalizeProviderId(providerId))?.[1];
+const getActiveProviderById = (providerId?: string): MarketDataProviderConfig | undefined => {
+  if (!providerId) return undefined;
+  return getActiveProviders().find((p) => normalizeProviderId(p.id) === normalizeProviderId(providerId));
+};
+
 const isAbortError = (error: unknown) => {
   const message = (error as Error)?.message?.toLowerCase?.() || "";
   return (error as Error)?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
@@ -61,15 +73,6 @@ const mapInterval = (value: string | number | undefined) => {
   if (minutes >= 30) return { minutes: 30, binance: "30m", kraken: 30 };
   if (minutes >= 15) return { minutes: 15, binance: "15m", kraken: 15 };
   return { minutes: 5, binance: "5m", kraken: 5 };
-};
-
-const send = (res: Res, status: number, body: unknown) => {
-  if (res.setHeader) res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (typeof res.json === "function") {
-    res.status(status).json(body);
-  } else if (res.end) {
-    res.end(JSON.stringify(body));
-  }
 };
 
 const now = () => Date.now();
@@ -100,6 +103,31 @@ const generateFakeSeries = (limit: number, base = 60_000) => {
   }
   return candles;
 };
+
+const mapStandardized = (rows: StandardizedOhlc[] = []): Candle[] =>
+  rows.map((row) => {
+    const t = Number(row.t ?? row.time ?? row.closeTime ?? row.openTime ?? Date.now());
+    const o = Number(row.o ?? row.open ?? 0);
+    const h = Number(row.h ?? row.high ?? 0);
+    const l = Number(row.l ?? row.low ?? 0);
+    const c = Number(row.c ?? row.close ?? 0);
+    const v = Number(row.v ?? row.volume ?? 0);
+    return {
+      t,
+      o,
+      h,
+      l,
+      c,
+      v,
+      time: t,
+      open: o,
+      high: h,
+      low: l,
+      close: c,
+      volume: v,
+      provider: row.source,
+    };
+  });
 
 async function fetchBinance(symbol: string, interval: string, limit: number) {
   const pair = symbol.replace("/", "").toUpperCase();
@@ -211,21 +239,106 @@ async function resolveOHLC(
   throw aggregate;
 }
 
+const buildProviderPriority = (market: MarketConfig) =>
+  Array.from(new Set([market.defaultProvider, ...Object.keys(market.providerSymbols || {})]));
+
+async function fetchMarketOhlc(market: MarketConfig, intervalMinutes: number, limit: number) {
+  const providerIds = buildProviderPriority(market);
+  const errors: ReturnType<typeof normalizeError>[] = [];
+  for (const providerId of providerIds) {
+    const provider = getActiveProviderById(providerId);
+    const symbol = provider ? findProviderSymbol(market, provider.id) : undefined;
+    if (!provider || !symbol) continue;
+    try {
+      const rows = await fetchOhlcFromProvider(provider, { symbol, interval: intervalMinutes, limit });
+      if (rows?.length) {
+        return { candles: mapStandardized(rows), provider: provider.id, errors };
+      }
+    } catch (error) {
+      errors.push(normalizeError(provider.id, error));
+    }
+  }
+  const aggregate = new Error("All OHLC providers failed");
+  (aggregate as any).errors = errors;
+  throw aggregate;
+}
+
 export default async function handler(req: Req, res: Res) {
   const intervalValue =
     (typeof req.query?.interval === "string" ? req.query?.interval : undefined) ?? "60";
   const { minutes: intervalMinutes, binance: binanceInterval } = mapInterval(intervalValue);
   try {
+    const assetParam =
+      (typeof req.query?.asset === "string"
+        ? req.query?.asset
+        : Array.isArray(req.query?.asset)
+        ? req.query?.asset[0]
+        : undefined) || undefined;
+    const market = assetParam ? findMarketById(assetParam) : undefined;
+    if (assetParam && !market) {
+      return sendEnvelope(res, {
+        ok: false,
+        status: "degraded",
+        source: "ohlc",
+        statusCode: 400,
+        message: "Unknown asset id",
+        hint: "Unknown asset id",
+        data: { candles: [] },
+      });
+    }
+    const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 60;
+    const limit = Number.isFinite(limitParam) ? Math.max(20, Math.min(500, limitParam)) : 120;
+
+    const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
+    if (isRateLimited(`ohlc:${rateKey}`)) {
+      return sendEnvelope(res, {
+        ok: false,
+        status: "degraded",
+        source: "ohlc",
+        statusCode: 429,
+        message: "rate limited",
+        hint: "Slow down requests",
+        data: { candles: [] },
+      });
+    }
+
+    if (market) {
+      const cacheId = cacheKey("ohlc", market.id, intervalMinutes, limit);
+      const cached = cache.get<{ candles: Candle[]; provider?: string }>(cacheId);
+      if (cached) {
+        return sendEnvelope(res, {
+          ok: true,
+          status: "ok",
+          statusCode: 200,
+          data: cached.candles,
+          symbol: market.id,
+          interval: intervalMinutes,
+          provider: cached.provider,
+          cached: true,
+        } as ApiEnvelope<Candle[]>);
+      }
+      const { candles, provider, errors } = await fetchMarketOhlc(market, intervalMinutes, limit);
+      const payload = { candles, provider, interval: intervalMinutes };
+      cache.set(cacheId, payload);
+      return sendEnvelope(res, {
+        ok: true,
+        status: "ok",
+        statusCode: 200,
+        source: "ohlc",
+        data: candles,
+        symbol: market.id,
+        interval: intervalMinutes,
+        provider,
+        cached: false,
+        errors: errors?.map((e) => e.message),
+      } as ApiEnvelope<Candle[]>);
+    }
+
     const rawSymbol =
       (typeof req.query?.symbol === "string"
         ? req.query?.symbol
         : Array.isArray(req.query?.symbol)
         ? req.query?.symbol[0]
-        : undefined) ??
-      (typeof req.query?.asset === "string"
-        ? req.query?.asset
-        : Array.isArray(req.query?.asset)
-        ? req.query?.asset[0]
         : undefined) ??
       (typeof req.query?.pair === "string"
         ? req.query?.pair
@@ -246,37 +359,22 @@ export default async function handler(req: Req, res: Res) {
         : Array.isArray(req.query?.binance)
         ? req.query?.binance[0]
         : undefined) || symbol;
-    const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 60;
-    const limit = Number.isFinite(limitParam) ? Math.max(20, Math.min(500, limitParam)) : 120;
-
-    const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
-    if (isRateLimited(`ohlc:${rateKey}`)) {
-      return send(res, 429, {
-        ok: false,
-        status: "degraded",
-        source: "ohlc",
-        statusCode: 429,
-        message: "rate limited",
-        hint: "Slow down requests",
-        data: [],
-      });
-    }
 
     const key = cacheKey("ohlc", symbol, binanceSymbol, krakenPair, binanceInterval, limit);
     const cached = cache.get<{ candles: Candle[]; provider?: string; krakenPair?: string; binanceSymbol?: string }>(key);
     if (cached) {
-      return send(res, 200, {
+      return sendEnvelope(res, {
         ok: true,
         status: "ok",
         statusCode: 200,
-        data: { candles: cached.candles },
+        data: cached.candles,
         symbol,
         interval: intervalMinutes,
         provider: cached.provider,
         krakenPair: cached.krakenPair,
         binanceSymbol: cached.binanceSymbol,
         cached: true,
-      });
+      } as ApiEnvelope<Candle[]>);
     }
 
     const { candles, provider, errors } = await resolveOHLC(
@@ -286,32 +384,33 @@ export default async function handler(req: Req, res: Res) {
     );
     const payload = { candles, provider, interval: intervalMinutes, krakenPair, binanceSymbol };
     cache.set(key, payload);
-    return send(res, 200, {
+    return sendEnvelope(res, {
       ok: true,
       status: "ok",
       statusCode: 200,
       source: "ohlc",
-      data: { candles },
+      data: candles,
       symbol,
       interval: intervalMinutes,
       provider,
       cached: false,
-      errors,
-    });
+      errors: errors?.map((e) => e.message),
+    } as ApiEnvelope<Candle[]>);
   } catch (error) {
     const errors: ReturnType<typeof normalizeError>[] = (error as any)?.errors || [];
     const primary = errors[0] ?? normalizeError("ohlc", error);
     const statusCode = primary.statusCode || 502;
     const fallback = generateFakeSeries(60).map((c) => ({ ...c, provider: "fallback" }));
-    return send(res, statusCode, {
-      ok: false,
-      status: statusCode === 503 ? "disabled" : "degraded",
-      source: "ohlc",
-      statusCode,
-      message: primary.message || "OHLC feed unavailable",
-      hint: primary.hint || "Serving synthetic fallback candles",
-      data: { candles: fallback },
-      errors,
-    });
+    return sendEnvelope(
+      res,
+      buildErrorEnvelope({
+        status: statusCode === 503 ? "disabled" : "degraded",
+        statusCode,
+        source: "ohlc",
+        message: primary.message || "OHLC feed unavailable",
+        hint: primary.hint || "Serving synthetic fallback candles",
+        errors: errors?.map((e) => e.message),
+      }) as ApiEnvelope<Candle[]>
+    );
   }
 }

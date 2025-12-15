@@ -1,6 +1,11 @@
 import { cache, cacheKey } from "./utils/cache";
 import { safeFetchJson } from "./utils/safeFetch";
 import { isRateLimited } from "./utils/rateLimit";
+import { DEFAULT_MARKET_ID, findMarketById, getMarketById, type MarketConfig } from "../src/config/markets";
+import { getActiveProviders, type MarketDataProviderConfig } from "../src/config/dataSources";
+import { fetchOhlcFromProvider } from "../src/services/providers/openProviders";
+import { fail, ok, sendEnvelope } from "./utils/apiEnvelope";
+import type { ApiEnvelope } from "./utils/response";
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -21,6 +26,14 @@ const symbolToId: Record<string, string> = {
   SOLUSDT: "solana",
 };
 
+const normalizeProviderId = (id?: string) => (id || "").toLowerCase();
+const findProviderSymbol = (market: MarketConfig, providerId: string) =>
+  Object.entries(market.providerSymbols || {}).find(([key]) => normalizeProviderId(key) === normalizeProviderId(providerId))?.[1];
+const getActiveProviderById = (providerId?: string): MarketDataProviderConfig | undefined => {
+  if (!providerId) return undefined;
+  return getActiveProviders().find((p) => normalizeProviderId(p.id) === normalizeProviderId(providerId));
+};
+
 const isAbortError = (error: unknown) => {
   const message = (error as Error)?.message?.toLowerCase?.() || "";
   return (error as Error)?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
@@ -35,17 +48,6 @@ const normalizeError = (source: string, error: unknown) => {
     statusCode,
     hint: statusCode === 504 ? "Upstream timeout/abort detected" : "Upstream provider unavailable",
   };
-};
-
-const send = (res: Res, status: number, body: unknown) => {
-  if (res.setHeader) {
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-  }
-  if (typeof res.json === "function") {
-    res.status(status).json(body);
-  } else if (res.end) {
-    res.end(JSON.stringify(body));
-  }
 };
 
 const now = () => Date.now();
@@ -122,69 +124,149 @@ async function resolvePrice(symbol: string) {
   throw aggregate;
 }
 
+const buildProviderPriority = (market: MarketConfig) =>
+  Array.from(new Set([market.defaultProvider, ...Object.keys(market.providerSymbols || {})]));
+
+async function fetchMarketPrice(market: MarketConfig) {
+  const providerIds = buildProviderPriority(market);
+  const errors: ReturnType<typeof normalizeError>[] = [];
+  for (const providerId of providerIds) {
+    const provider = getActiveProviderById(providerId);
+    const symbol = provider ? findProviderSymbol(market, provider.id) : undefined;
+    if (!provider || !symbol) continue;
+    const interval = market.supportsIntraday === false ? 1440 : 60;
+    try {
+      const rows = await fetchOhlcFromProvider(provider, { symbol, interval, limit: 2 });
+      const last = rows?.at?.(-1);
+      if (last) {
+        return {
+          data: {
+            source: provider.id,
+            symbol: market.id,
+            price: Number(last.c ?? last.close ?? last.o ?? 0),
+            timestamp: Date.now(),
+          },
+          errors,
+        };
+      }
+    } catch (error) {
+      errors.push(normalizeError(provider.id, error));
+    }
+  }
+  const aggregate = new Error("All providers failed");
+  (aggregate as any).errors = errors;
+  throw aggregate;
+}
+
 export default async function handler(req: Req, res: Res) {
+  let requestedAssetId = DEFAULT_MARKET_ID;
+  let requestedSymbol = "BTCUSDT";
   try {
+    const assetParam =
+      (typeof req.query?.asset === "string"
+        ? req.query?.asset
+        : Array.isArray(req.query?.asset)
+        ? req.query?.asset[0]
+        : undefined) || undefined;
     const symbolParam =
       (typeof req.query?.symbol === "string"
         ? req.query?.symbol
         : Array.isArray(req.query?.symbol)
         ? req.query?.symbol[0]
-        : undefined) ??
-      (typeof req.query?.asset === "string"
-        ? req.query?.asset
-        : Array.isArray(req.query?.asset)
-        ? req.query?.asset[0]
-        : undefined);
-    const symbol = (symbolParam || "BTCUSDT").toUpperCase();
+        : undefined) || undefined;
+    const market = assetParam ? findMarketById(assetParam) : undefined;
+    if (assetParam && !market) {
+      return sendEnvelope(
+        res,
+        fail("invalid_request", {
+          source: "price",
+          statusCode: 400,
+          message: "Unknown asset id",
+          hint: "Unknown asset id",
+        })
+      );
+    }
+    const resolvedMarket = market ?? getMarketById(assetParam || DEFAULT_MARKET_ID);
+    requestedAssetId = resolvedMarket.id;
+    const symbol =
+      (symbolParam ||
+        findProviderSymbol(resolvedMarket, "binance") ||
+        findProviderSymbol(resolvedMarket, resolvedMarket.defaultProvider) ||
+        "BTCUSDT")?.toUpperCase();
+    requestedSymbol = symbol;
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`price:${rateKey}`)) {
-      return send(res, 429, {
-        ok: false,
-        status: "degraded",
-        source: "price",
-        statusCode: 429,
-        message: "rate limited",
-        hint: "Slow down requests",
-      });
+      return sendEnvelope(
+        res,
+        fail("degraded", {
+          source: "price",
+          statusCode: 429,
+          message: "rate limited",
+          hint: "Slow down requests",
+        })
+      );
     }
 
-    const key = cacheKey("price", symbol);
+    const key = cacheKey("price", assetParam ? resolvedMarket.id : symbol);
     const cached = cache.get<unknown>(key) as any;
     if (cached) {
-      return send(res, 200, { ok: true, status: "ok", statusCode: 200, source: "price", data: cached, cached: true });
+      return sendEnvelope(
+        res,
+        ok(cached, {
+          source: "price",
+          statusCode: 200,
+          cached: true,
+        })
+      );
     }
 
-    const { data, errors } = await resolvePrice(symbol);
+    const isCrypto = resolvedMarket.assetClass === "crypto";
+    const { data, errors } = isCrypto ? await resolvePrice(symbol) : await fetchMarketPrice(resolvedMarket);
     const payload = {
       value: data.price,
       change24h: null,
       source: data.source,
-      symbol: data.symbol,
+      symbol: assetParam ? resolvedMarket.id : data.symbol,
       updatedAt: new Date(data.timestamp).toISOString(),
     };
     cache.set(key, payload);
-    return send(res, 200, { ok: true, status: "ok", statusCode: 200, source: "price", data: payload, cached: false, errors });
+    return sendEnvelope(
+      res,
+      ok(payload, {
+        source: "price",
+        statusCode: 200,
+        cached: false,
+        errors: errors?.map((e) => e.message),
+      }) as ApiEnvelope
+    );
   } catch (error) {
+    console.error("[price] handler error", {
+      message: (error as any)?.message,
+      stack: (error as any)?.stack,
+      asset: requestedAssetId,
+      symbol: requestedSymbol,
+    });
     const errors: ReturnType<typeof normalizeError>[] = (error as any)?.errors || [];
     const primary = errors[0] ?? normalizeError("price", error);
     const statusCode = primary.statusCode || 502;
     const fallback = {
-      value: generateFallbackPrice("BTCUSDT"),
+      value: generateFallbackPrice(requestedSymbol || "BTCUSDT"),
       change24h: null,
       source: "fallback",
-      symbol: "BTCUSDT",
+      symbol: requestedAssetId || "BTCUSDT",
       updatedAt: new Date().toISOString(),
     };
-    return send(res, statusCode, {
-      ok: false,
-      status: statusCode === 503 ? "disabled" : "degraded",
-      source: "price",
-      statusCode,
-      message: primary.message || "Price feed unavailable",
-      hint: primary.hint || "Serving synthetic fallback price",
-      data: fallback,
-      errors,
-    });
+    return sendEnvelope(
+      res,
+      fail(statusCode === 503 ? "disabled" : "degraded", {
+        source: "price",
+        statusCode,
+        message: primary.message || "Price feed unavailable",
+        hint: primary.hint || "Serving synthetic fallback price",
+        errors: errors?.map((e) => e.message),
+        data: fallback,
+      }) as ApiEnvelope
+    );
   }
 }

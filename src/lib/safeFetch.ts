@@ -234,17 +234,43 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
     onHealthUpdate?.(serviceName || sourceKey, "degraded", msg);
   }
 
+  const shouldLogPerf = typeof process !== "undefined" && process?.env?.DEBUG_PERF === "true";
+  const perfNow = typeof performance !== "undefined" && performance?.now ? () => performance.now() : () => Date.now();
+
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const start = shouldLogPerf ? perfNow() : 0;
     try {
       const res = await fetch(input, { ...rest, signal: controller.signal });
       clearTimeout(timer);
       const data = (await parseResponse(res)) as T;
+      if (shouldLogPerf) {
+        const duration = perfNow() - start;
+        if (duration > 1000) {
+          console.warn("[perf] slow fetch", {
+            service: serviceName || sourceKey || "fetch",
+            url: toUrlString(input),
+            ms: Math.round(duration),
+            attempt,
+          });
+        }
+      }
       notifySuccess(sourceKey, serviceName, onHealthUpdate);
       return data;
     } catch (err: any) {
       clearTimeout(timer);
+      if (shouldLogPerf) {
+        const duration = perfNow() - start;
+        if (duration > 1000) {
+          console.warn("[perf] slow failure", {
+            service: serviceName || sourceKey || "fetch",
+            url: toUrlString(input),
+            ms: Math.round(duration),
+            attempt,
+          });
+        }
+      }
       lastErr = err instanceof Error ? err : new Error(String(err));
       const shouldRetry = await handleFailure(lastErr as AppError & { code?: string }, {
         attempt,

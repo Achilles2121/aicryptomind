@@ -10,6 +10,15 @@ const isAbortError = (err) => {
   return err?.name === "AbortError" || message.includes("abort") || message.includes("timeout");
 };
 
+const buildEnvelope = (payload, status = 200) =>
+  jsonResponse(
+    {
+      statusCode: status,
+      ...payload,
+    },
+    200
+  );
+
 const normalizeError = (error) => {
   const statusCode = isAbortError(error) ? 504 : 502;
   return {
@@ -60,7 +69,15 @@ export default async function handler(req) {
     try {
       const items = await attempt.exec();
       if (!items.length) throw new Error("empty payload");
-      return jsonResponse({ data: items.slice(0, limit), health: tracker.toArray(), generatedAt: new Date().toISOString() });
+      return buildEnvelope({
+        ok: true,
+        status: "ok",
+        statusCode: 200,
+        source: attempt.key,
+        data: items.slice(0, limit),
+        health: tracker.toArray(),
+        generatedAt: new Date().toISOString(),
+      });
     } catch (err) {
       const status = i === attempts.length - 1 ? "error" : "degraded";
       lastError = err;
@@ -69,18 +86,16 @@ export default async function handler(req) {
   }
 
   const normalized = normalizeError(lastError || new Error("ETF news failed"));
-  return jsonResponse(
-    {
-      ok: false,
-      source: "etfNews",
-      status: normalized.statusCode === 504 ? "timeout" : "error",
-      statusCode: normalized.statusCode,
-      message: normalized.message,
-      hint: normalized.hint,
-      data: [],
-      health: tracker.toArray(),
-      generatedAt: new Date().toISOString(),
-    },
-    normalized.statusCode
-  );
+  return buildEnvelope({
+    ok: false,
+    source: "etfNews",
+    status: normalized.statusCode === 504 ? "degraded" : "degraded",
+    statusCode: normalized.statusCode,
+    message: normalized.message,
+    hint: normalized.hint,
+    data: [],
+    errors: [{ code: "UPSTREAM_ERROR", message: normalized.message }],
+    health: tracker.toArray(),
+    generatedAt: new Date().toISOString(),
+  });
 }

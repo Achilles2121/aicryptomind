@@ -137,3 +137,19 @@
 
 
 
+## 2025-02 Multi-Asset-Update
+
+- Neue Märkte eingebunden: BTCUSD, DAX, SPX, XAUUSD, EURUSD (Konfig in `src/config/markets.ts`).
+- Neue Provider-Adapter: `STOOQ` (Index/FX, CSV) und `FX_PROVIDER` (Open FX) sind in `MARKET_DATA_PROVIDERS` standardmäßig aktiv.
+- Asset-Selector im Header nutzt jetzt MARKETS (gruppiert nach AssetClass) und übergibt `asset` an Price/OHLC/HTF-Loader.
+- Weitere Märkte hinzufügen: MARKETS in `src/config/markets.ts` erweitern und bei Bedarf Symbol-Mapping/Adapter in `src/services/providers/openProviders.ts` ergänzen.
+## 2025-02 Multi-Asset v2 / Crypto-Liste
+- Markets-Registry um alle bisherigen Crypto-Assets erweitert (BTC, ETH, SOL, XRP, ADA, LTC, DOGE, BNB, AVAX, DOT); Default bleibt BTCUSD.
+- Header-Selector zeigt nun die vollstÃ¤ndige Crypto-Liste plus Indices/Commodities/FX gruppiert nach AssetClass.
+- Multi-Asset-Backend (price/ohlc/htf) bleibt unverÃ¤ndert, Trial-Flow und System-Status bleiben stabil.
+
+## 2025-02 â€“ ETF/News ApiEnvelope Update
+- ETF-News-Route (`api/etf/news.js`) liefert jetzt ApiEnvelope mit `ok/status/statusCode/source/data/errors` und antwortet immer 200 statt 500.
+- ETF-Korrelationen (`api/etf/correlations.ts`) nutzen ebenfalls ApiEnvelope und geben degradierte Antworten statt ungefangener 500-Fehler zurÃ¼ck.
+- Frontend-ETF-News-Loader in `src/App.jsx` wertet ApiEnvelope aus, nutzt uiLevel `status` und degradiert Health ohne Toasts.
+- Upstream-Fehler/Rate-Limits erscheinen nur noch als `degraded/disabled` im System-Status; keine roten Toasts/500er mehr fÃ¼r ETF/News.

@@ -36,6 +36,7 @@ import { useUserTier } from "./context/UserTierContext";
 import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import { dataSources } from "./config/dataSources";
+import { DEFAULT_MARKET_ID, MARKETS } from "./config/markets";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
 import { useEliteTrial } from "./hooks/useEliteTrial";
@@ -73,18 +74,13 @@ const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const ASSETS = [
-  { id: "bitcoin", label: "BTC / USD", binance: "btcusdt", kraken: "XXBTZUSD", cc: "BTC" },
-  { id: "ethereum", label: "ETH / USD", binance: "ethusdt", kraken: "XETHZUSD", cc: "ETH" },
-  { id: "solana", label: "SOL / USD", binance: "solusdt", kraken: "SOLUSD", cc: "SOL" },
-  { id: "ripple", label: "XRP / USD", binance: "xrpusdt", kraken: "XRPUSD", cc: "XRP" },
-  { id: "cardano", label: "ADA / USD", binance: "adausdt", kraken: "ADAUSD", cc: "ADA" },
-  { id: "litecoin", label: "LTC / USD", binance: "ltcusdt", kraken: "XLTCZUSD", cc: "LTC" },
-  { id: "dogecoin", label: "DOGE / USD", binance: "dogeusdt", kraken: "XDGUSD", cc: "DOGE" },
-  { id: "binancecoin", label: "BNB / USD", binance: "bnbusdt", kraken: "BNBUSD", cc: "BNB" },
-  { id: "avalanche-2", label: "AVAX / USD", binance: "avaxusdt", kraken: "AVAXUSD", cc: "AVAX" },
-  { id: "polkadot", label: "DOT / USD", binance: "dotusdt", kraken: "DOTUSD", cc: "DOT" },
-];
+const MARKET_OPTIONS = Object.values(MARKETS);
+const ASSET_CLASS_LABELS = {
+  crypto: "Crypto",
+  index: "Indices",
+  commodity: "Commodities",
+  fx: "FX",
+};
 
 const API_SOURCES_OLD = [
   {
@@ -848,7 +844,17 @@ function App() {
   } = useUserTier();
   const { isTrialActive, trialExpiresAt, remainingMs, remainingFormatted, startedAt: localTrialStart } = useEliteTrial();
   const effectiveTier = isTrialActive && ctxTier !== "elite" ? "elite" : ctxTier;
-  const [asset, setAsset] = useState(ASSETS[0]);
+  const marketOptions = useMemo(() => MARKET_OPTIONS, []);
+  const [selectedAssetId, setSelectedAssetId] = useState(DEFAULT_MARKET_ID);
+  const selectedMarket = useMemo(() => MARKETS[selectedAssetId] || MARKETS[DEFAULT_MARKET_ID], [selectedAssetId]);
+  const groupedMarkets = useMemo(() => {
+    return marketOptions.reduce((acc, market) => {
+      const key = market.assetClass || "other";
+      acc[key] = acc[key] || [];
+      acc[key].push(market);
+      return acc;
+    }, {});
+  }, [marketOptions]);
   const [priceState, setPriceState] = useState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
   const [fearGreed, setFearGreed] = useState(null);
   const [ohlcv, setOhlcv] = useState([]);
@@ -1059,7 +1065,7 @@ function App() {
 
   const cacheRef = useRef(new Map());
   const wsRef = useRef(null);
-  const assetIdRef = useRef(ASSETS[0].id);
+  const assetIdRef = useRef(DEFAULT_MARKET_ID);
   const reconnectTimer = useRef(null);
   const pollTimer = useRef(null);
   const fallbackTimer = useRef(null);
@@ -1070,7 +1076,7 @@ function App() {
   const displayPrice = livePrice ?? priceState.value;
 
   useEffect(() => {
-    assetIdRef.current = asset.id;
+    assetIdRef.current = selectedMarket.id;
     setOhlcv([]);
     setHtfOhlcv({ h4: [], d1: [] });
     setIndicators({ rsi: null, macd: null, signal: null, histogram: null });
@@ -1089,7 +1095,7 @@ function App() {
     // Close existing socket immediately to prevent stale streams after asset switch
     wsRef.current?.close();
     wsRef.current = null;
-  }, [asset]);
+  }, [selectedAssetId, selectedMarket.id]);
 
   const fetchWithCache = async (key, fetcher) => {
     const cached = cacheRef.current.get(key);
@@ -1107,8 +1113,8 @@ function App() {
     }
   };
 
-  const fetchPriceProxy = async (symbol) => {
-    const params = new URLSearchParams({ asset: symbol, vs: "USD" });
+  const fetchPriceProxy = async (assetId) => {
+    const params = new URLSearchParams({ asset: assetId, vs: "USD" });
     const response = await safeFetch(`/api/price?${params.toString()}`, {
       serviceName: "price_proxy",
       timeoutMs: 10000,
@@ -1124,17 +1130,22 @@ function App() {
   };
 
   const fetchFearGreed = async () => {
-    const data = await safeFetch("https://api.alternative.me/fng/?limit=1", {
-      serviceName: "coingecko",
+    const data = await safeFetch("https://api.alternative.me/fng/?limit=1&format=json", {
+      serviceName: "fear_greed",
       timeoutMs: 8000,
       retries: 1,
       onHealthUpdate: updateApiHealth,
       onLog: logEvent,
-      onToast: addToast,
+      uiLevel: "status",
     });
     const item = data?.data?.[0];
     if (!item) throw new Error("Fear & Greed malformed");
-    return { value: Number(item.value), classification: item.value_classification, updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now() };
+    return {
+      value: Number(item.value),
+      classification: item.value_classification,
+      updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now(),
+      source: "alternative.me",
+    };
   };
 
   const formatCandleLabel = (timestamp, minutes) => {
@@ -1152,10 +1163,15 @@ function App() {
     }));
   };
 
+  const resolveProviderSymbol = (providerId) => {
+    const entry = Object.entries(selectedMarket?.providerSymbols || {}).find(([id]) => id.toLowerCase() === providerId.toLowerCase());
+    return entry?.[1];
+  };
+
   const loadPrice = async () => {
     try {
-      const symbol = asset?.cc || asset?.label?.split(" ")?.[0] || "BTC";
-      const payload = await fetchWithCache(`price:proxy:${symbol}`, () => fetchPriceProxy(symbol));
+      const assetId = selectedMarket?.id || DEFAULT_MARKET_ID;
+      const payload = await fetchWithCache(`price:proxy:${assetId}`, () => fetchPriceProxy(assetId));
       const parsedUpdatedAt = payload?.updatedAt ? Date.parse(payload.updatedAt) : Date.now();
       const safeUpdatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now();
       setPriceState({
@@ -1188,26 +1204,27 @@ function App() {
     } catch (err) {
       console.error("Fear & Greed failed", err);
       setLastError((prev) => prev || t("fetchFailFearGreed"));
-      updateApiHealth("coingecko", "degraded", t("fetchFailFearGreed"));
+      updateApiHealth("fear_greed", "degraded", t("fetchFailFearGreed"));
       logEvent("fearGreed", "warn", t("fetchFailFearGreed"));
     }
   };
 
   const loadOHLC = async () => {
-    const pair = asset?.kraken || "XXBTZUSD";
+    const pair = resolveProviderSymbol("kraken") || resolveProviderSymbol(selectedMarket.defaultProvider) || selectedMarket.id;
     const intervalMinutes = Number(timeFrame) || 60;
-    const binanceSymbol = (asset?.binance || `${asset?.cc || "BTC"}USDT`).toUpperCase();
-    const cacheKey = `ohlc:multi:${pair}:${binanceSymbol}:${intervalMinutes}`;
+    const binanceSymbol = (resolveProviderSymbol("binance") || resolveProviderSymbol(selectedMarket.defaultProvider) || `${selectedMarket.id}`).toUpperCase();
+    const cacheKey = `ohlc:multi:${selectedMarket.id}:${pair}:${binanceSymbol}:${intervalMinutes}`;
+    const primaryProviderKey = resolveProviderSymbol("kraken") ? "kraken" : selectedMarket.defaultProvider || "kraken";
     try {
       const candles = await fetchWithCache(cacheKey, async () => {
         const loaded = await loadChart(
-          { pair, binanceSymbol, interval: intervalMinutes, limit: 200 },
+          { assetId: selectedMarket.id, pair, binanceSymbol, interval: intervalMinutes, limit: 200 },
           {
             timeoutMs: 12000,
             retries: 0,
             onHealthUpdate: updateApiHealth,
             onLog: logEvent,
-            onToast: addToast,
+            uiLevel: "status",
           }
         );
         if (!loaded || loaded.length < 5) {
@@ -1220,7 +1237,7 @@ function App() {
     } catch (err) {
       console.error("Chart load failed", err);
       setLastError((prev) => prev || t("fetchFailOHLC"));
-      updateApiHealth("kraken", "error", err?.message);
+      updateApiHealth(primaryProviderKey, "error", err?.message);
       logEvent("ohlcv", "error", err?.message || "chart loader failed");
       const fallbackSeries = decorateCandles(buildFallbackChart(48), intervalMinutes);
       setOhlcv(fallbackSeries);
@@ -1234,9 +1251,8 @@ function App() {
       return;
     }
     try {
-      const binanceSymbol = asset?.binance || `${asset.cc || "BTC"}USDT`;
-      const data = await fetchWithCache(`htf:${asset.kraken}:${binanceSymbol}`, () =>
-        fetchHtfOhlc(asset.kraken, binanceSymbol, updateApiHealth, logEvent, addToast)
+      const data = await fetchWithCache(`htf:${selectedMarket.id}`, () =>
+        fetchHtfOhlc(selectedMarket.id, updateApiHealth, logEvent, addToast)
       );
       setHtfOhlcv(data);
       const hasData = (data?.h4?.length || data?.d1?.length) ? "ok" : "degraded";
@@ -1256,9 +1272,15 @@ function App() {
       updateApiHealth("DERIVATIVES_PRIMARY", "degraded", "Tier required");
       return;
     }
+    if (selectedMarket.assetClass !== "crypto") {
+      setDerivativesRisk({ score: null, riskLevel: "neutral", updatedAt: null });
+      updateApiHealth("DERIVATIVES_PRIMARY", "degraded", "Not available for this asset");
+      return;
+    }
     try {
-      const symbolId = resolveDerivativesSymbol(asset.cc);
-      const res = await fetchWithCache(`derivatives:${symbolId}`, () =>
+      const baseTicker = (selectedMarket.id || "").replace(/USD$/i, "");
+      const symbolId = resolveDerivativesSymbol(baseTicker);
+      const res = await fetchWithCache(`derivatives:${symbolId}:${selectedMarket.id}`, () =>
         fetchDerivativesLive(symbolId, updateApiHealth, logEvent, addToast)
       );
       setDerivativesRisk(res);
@@ -1278,12 +1300,18 @@ function App() {
       retries: 0,
       onHealthUpdate: updateApiHealth,
       onLog: logEvent,
-      onToast: addToast,
+      uiLevel: "status",
     });
     relayProxyHealth(response?.health);
-    if (response?.error) throw new Error(response.error);
+    if (response?.ok === false) {
+      updateApiHealth("ETFNEWS", response?.status === "disabled" ? "disabled" : "degraded", response?.message || response?.hint);
+      return [];
+    }
     const list = Array.isArray(response?.data) ? response.data : [];
-    if (!list.length) throw new Error("ETF News empty");
+    if (!list.length) {
+      updateApiHealth("ETFNEWS", "degraded", "ETF News empty");
+      return [];
+    }
     return list.slice(0, 8);
   };
 
@@ -1505,7 +1533,7 @@ function App() {
     refreshAll();
     pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
     return () => clearInterval(pollTimer.current);
-  }, [asset]);
+  }, [selectedMarket.id]);
 
   useEffect(() => {
     loadEtfNews();
@@ -1589,7 +1617,7 @@ function App() {
       document.head.appendChild(script);
     }
     script.textContent = JSON.stringify(ld);
-  }, [asset.label, effectiveTier, timeFrame]);
+  }, [selectedMarket.label, effectiveTier, timeFrame]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1743,7 +1771,9 @@ function App() {
 
   useEffect(() => {
     let attempts = 0;
-    if (!asset.binance) {
+    const binanceSymbol = resolveProviderSymbol("binance");
+    const isCryptoAsset = selectedMarket.assetClass === "crypto";
+    if (!binanceSymbol || !isCryptoAsset) {
       setWsStatus("unavailable");
       setLivePrice(null);
       clearInterval(fallbackTimer.current);
@@ -1755,7 +1785,7 @@ function App() {
     const connect = () => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSED) wsRef.current = null;
       if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) return;
-      const symbol = (asset.binance || "").toLowerCase();
+      const symbol = (binanceSymbol || "").toLowerCase();
       if (!symbol) return;
       const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol}@trade`);
       wsRef.current = ws;
@@ -1772,7 +1802,7 @@ function App() {
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          if (assetIdRef.current !== asset.id) return;
+          if (assetIdRef.current !== selectedMarket.id) return;
           if (payload?.p) {
             const px = Number(payload.p);
             const qty = Number(payload.q || 0);
@@ -1819,7 +1849,7 @@ function App() {
       clearInterval(pollingReconnectTimer.current);
       pollingReconnectTimer.current = null;
     };
-  }, [asset]);
+  }, [selectedMarket.id, selectedMarket.assetClass]);
   const indicatorSeries = useMemo(() => {
     if (!ohlcv.length) return [];
     const closes = ohlcv.map((c) => c.close);
@@ -1882,7 +1912,7 @@ function App() {
 
   useEffect(() => {
     const predictorSeries =
-      asset?.id === "bitcoin" && htfOhlcv?.h4?.length ? htfOhlcv.h4 : indicatorSeries;
+      selectedMarket?.id === "BTCUSD" && htfOhlcv?.h4?.length ? htfOhlcv.h4 : indicatorSeries;
     if (!predictorSeries.length) return;
     const closes = predictorSeries.map((c) => c.close).filter((v) => Number.isFinite(v));
     if (!closes.length) return;
@@ -1897,15 +1927,15 @@ function App() {
       trend: drift >= 0 ? "bullish" : "bearish",
       refreshedAt: Date.now(),
     });
-  }, [indicatorSeries, htfOhlcv, asset?.id]);
+  }, [indicatorSeries, htfOhlcv, selectedMarket?.id]);
 
-  useEffect(() => {
-    if (!indicatorSeries.length) return;
+  const computedBacktest = useMemo(() => {
+    if (!indicatorSeries.length) return null;
     const signals = buildBacktestSignals(indicatorSeries);
     const result = runBacktestV3({ candles: indicatorSeries, signals, maxHoldBars: 5 });
     const wins = result.trades.filter((t) => t.result === "win").length;
     const losses = result.trades.filter((t) => t.result === "loss").length;
-    setBacktestStats({
+    return {
       trades: result.trades.length,
       wins,
       losses,
@@ -1918,8 +1948,13 @@ function App() {
       maxDrawdown: result.maxDrawdown,
       profitFactor: result.profitFactor,
       profitPct: result.profitPct,
-    });
+    };
   }, [indicatorSeries]);
+
+  useEffect(() => {
+    if (!computedBacktest) return;
+    setBacktestStats(computedBacktest);
+  }, [computedBacktest]);
 
   const suggestRisk = () => {
     const entry = tpForm.entry ?? displayPrice;
@@ -2256,14 +2291,14 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       const magnitude = Math.min(96, Math.max(52, Math.abs(rsiVal - 50) * 1.8));
       return {
         id: `${row.label}-${idx}`,
-        label: `${asset.cc} ${row.label}`,
+        label: `${selectedMarket.id} ${row.label}`,
         bias,
         rsi: rsiVal,
         size: magnitude,
       };
     }).filter(Boolean);
     return mapped.sort((a, b) => Math.abs(b.rsi - 50) - Math.abs(a.rsi - 50)).slice(0, 10);
-  }, [indicatorSeries, asset.cc]);
+  }, [indicatorSeries, selectedMarket.id]);
 
   const proSignal = useMemo(() => {
     const enrichedBacktest = {
@@ -2406,18 +2441,22 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <select
-              value={asset.id}
+              value={selectedMarket.id}
               onChange={(e) => {
-                const next = ASSETS.find((a) => a.id === e.target.value) ?? ASSETS[0];
-                setAsset(next);
+                const next = e.target.value || DEFAULT_MARKET_ID;
+                setSelectedAssetId(next);
                 setLivePrice(null);
               }}
               className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
             >
-              {ASSETS.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
+              {Object.entries(groupedMarkets).map(([cls, entries]) => (
+                <optgroup key={cls} label={ASSET_CLASS_LABELS[cls] || cls}>
+                  {entries.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <div
@@ -2557,7 +2596,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             tooltip="Live Price mit 24h Change, Multi-Source Fallback."
             actions={
               <div className="flex gap-2">
-                <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{asset.label}</span>
+                <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{selectedMarket.label}</span>
                 <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{priceState.source}</span>
               </div>
             }
@@ -2581,7 +2620,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <div className="h-2 w-full rounded-full bg-slate-800">
                   <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
                 </div>
-                <span className="text-xs text-slate-400">Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()}</span>
+                <span className="text-xs text-slate-400">
+                  Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} · Source: {fearGreed.source || "alternative.me"}
+                </span>
               </div>
             ) : (
               <p className="text-sm text-slate-400">Lade Daten...</p>
@@ -2631,7 +2672,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <Card
               title={t("liveMarket")}
               icon={TrendingUp}
-              actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+              actions={<span className="text-xs text-slate-400">{selectedMarket.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
             >
               <LazyRender placeholder={<div className="h-80 flex items-center justify-center"><Skeleton className="h-72 w-full" /></div>}>
                 {indicatorSeries.length ? (
@@ -4017,18 +4058,22 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           </div>
           <div className="flex flex-wrap gap-2">
             <select
-              value={asset.id}
+              value={selectedMarket.id}
               onChange={(e) => {
-                const next = ASSETS.find((a) => a.id === e.target.value) ?? ASSETS[0];
-                setAsset(next);
+                const next = e.target.value || DEFAULT_MARKET_ID;
+                setSelectedAssetId(next);
                 setLivePrice(null);
               }}
               className="flex-1 min-w-[120px] rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-inner shadow-black/30"
             >
-              {ASSETS.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
+              {Object.entries(groupedMarkets).map(([cls, entries]) => (
+                <optgroup key={cls} label={ASSET_CLASS_LABELS[cls] || cls}>
+                  {entries.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <select
@@ -4180,7 +4225,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   tooltip="Live Price mit 24h Change, Multi-Source Fallback."
                   actions={
                     <div className="flex gap-2">
-                      <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{asset.label}</span>
+                      <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{selectedMarket.label}</span>
                       <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{priceState.source}</span>
                     </div>
                   }
@@ -4197,19 +4242,21 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <Card title={t("fearGreed")} icon={Gauge} tooltip="Fear & Greed Index letzte Aktualisierung.">
                   {fearGreed ? (
                     <div className="flex flex-col gap-2">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold text-white">{fearGreed.value}</span>
-                        <span className="text-sm uppercase tracking-wide text-slate-400">{fearGreed.classification}</span>
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-slate-800">
-                        <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
-                      </div>
-                      <span className="text-xs text-slate-400">Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()}</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-bold text-white">{fearGreed.value}</span>
+                      <span className="text-sm uppercase tracking-wide text-slate-400">{fearGreed.classification}</span>
                     </div>
-                  ) : (
-                    <p className="text-sm text-slate-400">Lade Daten...</p>
-                  )}
-                </Card>
+                    <div className="h-2 w-full rounded-full bg-slate-800">
+                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} · Source: {fearGreed.source || "alternative.me"}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">Lade Daten...</p>
+                )}
+              </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -4320,7 +4367,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <Card
                 title={t("liveMarket")}
                 icon={TrendingUp}
-                actions={<span className="text-xs text-slate-400">{asset.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+                actions={<span className="text-xs text-slate-400">{selectedMarket.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
                 <LazyRender placeholder={<div className="h-72 flex items-center justify-center"><Skeleton className="h-64 w-full" /></div>}>
                   {indicatorSeries.length ? (
@@ -5011,5 +5058,3 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 }
 
 export default App;
-
-

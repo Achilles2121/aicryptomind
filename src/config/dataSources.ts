@@ -182,6 +182,20 @@ export const MARKET_DATA_PROVIDERS: MarketDataProviderConfig[] = [
     weight: 0.9,
   },
   {
+    id: "STOOQ",
+    label: "Stooq (Index/FX)",
+    type: "spot",
+    baseUrl: "https://stooq.pl",
+    weight: 0.82,
+  },
+  {
+    id: "FX_PROVIDER",
+    label: "FX Provider (Open)",
+    type: "spot",
+    baseUrl: "https://stooq.pl",
+    weight: 0.81,
+  },
+  {
     id: "kraken",
     label: "Kraken",
     type: "spot",
