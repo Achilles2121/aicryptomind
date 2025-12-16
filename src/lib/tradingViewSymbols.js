@@ -3,81 +3,34 @@
 /**
  * TradingView Symbol Mapping
  * Maps our internal asset IDs to TradingView symbols
+ * 
+ * NOTE: This file is kept for backwards compatibility.
+ * For new code, use: import { getTVSymbolForAsset } from '../config/assets';
  */
 
-// Crypto symbols (Binance preferred for liquidity)
-const CRYPTO_SYMBOLS = {
-  BTC: "BINANCE:BTCUSDT",
-  BTCUSD: "BINANCE:BTCUSDT",
-  ETH: "BINANCE:ETHUSDT",
-  ETHUSD: "BINANCE:ETHUSDT",
-  SOL: "BINANCE:SOLUSDT",
-  SOLUSD: "BINANCE:SOLUSDT",
-  XRP: "BINANCE:XRPUSDT",
-  DOGE: "BINANCE:DOGEUSDT",
-  ADA: "BINANCE:ADAUSDT",
-  DOT: "BINANCE:DOTUSDT",
-  AVAX: "BINANCE:AVAXUSDT",
-  MATIC: "BINANCE:MATICUSDT",
-  LINK: "BINANCE:LINKUSDT",
-  UNI: "BINANCE:UNIUSDT",
-  LTC: "BINANCE:LTCUSDT",
-  ATOM: "BINANCE:ATOMUSDT",
-  NEAR: "BINANCE:NEARUSDT",
-  APT: "BINANCE:APTUSDT",
-  ARB: "BINANCE:ARBUSDT",
-  OP: "BINANCE:OPUSDT",
+import { ASSETS, getAssetById, getTVSymbolForAsset as getConfigTVSymbol } from '../config/assets';
+
+// Build lookup tables from central config
+const buildSymbolMap = (assets) => {
+  const map = {};
+  assets.forEach(asset => {
+    map[asset.id] = asset.tvSymbol;
+    if (asset.base) map[asset.base] = asset.tvSymbol;
+  });
+  return map;
 };
 
-// Forex symbols
-const FOREX_SYMBOLS = {
-  EURUSD: "FX:EURUSD",
-  GBPUSD: "FX:GBPUSD",
-  USDJPY: "FX:USDJPY",
-  USDCHF: "FX:USDCHF",
-  AUDUSD: "FX:AUDUSD",
-  USDCAD: "FX:USDCAD",
-  NZDUSD: "FX:NZDUSD",
-  EURGBP: "FX:EURGBP",
-  EURJPY: "FX:EURJPY",
-  GBPJPY: "FX:GBPJPY",
-};
+// Crypto symbols (from central config)
+const CRYPTO_SYMBOLS = buildSymbolMap(ASSETS.crypto);
 
-// Index symbols
-const INDEX_SYMBOLS = {
-  SPX: "FOREXCOM:SPXUSD",
-  SP500: "FOREXCOM:SPXUSD",
-  GSPC: "SP:SPX",
-  DAX: "XETR:DAX",
-  GDAXI: "XETR:DAX",
-  NASDAQ: "NASDAQ:NDX",
-  NDX: "NASDAQ:NDX",
-  DJI: "DJ:DJI",
-  DOW: "DJ:DJI",
-  NIKKEI: "TVC:NI225",
-  N225: "TVC:NI225",
-  FTSE: "TVC:UKX",
-  CAC40: "EURONEXT:PX1",
-  STOXX50: "TVC:SX5E",
-};
+// Forex symbols (from central config)
+const FOREX_SYMBOLS = buildSymbolMap(ASSETS.forex);
 
-// Commodity symbols
-const COMMODITY_SYMBOLS = {
-  GOLD: "TVC:GOLD",
-  XAUUSD: "TVC:GOLD",
-  GC: "COMEX:GC1!",
-  SILVER: "TVC:SILVER",
-  XAGUSD: "TVC:SILVER",
-  SI: "COMEX:SI1!",
-  OIL: "TVC:USOIL",
-  WTI: "TVC:USOIL",
-  CL: "NYMEX:CL1!",
-  BRENT: "TVC:UKOIL",
-  NATGAS: "NYMEX:NG1!",
-  NG: "NYMEX:NG1!",
-  COPPER: "COMEX:HG1!",
-  PLATINUM: "NYMEX:PL1!",
-};
+// Index symbols (from central config)  
+const INDEX_SYMBOLS = buildSymbolMap(ASSETS.indices);
+
+// Commodity symbols (from central config)
+const COMMODITY_SYMBOLS = buildSymbolMap(ASSETS.commodities);
 
 // Combined lookup
 const ALL_SYMBOLS = {
@@ -89,6 +42,7 @@ const ALL_SYMBOLS = {
 
 /**
  * Get TradingView symbol from internal asset ID
+ * Uses central config as primary source, fallback to local maps
  * @param {string} assetId - Internal asset ID (e.g., "BTC", "EURUSD", "SPX")
  * @param {string} assetClass - Optional asset class hint
  * @returns {string} TradingView symbol
@@ -96,9 +50,21 @@ const ALL_SYMBOLS = {
 export function getTradingViewSymbol(assetId, assetClass) {
   if (!assetId) return "BINANCE:BTCUSDT";
   
-  const normalized = assetId.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // First try central config (most reliable)
+  const configSymbol = getConfigTVSymbol(assetId);
+  if (configSymbol && configSymbol !== "BINANCE:BTCUSDT") {
+    return configSymbol;
+  }
   
-  // Direct lookup
+  // Try direct asset lookup
+  const asset = getAssetById(assetId);
+  if (asset?.tvSymbol) {
+    return asset.tvSymbol;
+  }
+  
+  const normalized = assetId.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
+  
+  // Direct lookup from combined map
   if (ALL_SYMBOLS[normalized]) {
     return ALL_SYMBOLS[normalized];
   }
@@ -145,40 +111,24 @@ export function getTradingViewInterval(minutes) {
 
 /**
  * Get ticker symbols for TradingView Ticker Tape
+ * Uses central config for up-to-date asset data
  * @param {string} assetClass - Filter by asset class (optional)
  * @returns {Array} Array of ticker objects
  */
 export function getTickerSymbols(assetClass) {
-  const cryptoTickers = [
-    { proName: "BINANCE:BTCUSDT", title: "Bitcoin" },
-    { proName: "BINANCE:ETHUSDT", title: "Ethereum" },
-    { proName: "BINANCE:SOLUSDT", title: "Solana" },
-    { proName: "BINANCE:XRPUSDT", title: "XRP" },
-    { proName: "BINANCE:ADAUSDT", title: "Cardano" },
-  ];
+  // Build tickers from central config
+  const buildTickers = (assets, limit = 5) => 
+    assets.slice(0, limit).map(a => ({ proName: a.tvSymbol, title: a.label }));
   
-  const forexTickers = [
-    { proName: "FX:EURUSD", title: "EUR/USD" },
-    { proName: "FX:GBPUSD", title: "GBP/USD" },
-    { proName: "FX:USDJPY", title: "USD/JPY" },
-  ];
-  
-  const indexTickers = [
-    { proName: "FOREXCOM:SPXUSD", title: "S&P 500" },
-    { proName: "XETR:DAX", title: "DAX" },
-    { proName: "NASDAQ:NDX", title: "NASDAQ" },
-  ];
-  
-  const commodityTickers = [
-    { proName: "TVC:GOLD", title: "Gold" },
-    { proName: "TVC:SILVER", title: "Silver" },
-    { proName: "TVC:USOIL", title: "Oil" },
-  ];
+  const cryptoTickers = buildTickers(ASSETS.crypto, 5);
+  const forexTickers = buildTickers(ASSETS.forex, 3);
+  const indexTickers = buildTickers(ASSETS.indices, 3);
+  const commodityTickers = buildTickers(ASSETS.commodities, 3);
   
   if (assetClass === "crypto") return cryptoTickers;
   if (assetClass === "fx" || assetClass === "forex") return forexTickers;
-  if (assetClass === "index") return indexTickers;
-  if (assetClass === "commodity") return commodityTickers;
+  if (assetClass === "index" || assetClass === "indices") return indexTickers;
+  if (assetClass === "commodity" || assetClass === "commodities") return commodityTickers;
   
   // Return mixed selection
   return [
@@ -188,6 +138,9 @@ export function getTickerSymbols(assetClass) {
     ...indexTickers.slice(0, 1),
   ];
 }
+
+// Re-export from config for convenience
+export { getAssetById, getTVSymbolForAsset as getAssetTVSymbol } from '../config/assets';
 
 export default {
   getTradingViewSymbol,
