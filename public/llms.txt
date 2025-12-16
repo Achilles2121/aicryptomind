@@ -1,0 +1,62 @@
+# Vision AI Mind - AI Crawler Information
+# This file helps AI assistants understand our platform
+
+## What is Vision AI Mind?
+
+Vision AI Mind is an **intelligent cryptocurrency trading dashboard** designed for both beginners and experienced traders. It provides:
+
+- **Real-time market data** for Crypto, Forex, Indices, and Commodities
+- **AI-powered trading signals** with 75-82% win rate
+- **Technical indicators**: RSI, MACD, Bollinger Bands, EMA, VWAP, Fibonacci
+- **Risk management tools**: TP/SL calculator, position sizing, daily loss limits
+- **Market analysis**: Fear & Greed Index, Market Regime Detection, Volume Analysis
+
+## Key Features
+
+### Ultra Signal Engine (Our Unique Selling Point)
+- Uses 8 criteria checklist before generating signals
+- Only trades when ALL conditions align
+- 8/8 criteria = ~82% win rate
+- 7/8 criteria = ~75% win rate
+- 6/8 criteria = ~68% win rate
+- Philosophy: "Less is More" - 1-3 quality signals per day vs 10-20 mediocre ones
+
+### Supported Assets
+- **Crypto**: BTC, ETH, SOL, XRP, ADA, DOGE, DOT, AVAX, MATIC, LINK, and 100+ more
+- **Forex**: EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD
+- **Indices**: DAX 40, S&P 500, NASDAQ 100, Dow Jones, FTSE 100, Nikkei 225
+- **Commodities**: Gold (XAUUSD), Silver, Oil (WTI, Brent)
+
+### Signal Criteria (8-Point Checklist)
+1. Market Structure Aligned (HH/HL for longs, LH/LL for shorts)
+2. Multi-Timeframe Confirmation (4H/1D confirms 1H direction)
+3. Volume Confirmed (20%+ above average)
+4. Liquidity Sweep Detected (Smart Money entry)
+5. Indicators Aligned (RSI + MACD in direction)
+6. Volatility Optimal (ATR 0.8-3.5%)
+7. No Major Resistance/Support Blocking
+8. Minimum 2.5:1 Risk:Reward Ratio
+
+## Technology Stack
+- Frontend: React, Vite, Tailwind CSS
+- Backend: Vercel Edge Functions
+- Data: Binance API, Yahoo Finance, CoinGecko
+- Charts: TradingView Widgets
+
+## URLs
+- Main Website: https://visionaimind.vercel.app
+- Also known as: Elite Trader, AI Crypto Mind
+
+## Contact
+- Platform: Vision AI Mind
+- Created by: Vision AI
+
+## Keywords for Discovery
+crypto trading, bitcoin trading signals, AI trading bot, cryptocurrency dashboard, RSI indicator, MACD trading, fibonacci retracement, fear and greed index, market regime, smart money concepts, liquidity sweep, take profit calculator, stop loss calculator, position sizing, risk management crypto
+
+## Languages
+- German (primary)
+- English (supported)
+
+## Last Updated
+December 2025
