@@ -859,6 +859,134 @@ export function buildMultiTimeframeSignal(
 }
 
 // ============================================
+// BEGINNER MODE - SIMPLIFIED SIGNALS
+// ============================================
+
+/**
+ * Generates simplified signals for beginner traders
+ * - Only high-confidence signals (>75%)
+ * - Clear entry/exit instructions
+ * - Risk-managed position sizing recommendations
+ * - Works for both rising and falling markets
+ */
+export interface BeginnerSignal {
+  action: "BUY" | "SELL" | "WAIT";
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  confidencePercent: number;
+  message: string;
+  entry: number | null;
+  takeProfit: number | null;
+  stopLoss: number | null;
+  riskReward: string;
+  marketBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  suggestedRiskPercent: number;  // % of portfolio to risk
+  reasoning: string[];
+  warnings: string[];
+}
+
+export function buildBeginnerSignal(
+  candles: IndicatorRow[],
+  portfolioSize: number = 1000,
+  riskTolerance: "conservative" | "moderate" | "aggressive" = "moderate"
+): BeginnerSignal {
+  const signal = buildSignalsV4({ candles, minConfidence: 0.5 });
+  
+  // Determine confidence level
+  let confidenceLevel: BeginnerSignal["confidence"];
+  if (signal.confidence >= 0.75) {
+    confidenceLevel = "HIGH";
+  } else if (signal.confidence >= 0.55) {
+    confidenceLevel = "MEDIUM";
+  } else {
+    confidenceLevel = "LOW";
+  }
+  
+  // Risk percent based on tolerance
+  const riskPercents = {
+    conservative: 0.5,
+    moderate: 1.0,
+    aggressive: 2.0,
+  };
+  const baseRisk = riskPercents[riskTolerance];
+  
+  // Adjust risk based on confidence
+  let suggestedRisk = baseRisk;
+  if (confidenceLevel === "HIGH") {
+    suggestedRisk = baseRisk * 1.2;
+  } else if (confidenceLevel === "LOW") {
+    suggestedRisk = baseRisk * 0.5;
+  }
+  
+  // Market bias
+  let marketBias: BeginnerSignal["marketBias"] = "NEUTRAL";
+  if (signal.meta.marketStructure.bias === "bullish") {
+    marketBias = "BULLISH";
+  } else if (signal.meta.marketStructure.bias === "bearish") {
+    marketBias = "BEARISH";
+  }
+  
+  // Generate warnings
+  const warnings: string[] = [];
+  if (signal.meta.atrPct > 3) {
+    warnings.push("⚠️ High volatility - consider smaller position");
+  }
+  if (signal.meta.regime === "Choppy") {
+    warnings.push("⚠️ Choppy market - wait for clearer direction");
+  }
+  if (confidenceLevel === "LOW") {
+    warnings.push("⚠️ Low confidence signal - consider waiting");
+  }
+  
+  // Build reasoning
+  const reasoning: string[] = [];
+  if (signal.meta.marketStructure.pattern !== "neutral") {
+    reasoning.push(`Market structure: ${signal.meta.marketStructure.pattern}`);
+  }
+  if (signal.meta.rsi) {
+    if (signal.meta.rsi < 30) reasoning.push("RSI indicates oversold");
+    if (signal.meta.rsi > 70) reasoning.push("RSI indicates overbought");
+  }
+  if (signal.meta.vsa.type !== "neutral") {
+    reasoning.push(`Volume analysis: ${signal.meta.vsa.type}`);
+  }
+  
+  // Generate message
+  let message = "";
+  let action: BeginnerSignal["action"] = "WAIT";
+  
+  if (signal.action === "long" && confidenceLevel !== "LOW") {
+    action = "BUY";
+    message = `📈 BUY Signal (${(signal.confidence * 100).toFixed(0)}% confidence) - Market shows bullish momentum`;
+  } else if (signal.action === "short" && confidenceLevel !== "LOW") {
+    action = "SELL";
+    message = `📉 SELL Signal (${(signal.confidence * 100).toFixed(0)}% confidence) - Market shows bearish momentum`;
+  } else {
+    message = "⏸️ WAIT - No clear trading opportunity right now";
+  }
+  
+  // Calculate R:R display
+  let rrDisplay = "N/A";
+  if (signal.rrRatio && Number.isFinite(signal.rrRatio)) {
+    rrDisplay = `1:${signal.rrRatio.toFixed(1)}`;
+  }
+  
+  return {
+    action,
+    confidence: confidenceLevel,
+    confidencePercent: Math.round(signal.confidence * 100),
+    message,
+    entry: signal.action !== "wait" ? candles[candles.length - 1]?.c || null : null,
+    takeProfit: signal.tp,
+    stopLoss: signal.sl,
+    riskReward: rrDisplay,
+    marketBias,
+    suggestedRiskPercent: Math.round(suggestedRisk * 10) / 10,
+    reasoning,
+    warnings,
+  };
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 

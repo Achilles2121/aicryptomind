@@ -20,8 +20,8 @@ const extractCandlesArray = (res: unknown): any[] => {
   const apiRes = res as Record<string, unknown>;
   const nestedCandles = (apiRes?.data as Record<string, unknown>)?.candles;
   if (Array.isArray(nestedCandles)) return nestedCandles;
-  if (Array.isArray(apiRes?.data)) return apiRes.data as any[];
-  if (Array.isArray(apiRes?.candles)) return apiRes.candles as any[];
+  if (Array.isArray(apiRes?.data)) return apiRes.data;
+  if (Array.isArray(apiRes?.candles)) return apiRes.candles;
   return [];
 };
 

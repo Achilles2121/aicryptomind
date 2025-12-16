@@ -13,7 +13,7 @@
  *   GET /api/market-data?symbol=EUR%20/%20USD
  */
 
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+// Edge runtime - no @vercel/node types needed
 
 // ============================================================================
 // TYPES
@@ -118,7 +118,7 @@ const SYMBOL_MAP: Record<string, AssetConfig> = {
 const cache: Record<string, CacheEntry> = {};
 
 function getCacheKey(symbol: string): string {
-  return `market_${symbol.toUpperCase().replace(/\s+/g, '_')}`;
+  return `market_${symbol.toUpperCase().replaceAll(/\s+/g, '_')}`;
 }
 
 function getCachedData(symbol: string): CacheEntry | null {
@@ -197,13 +197,13 @@ async function fetchBinanceData(binanceSymbol: string): Promise<{
     const data = await response.json();
     
     return {
-      price: parseFloat(data.lastPrice) || 0,
-      change: parseFloat(data.priceChange) || 0,
-      changePercent: parseFloat(data.priceChangePercent) || 0,
-      previousClose: parseFloat(data.prevClosePrice) || 0,
-      high24h: parseFloat(data.highPrice) || 0,
-      low24h: parseFloat(data.lowPrice) || 0,
-      volume: parseFloat(data.volume) || 0
+      price: Number.parseFloat(data.lastPrice) || 0,
+      change: Number.parseFloat(data.priceChange) || 0,
+      changePercent: Number.parseFloat(data.priceChangePercent) || 0,
+      previousClose: Number.parseFloat(data.prevClosePrice) || 0,
+      high24h: Number.parseFloat(data.highPrice) || 0,
+      low24h: Number.parseFloat(data.lowPrice) || 0,
+      volume: Number.parseFloat(data.volume) || 0
     };
   } catch (error) {
     console.error(`[Binance] Fetch error for ${binanceSymbol}:`, error);

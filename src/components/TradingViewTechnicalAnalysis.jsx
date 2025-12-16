@@ -23,7 +23,7 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
   
   // Symbol-Mapping: UI-Name -> TradingView-Ticker
   const tvSymbol = useMemo(() => {
-    if (symbol && symbol.includes(":")) return symbol;
+    if (symbol?.includes(":")) return symbol;
     return getTVSymbol(symbol);
   }, [symbol]);
 

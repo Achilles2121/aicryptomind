@@ -56,7 +56,7 @@ export async function loadChart(
   options: SafeFetchOptions = {}
 ): Promise<Candle[] | null> {
   // Use consolidated /api/ohlc endpoint which has Binance/Kraken/CoinGecko fallback built-in
-  const asset = assetId || pair?.replace(/^X+|Z+/g, "").replace("USD", "") || binanceSymbol?.replace("USDT", "") || "BTC";
+  const asset = assetId || pair?.replaceAll(/(?:^X+|Z+)/g, "").replace("USD", "") || binanceSymbol?.replace("USDT", "") || "BTC";
   const url = `/api/ohlc?asset=${encodeURIComponent(asset)}&interval=${interval}&limit=${limit}`;
   
   try {
@@ -95,10 +95,10 @@ export const buildFallbackChart = (length = 24, basePrice = 100, volatility = 0.
 
     candles.push({
       time: now - (length - idx) * 3600,
-      open: parseFloat(open.toFixed(2)),
-      high: parseFloat(high.toFixed(2)),
-      low: parseFloat(low.toFixed(2)),
-      close: parseFloat(close.toFixed(2)),
+      open: Number.parseFloat(open.toFixed(2)),
+      high: Number.parseFloat(high.toFixed(2)),
+      low: Number.parseFloat(low.toFixed(2)),
+      close: Number.parseFloat(close.toFixed(2)),
       volume,
       provider: "fallback",
     });

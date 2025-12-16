@@ -225,7 +225,7 @@ const cryptoDataService = {
       return { score: 68, label: "Social Score", updatedAt: Date.now() };
     }
   },
-  async fetchCorrelation(ids = ["bitcoin", "ethereum", "solana", "ripple"], onHealthUpdate, onLog, onToast) {
+  async fetchCorrelation(onHealthUpdate, onLog, onToast, ids = ["bitcoin", "ethereum", "solana", "ripple"]) {
     try {
       const series = await Promise.all(
         ids.map(async (id) => {
@@ -266,7 +266,7 @@ const cryptoDataService = {
       ];
     }
   },
-  async fetchFundingRates(symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"], onHealthUpdate, onLog, onToast) {
+  async fetchFundingRates(onHealthUpdate, onLog, onToast, symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]) {
     try {
       const res = await Promise.all(
         symbols.map(async (sym) => {
@@ -282,9 +282,9 @@ const cryptoDataService = {
         })
       );
       return res;
-    } catch (_err) {
-      console.error("funding fallback", _err);
-      onHealthUpdate?.("binance", "degraded", _err.message);
+    } catch (error_) {
+      console.error("funding fallback", error_);
+      onHealthUpdate?.("binance", "degraded", error_.message);
       return [
         { symbol: "BTCUSDT", rate: 0.00021, mark: null },
         { symbol: "ETHUSDT", rate: 0.00015, mark: null },
@@ -843,7 +843,7 @@ function App() {
     loading: tierLoading,
     refreshUserTier,
   } = useUserTier();
-  const { isTrialActive, trialExpiresAt, remainingMs, remainingFormatted: _remainingFormatted, startedAt: localTrialStart } = useEliteTrial();
+  const { isTrialActive, trialExpiresAt, remainingMs, startedAt: localTrialStart } = useEliteTrial();
   const effectiveTier = isTrialActive && ctxTier !== "elite" ? "elite" : ctxTier;
   const marketOptions = useMemo(() => MARKET_OPTIONS, []);
   const [selectedAssetId, setSelectedAssetId] = useState(DEFAULT_MARKET_ID);
@@ -889,10 +889,10 @@ function App() {
   const [lang, setLang] = useState("de");
   const [apiStatuses, setApiStatuses] = useState({});
   const [userEmail, setUserEmail] = useState("");
-  const [_geoInfo, setGeoInfo] = useState(null);
+  const [, setGeoInfo] = useState(null);
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
-  const [_isStartingTrial, _setIsStartingTrial] = useState(false);
+  // geoInfo state removed - was unused
   const [highlightAuthCard, setHighlightAuthCard] = useState(false);
   const [consentGeo, setConsentGeo] = useState(() => localStorage.getItem("consent:geo") === "true");
   const [saveTierMessage, setSaveTierMessage] = useState("");

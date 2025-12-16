@@ -137,8 +137,8 @@ export const INTERVAL_MAP: Record<number, string> = {
  * Maps interval to appropriate range for Yahoo Finance
  */
 const getRangeForInterval = (intervalMinutes: number, limit: number): string => {
-  const totalMinutes = intervalMinutes * limit;
-  const totalDays = totalMinutes / 1440;
+  // Calculate range based on interval - limit parameter reserved for future use
+  const _ = limit; // Suppress unused warning
   
   if (intervalMinutes <= 5) return "1d";
   if (intervalMinutes <= 15) return "5d";
@@ -216,7 +216,7 @@ export async function fetchYahooChart(
   limit: number = 100
 ): Promise<YahooChartResult> {
   // Normalize asset symbol
-  const normalizedAsset = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const normalizedAsset = asset.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   const yahooSymbol = SYMBOL_MAP[normalizedAsset] || asset;
   
   // Map interval
@@ -290,7 +290,7 @@ export async function fetchYahooChart(
  */
 export async function fetchYahooPrice(asset: string): Promise<PriceData> {
   // Normalize asset symbol
-  const normalizedAsset = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const normalizedAsset = asset.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   const yahooSymbol = SYMBOL_MAP[normalizedAsset] || asset;
   
   // Use 1d interval with 2d range to get previous close
@@ -352,7 +352,7 @@ export async function fetchYahooPrice(asset: string): Promise<PriceData> {
  * Checks if an asset is supported by Yahoo Finance
  */
 export function isYahooSupported(asset: string): boolean {
-  const normalizedAsset = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const normalizedAsset = asset.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   return normalizedAsset in SYMBOL_MAP;
 }
 
@@ -360,7 +360,7 @@ export function isYahooSupported(asset: string): boolean {
  * Gets the Yahoo symbol for an asset
  */
 export function getYahooSymbol(asset: string): string {
-  const normalizedAsset = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const normalizedAsset = asset.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   return SYMBOL_MAP[normalizedAsset] || asset;
 }
 
@@ -368,7 +368,7 @@ export function getYahooSymbol(asset: string): string {
  * Asset category detection
  */
 export function getAssetCategory(asset: string): "crypto" | "forex" | "index" | "commodity" | "unknown" {
-  const normalizedAsset = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const normalizedAsset = asset.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   
   const cryptoAssets = ["BTC", "BTCUSD", "BTCUSDT", "ETH", "ETHUSD", "ETHUSDT", "SOL", "SOLUSD", "XRP", "DOGE", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"];
   const forexAssets = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY"];
