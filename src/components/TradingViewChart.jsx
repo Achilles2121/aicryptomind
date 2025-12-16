@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { useEffect, useRef, memo, useId } from "react";
+import React, { useEffect, useRef, memo } from "react";
 import PropTypes from "prop-types";
 
 /**
@@ -17,19 +17,20 @@ const TradingViewChart = memo(function TradingViewChart({
   containerClassName = "",
 }) {
   const containerRef = useRef(null);
-  const widgetRef = useRef(null);
-  // Use React's useId for stable unique IDs
-  const reactId = useId();
-  const containerId = `tradingview_${symbol.replace(/[^a-zA-Z0-9]/g, "_")}${reactId.replace(/:/g, "_")}`;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     // Clear previous widget
-    if (widgetRef.current) {
-      container.innerHTML = "";
-    }
+    container.innerHTML = "";
+
+    // Create widget container div
+    const widgetContainer = document.createElement("div");
+    widgetContainer.className = "tradingview-widget-container__widget";
+    widgetContainer.style.height = "100%";
+    widgetContainer.style.width = "100%";
+    container.appendChild(widgetContainer);
 
     // Create script element
     const script = document.createElement("script");
@@ -53,29 +54,27 @@ const TradingViewChart = memo(function TradingViewChart({
       style: "1", // Candlestick
       locale: "de_DE",
       enable_publishing: false,
+      allow_symbol_change: true,
       hide_top_toolbar: !showToolbar,
       hide_legend: false,
       save_image: false,
       hide_volume: !showVolume,
       support_host: "https://www.tradingview.com",
       studies: defaultStudies,
-      container_id: containerId,
     });
 
-    container.appendChild(script);
-    widgetRef.current = script;
+    widgetContainer.appendChild(script);
 
     return () => {
       if (container) {
         container.innerHTML = "";
       }
     };
-  }, [symbol, interval, theme, showToolbar, showVolume, studies, containerId]);
+  }, [symbol, interval, theme, showToolbar, showVolume, studies]);
 
   return (
     <div className={`tradingview-widget-container ${containerClassName}`} style={{ height }}>
       <div
-        id={containerId}
         ref={containerRef}
         style={{ height: "100%", width: "100%" }}
       />

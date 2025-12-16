@@ -24,6 +24,13 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
 
     container.innerHTML = "";
 
+    // Create widget container
+    const widgetContainer = document.createElement("div");
+    widgetContainer.className = "tradingview-widget-container__widget";
+    widgetContainer.style.height = "100%";
+    widgetContainer.style.width = "100%";
+    container.appendChild(widgetContainer);
+
     const script = document.createElement("script");
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js";
     script.type = "text/javascript";
@@ -31,9 +38,9 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
 
     script.innerHTML = JSON.stringify({
       interval: interval,
-      width: width,
+      width: "100%",
       isTransparent: isTransparent,
-      height: height,
+      height: "100%",
       symbol: symbol,
       showIntervalTabs: showIntervalTabs,
       displayMode: "single",
@@ -41,7 +48,7 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
       colorTheme: theme,
     });
 
-    container.appendChild(script);
+    widgetContainer.appendChild(script);
 
     return () => {
       if (container) {
@@ -53,9 +60,10 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
   return (
     <div
       className={`tradingview-widget-container ${containerClassName}`}
-      ref={containerRef}
       style={{ height, width }}
-    />
+    >
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+    </div>
   );
 });
 
