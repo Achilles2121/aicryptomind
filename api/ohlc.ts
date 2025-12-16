@@ -400,27 +400,12 @@ export default async function handler(req: Req, res: Res) {
     // Check if Yahoo supports this asset
     const isYahooSupported = !!YAHOO_SYMBOLS[assetParam];
     
-    // Try Yahoo Finance first (works for ALL asset types)
-    if (isYahooSupported) {
-      try {
-        const yahooResult = await fetchYahooOHLC(assetParam, intervalMinutes, limit);
-        result = {
-          candles: yahooResult.candles,
-          provider: "yahoo",
-          currentPrice: yahooResult.currentPrice,
-        };
-      } catch (err) {
-        lastError = err as Error;
-        console.log(`[ohlc] Yahoo failed for ${assetParam}:`, (err as Error).message);
-      }
-    }
-    
-    // Crypto fallbacks (Binance, Kraken)
-    if (!result && category === "crypto") {
-      // Try Binance
+    // CRYPTO: Try Binance FIRST (faster ~380ms vs Yahoo ~660ms)
+    if (category === "crypto") {
+      // Try Binance first for crypto (fastest)
       try {
         const candles = await fetchBinance(assetParam, intervalConfig.binance, limit);
-        if (candles.length) {
+        if (candles.length >= 5) {
           result = { candles, provider: "binance", currentPrice: candles.at(-1)?.c };
         }
       } catch (err) {
@@ -428,16 +413,48 @@ export default async function handler(req: Req, res: Res) {
         console.log(`[ohlc] Binance failed for ${assetParam}:`, (err as Error).message);
       }
       
-      // Try Kraken
+      // Fallback to Kraken if Binance failed
       if (!result) {
         try {
           const candles = await fetchKraken(assetParam, intervalMinutes, limit);
-          if (candles.length) {
+          if (candles.length >= 5) {
             result = { candles, provider: "kraken", currentPrice: candles.at(-1)?.c };
           }
         } catch (err) {
           lastError = err as Error;
           console.log(`[ohlc] Kraken failed for ${assetParam}:`, (err as Error).message);
+        }
+      }
+      
+      // Last resort: Yahoo for crypto
+      if (!result && isYahooSupported) {
+        try {
+          const yahooResult = await fetchYahooOHLC(assetParam, intervalMinutes, limit);
+          if (yahooResult.candles.length >= 5) {
+            result = {
+              candles: yahooResult.candles,
+              provider: "yahoo",
+              currentPrice: yahooResult.currentPrice,
+            };
+          }
+        } catch (err) {
+          lastError = err as Error;
+          console.log(`[ohlc] Yahoo failed for ${assetParam}:`, (err as Error).message);
+        }
+      }
+    } else {
+      // NON-CRYPTO: Yahoo Finance is the only reliable source
+      if (isYahooSupported) {
+        try {
+          const yahooResult = await fetchYahooOHLC(assetParam, intervalMinutes, limit);
+          result = {
+            candles: yahooResult.candles,
+            provider: "yahoo",
+            currentPrice: yahooResult.currentPrice,
+          };
+        } catch (err) {
+          lastError = err as Error;
+          console.log(`[ohlc] Yahoo failed for ${assetParam}:`, (err as Error).message);
         }
       }
     }

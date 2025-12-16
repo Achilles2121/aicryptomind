@@ -67,9 +67,10 @@ import { computeStopAndTarget } from "./lib/riskEngine";
 import { buildAISignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
 import { runBacktestV3 } from "./lib/backtestV3";
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const FNG_CACHE_TTL = 60 * 1000; // 1 minute - Fear & Greed braucht schnellere Updates
-const POLL_INTERVAL = 30 * 1000; // 30 seconds
+const CACHE_TTL = 60 * 1000; // 60 seconds - faster updates for real-time feel
+const OHLC_CACHE_TTL = 60 * 1000; // 60 seconds for candle data
+const FNG_CACHE_TTL = 30 * 1000; // 30 seconds - Real-time sentiment updates
+const POLL_INTERVAL = 15 * 1000; // 15 seconds - faster polling
 const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1153,7 +1154,41 @@ function App() {
     return response.data;
   };
 
-  const fetchFearGreed = async () => {
+  // NEW: Real-time Sentiment API (combines Binance + Alternative.me)
+  const fetchRealTimeSentiment = async () => {
+    try {
+      const response = await safeFetch("/api/sentiment", {
+        serviceName: "sentiment_realtime",
+        timeoutMs: 5000,
+        retries: 1,
+        onHealthUpdate: updateApiHealth,
+        onLog: logEvent,
+        uiLevel: "status",
+      });
+      if (response?.ok && response?.data) {
+        return {
+          value: response.data.combinedScore,
+          classification: response.data.combinedLabel,
+          realTimeValue: response.data.realTimeSentiment,
+          realTimeLabel: response.data.realTimeSentimentLabel,
+          dailyValue: response.data.dailyFearGreed,
+          dailyLabel: response.data.dailyFearGreedLabel,
+          longPercent: response.data.longPercent,
+          shortPercent: response.data.shortPercent,
+          updatedAt: response.data.timestamp,
+          source: "binance+alternative.me",
+        };
+      }
+      throw new Error("Sentiment API error");
+    } catch (err) {
+      // Fallback to traditional Fear & Greed
+      console.warn("Real-time sentiment failed, using fallback:", err?.message);
+      return fetchFearGreedFallback();
+    }
+  };
+
+  // Fallback: Traditional Fear & Greed from Alternative.me
+  const fetchFearGreedFallback = async () => {
     const data = await safeFetch("https://api.alternative.me/fng/?limit=1&format=json", {
       serviceName: "fear_greed",
       timeoutMs: 8000,
@@ -1171,6 +1206,9 @@ function App() {
       source: "alternative.me",
     };
   };
+
+  // Use real-time sentiment as primary
+  const fetchFearGreed = fetchRealTimeSentiment;
 
   const formatCandleLabel = (timestamp, minutes) => {
     const date = new Date(Number(timestamp) * 1000);
@@ -1245,7 +1283,7 @@ function App() {
         const loaded = await loadChart(
           { assetId: selectedMarket.id, pair, binanceSymbol, interval: intervalMinutes, limit: 200 },
           {
-            timeoutMs: 12000,
+            timeoutMs: 5000, // Reduced from 12s to 5s for faster UX
             retries: 0,
             onHealthUpdate: updateApiHealth,
             onLog: logEvent,
@@ -1256,7 +1294,7 @@ function App() {
           throw new Error("chart loader empty");
         }
         return loaded;
-      });
+      }, OHLC_CACHE_TTL); // Use OHLC-specific cache TTL
       setOhlcv(decorateCandles(candles, intervalMinutes));
       setLastError("");
     } catch (err) {
