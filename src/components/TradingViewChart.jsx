@@ -8,9 +8,10 @@ import { getTVSymbol } from "../config/tradingview-map";
  * Supports: Crypto, Forex, Indices, Commodities
  * 
  * REALTIME Candlestick Chart mit korrektem Symbol-Mapping
+ * Korrekte TradingView Widget DOM-Struktur
  */
 const TradingViewChart = memo(function TradingViewChart({
-  symbol = "BTCUSD",           // Asset-ID oder UI-Name (wird automatisch gemappt)
+  symbol = "BTCUSD",
   interval = "60",
   theme = "dark",
   height = 500,
@@ -20,15 +21,12 @@ const TradingViewChart = memo(function TradingViewChart({
   containerClassName = "",
 }) {
   const containerRef = useRef(null);
-  const widgetIdRef = useRef(null);  // ID wird im useEffect gesetzt
   
   // Symbol-Mapping: UI-Name -> TradingView-Ticker
   const tvSymbol = useMemo(() => {
-    // Wenn bereits ein TradingView-Format (mit ":"), direkt verwenden
     if (symbol && symbol.includes(":")) {
       return symbol;
     }
-    // Sonst im Mapping nachschlagen
     return getTVSymbol(symbol);
   }, [symbol]);
 
@@ -36,41 +34,37 @@ const TradingViewChart = memo(function TradingViewChart({
     const container = containerRef.current;
     if (!container) return;
 
-    // Generate unique widget ID for this instance (im Effect, nicht im Render)
-    widgetIdRef.current = `tv_chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Clear previous widget completely
+    // Komplett leeren
     container.innerHTML = "";
 
-    // Create widget container div with unique ID
+    // TradingView Widget Container Struktur erstellen
     const widgetContainer = document.createElement("div");
-    widgetContainer.id = widgetIdRef.current;
-    widgetContainer.className = "tradingview-widget-container__widget";
+    widgetContainer.className = "tradingview-widget-container";
     widgetContainer.style.height = "100%";
     widgetContainer.style.width = "100%";
-    container.appendChild(widgetContainer);
 
-    // Create script element
+    // Inner widget div
+    const widgetInner = document.createElement("div");
+    widgetInner.className = "tradingview-widget-container__widget";
+    widgetInner.style.height = "100%";
+    widgetInner.style.width = "100%";
+    widgetContainer.appendChild(widgetInner);
+
+    // Script Element mit Konfiguration als innerHTML (so wie TradingView es erwartet)
     const script = document.createElement("script");
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.type = "text/javascript";
     script.async = true;
 
-    // Default studies based on prop
-    const defaultStudies = studies.length > 0 ? studies : [];
-
-    // Widget-Konfiguration - WICHTIG: Keine backgroundColor, das verursacht Probleme
+    // Widget-Konfiguration
     const widgetConfig = {
-      container_id: widgetIdRef.current,
       autosize: true,
       symbol: tvSymbol,
       interval: String(interval),
       timezone: "Europe/Berlin",
       theme: theme,
-      style: "1",           // 1 = Candlestick (WICHTIG!)
+      style: "1",
       locale: "de_DE",
-      toolbar_bg: "#0f172a",
-      enable_publishing: false,
       allow_symbol_change: true,
       hide_top_toolbar: !showToolbar,
       hide_legend: false,
@@ -78,22 +72,22 @@ const TradingViewChart = memo(function TradingViewChart({
       save_image: false,
       withdateranges: true,
       hide_volume: !showVolume,
+      calendar: false,
+      details: false,
+      hotlist: false,
+      studies: studies.length > 0 ? studies : [],
       support_host: "https://www.tradingview.com",
-      studies: defaultStudies,
-      // Realtime-Einstellungen
-      show_popup_button: false,
-      popup_width: "1000",
-      popup_height: "650",
     };
     
     script.innerHTML = JSON.stringify(widgetConfig);
+    widgetContainer.appendChild(script);
     
-    // Debug-Log für Entwicklung
+    // Debug
     if (import.meta.env.DEV) {
-      console.log(`[TradingViewChart] Loading: ${tvSymbol} (from: ${symbol}), interval: ${interval}`);
+      console.log(`[TradingViewChart] Loading: ${tvSymbol} (from: ${symbol})`);
     }
 
-    widgetContainer.appendChild(script);
+    container.appendChild(widgetContainer);
 
     return () => {
       if (container) {
@@ -104,7 +98,7 @@ const TradingViewChart = memo(function TradingViewChart({
 
   return (
     <div 
-      className={`tradingview-widget-container ${containerClassName}`} 
+      className={`tradingview-chart-wrapper ${containerClassName}`} 
       style={{ 
         height, 
         minHeight: height,
