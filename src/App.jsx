@@ -2734,7 +2734,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         </div>
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            {/* TradingView Live Chart - Zuverlässige Echtzeit-Daten */}
+            {/* TradingView Live Chart - Zuverlässige Echtzeit-Daten mit unseren Algorithmus-Signalen */}
             <Suspense fallback={<div className="h-[500px] flex items-center justify-center bg-slate-900/50 rounded-xl"><Skeleton className="h-96 w-full" /></div>}>
               <TradingViewPanel
                 assetId={selectedMarket.id}
@@ -2744,6 +2744,13 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 chartHeight={450}
                 technicalHeight={300}
                 theme="dark"
+                currentPrice={displayPrice}
+                fibLevels={fibView.levels.length > 0 ? Object.fromEntries(fibView.levels.map(l => [l.label, l.value])) : null}
+                tpLevels={takeProfitPrice ? [takeProfitPrice] : []}
+                slLevel={stopLossPrice}
+                riskReward={takeProfitPrice && stopLossPrice && displayPrice ? Math.abs(takeProfitPrice - displayPrice) / Math.abs(displayPrice - stopLossPrice) : null}
+                trendDirection={aiSignal?.direction === "bullish" ? "bullish" : aiSignal?.direction === "bearish" ? "bearish" : null}
+                signalStrength={aiSignal?.confidence ? Math.round(aiSignal.confidence / 20) : null}
               />
             </Suspense>
             <div className="mt-4">
@@ -4435,7 +4442,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           ) : null}
           {mobileTab === "charts" ? (
             <div className="space-y-4">
-              {/* TradingView Mobile Chart */}
+              {/* TradingView Mobile Chart mit Trading-Signalen */}
               <Suspense fallback={<div className="h-[400px] flex items-center justify-center bg-slate-900/50 rounded-xl"><Skeleton className="h-80 w-full" /></div>}>
                 <TradingViewPanel
                   assetId={selectedMarket.id}
@@ -4445,6 +4452,13 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   chartHeight={350}
                   technicalHeight={250}
                   theme="dark"
+                  currentPrice={displayPrice}
+                  fibLevels={fibView.levels.length > 0 ? Object.fromEntries(fibView.levels.map(l => [l.label, l.value])) : null}
+                  tpLevels={takeProfitPrice ? [takeProfitPrice] : []}
+                  slLevel={stopLossPrice}
+                  riskReward={takeProfitPrice && stopLossPrice && displayPrice ? Math.abs(takeProfitPrice - displayPrice) / Math.abs(displayPrice - stopLossPrice) : null}
+                  trendDirection={aiSignal?.direction === "bullish" ? "bullish" : aiSignal?.direction === "bearish" ? "bearish" : null}
+                  signalStrength={aiSignal?.confidence ? Math.round(aiSignal.confidence / 20) : null}
                 />
               </Suspense>
 
