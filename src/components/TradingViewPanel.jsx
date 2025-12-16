@@ -116,12 +116,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
           height={chartHeight}
           showToolbar={true}
           showVolume={true}
-          studies={[
-            "RSI@tv-basicstudies",
-            "MAExp@tv-basicstudies",
-            "MACD@tv-basicstudies",
-            "BB@tv-basicstudies",
-          ]}
+          studies={[]}
         />
       </div>
 

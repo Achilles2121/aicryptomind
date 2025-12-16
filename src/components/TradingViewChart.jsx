@@ -7,20 +7,20 @@ import { getTVSymbol } from "../config/tradingview-map";
  * TradingView Advanced Chart Widget
  * Supports: Crypto, Forex, Indices, Commodities
  * 
- * Verwendet das zentrale Symbol-Mapping für korrekte TradingView-Ticker
+ * REALTIME Candlestick Chart mit korrektem Symbol-Mapping
  */
 const TradingViewChart = memo(function TradingViewChart({
   symbol = "BTCUSD",           // Asset-ID oder UI-Name (wird automatisch gemappt)
   interval = "60",
   theme = "dark",
-  height = 400,
+  height = 500,
   showToolbar = true,
   showVolume = true,
   studies = [],
   containerClassName = "",
-  backgroundColor = "rgba(15, 23, 42, 1)", // slate-900
 }) {
   const containerRef = useRef(null);
+  const widgetIdRef = useRef(null);  // ID wird im useEffect gesetzt
   
   // Symbol-Mapping: UI-Name -> TradingView-Ticker
   const tvSymbol = useMemo(() => {
@@ -36,11 +36,15 @@ const TradingViewChart = memo(function TradingViewChart({
     const container = containerRef.current;
     if (!container) return;
 
-    // Clear previous widget
+    // Generate unique widget ID for this instance (im Effect, nicht im Render)
+    widgetIdRef.current = `tv_chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Clear previous widget completely
     container.innerHTML = "";
 
-    // Create widget container div
+    // Create widget container div with unique ID
     const widgetContainer = document.createElement("div");
+    widgetContainer.id = widgetIdRef.current;
     widgetContainer.className = "tradingview-widget-container__widget";
     widgetContainer.style.height = "100%";
     widgetContainer.style.width = "100%";
@@ -53,39 +57,40 @@ const TradingViewChart = memo(function TradingViewChart({
     script.async = true;
 
     // Default studies based on prop
-    const defaultStudies = studies.length > 0 ? studies : [
-      "RSI@tv-basicstudies",
-      "MASimple@tv-basicstudies",
-      "MACD@tv-basicstudies",
-    ];
+    const defaultStudies = studies.length > 0 ? studies : [];
 
-    // Widget-Konfiguration mit korrektem Symbol und Dark-Theme
+    // Widget-Konfiguration - WICHTIG: Keine backgroundColor, das verursacht Probleme
     const widgetConfig = {
+      container_id: widgetIdRef.current,
       autosize: true,
       symbol: tvSymbol,
-      interval: interval,
+      interval: String(interval),
       timezone: "Europe/Berlin",
       theme: theme,
-      style: "1", // Candlestick
+      style: "1",           // 1 = Candlestick (WICHTIG!)
       locale: "de_DE",
+      toolbar_bg: "#0f172a",
       enable_publishing: false,
       allow_symbol_change: true,
       hide_top_toolbar: !showToolbar,
       hide_legend: false,
+      hide_side_toolbar: false,
       save_image: false,
+      withdateranges: true,
       hide_volume: !showVolume,
       support_host: "https://www.tradingview.com",
       studies: defaultStudies,
-      // Dark Theme Anpassungen
-      backgroundColor: theme === "dark" ? backgroundColor : "rgba(255, 255, 255, 1)",
-      gridColor: theme === "dark" ? "rgba(30, 41, 59, 0.5)" : "rgba(200, 200, 200, 0.5)",
+      // Realtime-Einstellungen
+      show_popup_button: false,
+      popup_width: "1000",
+      popup_height: "650",
     };
     
     script.innerHTML = JSON.stringify(widgetConfig);
     
     // Debug-Log für Entwicklung
     if (import.meta.env.DEV) {
-      console.log(`[TradingViewChart] Loading: ${tvSymbol} (from: ${symbol})`);
+      console.log(`[TradingViewChart] Loading: ${tvSymbol} (from: ${symbol}), interval: ${interval}`);
     }
 
     widgetContainer.appendChild(script);
@@ -95,12 +100,18 @@ const TradingViewChart = memo(function TradingViewChart({
         container.innerHTML = "";
       }
     };
-  }, [tvSymbol, symbol, interval, theme, showToolbar, showVolume, studies, backgroundColor]);
+  }, [tvSymbol, symbol, interval, theme, showToolbar, showVolume, studies]);
 
   return (
     <div 
       className={`tradingview-widget-container ${containerClassName}`} 
-      style={{ height, backgroundColor }}
+      style={{ 
+        height, 
+        minHeight: height,
+        backgroundColor: "#0f172a",
+        borderRadius: "0.75rem",
+        overflow: "hidden"
+      }}
     >
       <div
         ref={containerRef}
@@ -119,7 +130,6 @@ TradingViewChart.propTypes = {
   showVolume: PropTypes.bool,
   studies: PropTypes.arrayOf(PropTypes.string),
   containerClassName: PropTypes.string,
-  backgroundColor: PropTypes.string,
 };
 
 export default TradingViewChart;

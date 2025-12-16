@@ -68,6 +68,7 @@ import { buildAISignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signa
 import { runBacktestV3 } from "./lib/backtestV3";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const FNG_CACHE_TTL = 60 * 1000; // 1 minute - Fear & Greed braucht schnellere Updates
 const POLL_INTERVAL = 30 * 1000; // 30 seconds
 const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
@@ -1120,9 +1121,9 @@ function App() {
     wsRef.current = null;
   }, [selectedAssetId, selectedMarket.id]);
 
-  const fetchWithCache = async (key, fetcher) => {
+  const fetchWithCache = async (key, fetcher, customTtl = CACHE_TTL) => {
     const cached = cacheRef.current.get(key);
-    if (cached && Date.now() - cached.time < CACHE_TTL) return cached.value;
+    if (cached && Date.now() - cached.time < customTtl) return cached.value;
     const value = await fetcher();
     cacheRef.current.set(key, { value, time: Date.now() });
     return value;
@@ -1222,7 +1223,8 @@ function App() {
 
   const loadFearGreed = async () => {
     try {
-      const fg = await fetchWithCache("fng", fetchFearGreed);
+      // Kürzerer Cache-TTL für Fear & Greed (1 Minute statt 5)
+      const fg = await fetchWithCache("fng", fetchFearGreed, FNG_CACHE_TTL);
       setFearGreed(fg);
     } catch (err) {
       console.error("Fear & Greed failed", err);
@@ -1554,7 +1556,11 @@ function App() {
 
   useEffect(() => {
     refreshAll();
-    pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
+    // Polling für Preis und Fear & Greed Index alle 30 Sekunden
+    pollTimer.current = setInterval(() => {
+      loadPrice();
+      loadFearGreed(); // Fear & Greed auch im Polling-Intervall aktualisieren
+    }, POLL_INTERVAL);
     return () => clearInterval(pollTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarket.id]);
