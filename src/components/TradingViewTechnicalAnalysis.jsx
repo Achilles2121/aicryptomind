@@ -1,13 +1,16 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { useEffect, useRef, memo } from "react";
+import React, { useEffect, useRef, memo, useMemo } from "react";
 import PropTypes from "prop-types";
+import { getTVSymbol } from "../config/tradingview-map";
 
 /**
  * TradingView Technical Analysis Widget
  * Shows RSI, MACD, Moving Averages, Oscillators summary
+ * 
+ * Verwendet das zentrale tradingview-map.ts für korrekte Symbol-Auflösung
  */
 const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis({
-  symbol = "BINANCE:BTCUSDT",
+  symbol = "BTCUSD",         // Asset-ID oder UI-Name (wird automatisch gemappt)
   interval = "1h",
   theme = "dark",
   height = 400,
@@ -17,6 +20,12 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
   containerClassName = "",
 }) {
   const containerRef = useRef(null);
+  
+  // Symbol-Mapping: UI-Name -> TradingView-Ticker
+  const tvSymbol = useMemo(() => {
+    if (symbol && symbol.includes(":")) return symbol;
+    return getTVSymbol(symbol);
+  }, [symbol]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -41,7 +50,7 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
       width: "100%",
       isTransparent: isTransparent,
       height: "100%",
-      symbol: symbol,
+      symbol: tvSymbol,
       showIntervalTabs: showIntervalTabs,
       displayMode: "single",
       locale: "de_DE",
@@ -49,13 +58,17 @@ const TradingViewTechnicalAnalysis = memo(function TradingViewTechnicalAnalysis(
     });
 
     widgetContainer.appendChild(script);
+    
+    if (import.meta.env.DEV) {
+      console.log(`[TradingViewTechnicalAnalysis] Loading: ${tvSymbol} (from: ${symbol})`);
+    }
 
     return () => {
       if (container) {
         container.innerHTML = "";
       }
     };
-  }, [symbol, interval, theme, height, width, showIntervalTabs, isTransparent]);
+  }, [tvSymbol, symbol, interval, theme, height, width, showIntervalTabs, isTransparent]);
 
   return (
     <div

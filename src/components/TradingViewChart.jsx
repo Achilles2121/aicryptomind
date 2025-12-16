@@ -1,13 +1,16 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { useEffect, useRef, memo } from "react";
+import React, { useEffect, useRef, memo, useMemo } from "react";
 import PropTypes from "prop-types";
+import { getTVSymbol } from "../config/tradingview-map";
 
 /**
  * TradingView Advanced Chart Widget
  * Supports: Crypto, Forex, Indices, Commodities
+ * 
+ * Verwendet das zentrale Symbol-Mapping für korrekte TradingView-Ticker
  */
 const TradingViewChart = memo(function TradingViewChart({
-  symbol = "BINANCE:BTCUSDT",
+  symbol = "BTCUSD",           // Asset-ID oder UI-Name (wird automatisch gemappt)
   interval = "60",
   theme = "dark",
   height = 400,
@@ -15,8 +18,19 @@ const TradingViewChart = memo(function TradingViewChart({
   showVolume = true,
   studies = [],
   containerClassName = "",
+  backgroundColor = "rgba(15, 23, 42, 1)", // slate-900
 }) {
   const containerRef = useRef(null);
+  
+  // Symbol-Mapping: UI-Name -> TradingView-Ticker
+  const tvSymbol = useMemo(() => {
+    // Wenn bereits ein TradingView-Format (mit ":"), direkt verwenden
+    if (symbol && symbol.includes(":")) {
+      return symbol;
+    }
+    // Sonst im Mapping nachschlagen
+    return getTVSymbol(symbol);
+  }, [symbol]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -45,9 +59,10 @@ const TradingViewChart = memo(function TradingViewChart({
       "MACD@tv-basicstudies",
     ];
 
-    script.innerHTML = JSON.stringify({
+    // Widget-Konfiguration mit korrektem Symbol und Dark-Theme
+    const widgetConfig = {
       autosize: true,
-      symbol: symbol,
+      symbol: tvSymbol,
       interval: interval,
       timezone: "Europe/Berlin",
       theme: theme,
@@ -61,7 +76,17 @@ const TradingViewChart = memo(function TradingViewChart({
       hide_volume: !showVolume,
       support_host: "https://www.tradingview.com",
       studies: defaultStudies,
-    });
+      // Dark Theme Anpassungen
+      backgroundColor: theme === "dark" ? backgroundColor : "rgba(255, 255, 255, 1)",
+      gridColor: theme === "dark" ? "rgba(30, 41, 59, 0.5)" : "rgba(200, 200, 200, 0.5)",
+    };
+    
+    script.innerHTML = JSON.stringify(widgetConfig);
+    
+    // Debug-Log für Entwicklung
+    if (import.meta.env.DEV) {
+      console.log(`[TradingViewChart] Loading: ${tvSymbol} (from: ${symbol})`);
+    }
 
     widgetContainer.appendChild(script);
 
@@ -70,10 +95,13 @@ const TradingViewChart = memo(function TradingViewChart({
         container.innerHTML = "";
       }
     };
-  }, [symbol, interval, theme, showToolbar, showVolume, studies]);
+  }, [tvSymbol, symbol, interval, theme, showToolbar, showVolume, studies, backgroundColor]);
 
   return (
-    <div className={`tradingview-widget-container ${containerClassName}`} style={{ height }}>
+    <div 
+      className={`tradingview-widget-container ${containerClassName}`} 
+      style={{ height, backgroundColor }}
+    >
       <div
         ref={containerRef}
         style={{ height: "100%", width: "100%" }}
@@ -91,6 +119,7 @@ TradingViewChart.propTypes = {
   showVolume: PropTypes.bool,
   studies: PropTypes.arrayOf(PropTypes.string),
   containerClassName: PropTypes.string,
+  backgroundColor: PropTypes.string,
 };
 
 export default TradingViewChart;

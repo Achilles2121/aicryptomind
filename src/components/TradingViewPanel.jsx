@@ -4,12 +4,15 @@ import PropTypes from "prop-types";
 import { TrendingUp, TrendingDown, Target, Shield, Activity, BarChart3 } from "lucide-react";
 import TradingViewChart from "./TradingViewChart";
 import TradingViewTechnicalAnalysis from "./TradingViewTechnicalAnalysis";
-import { getTradingViewSymbol, getTradingViewInterval } from "../lib/tradingViewSymbols";
+import { getTVSymbol, getTVConfig, ASSET_CLASS_COLORS } from "../config/tradingview-map";
+import { getTradingViewInterval } from "../lib/tradingViewSymbols";
 
 /**
  * Complete TradingView Integration Panel
  * Harmonisches Design passend zum Vision AI Mind Dashboard
  * Includes: Live Chart, Technical Analysis, Fib Levels, TP/SL Signals
+ * 
+ * Verwendet das zentrale tradingview-map.ts für korrekte Symbol-Auflösung
  */
 const TradingViewPanel = memo(function TradingViewPanel({
   assetId = "BTC",
@@ -29,31 +32,32 @@ const TradingViewPanel = memo(function TradingViewPanel({
   trendDirection = null,
   signalStrength = null,
 }) {
-  // Get TradingView symbol
-  const tvSymbol = useMemo(() => getTradingViewSymbol(assetId, assetClass), [assetId, assetClass]);
+  // Get TradingView symbol und Config aus dem zentralen Mapping
+  const tvConfig = useMemo(() => getTVConfig(assetId), [assetId]);
+  const tvSymbol = useMemo(() => getTVSymbol(assetId), [assetId]);
   const tvInterval = useMemo(() => getTradingViewInterval(timeFrame), [timeFrame]);
+  
+  // Dynamischer Header-Titel aus dem Mapping (z.B. "GOLD (XAU/USD)")
+  const displayName = useMemo(() => tvConfig?.displayName || assetId, [tvConfig, assetId]);
 
-  // Asset class label
+  // Asset class label - aus Config oder Fallback
   const assetClassLabel = useMemo(() => {
+    const effectiveClass = tvConfig?.assetClass || assetClass;
     const labels = {
       crypto: "Krypto",
+      forex: "Forex",
       fx: "Forex",
       index: "Index",
       commodity: "Rohstoff",
     };
-    return labels[assetClass] || "Asset";
-  }, [assetClass]);
+    return labels[effectiveClass] || "Asset";
+  }, [tvConfig, assetClass]);
 
-  // Asset class color
+  // Asset class color - aus zentraler Config
   const assetClassColor = useMemo(() => {
-    const colors = {
-      crypto: "text-amber-400 bg-amber-500/10 border-amber-500/30",
-      fx: "text-blue-400 bg-blue-500/10 border-blue-500/30",
-      index: "text-purple-400 bg-purple-500/10 border-purple-500/30",
-      commodity: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
-    };
-    return colors[assetClass] || "text-slate-400 bg-slate-500/10 border-slate-500/30";
-  }, [assetClass]);
+    const effectiveClass = tvConfig?.assetClass || assetClass;
+    return ASSET_CLASS_COLORS[effectiveClass] || "text-slate-400 bg-slate-500/10 border-slate-500/30";
+  }, [tvConfig, assetClass]);
 
   // Format price
   const formatPrice = (price) => {
@@ -81,13 +85,13 @@ const TradingViewPanel = memo(function TradingViewPanel({
           MAIN CHART - TradingView Advanced Chart
           ═══════════════════════════════════════════════════════════════════════ */}
       <div className="rounded-xl bg-gradient-to-br from-slate-900/80 via-slate-800/50 to-slate-900/80 border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl">
-        {/* Header */}
+        {/* Header - Zeigt jetzt den formatierten Namen (z.B. "GOLD (XAU/USD)") */}
         <div className="px-4 py-3 border-b border-slate-700/50 bg-slate-800/30">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-emerald-400" />
-                <span className="text-white font-semibold text-base">{assetId}</span>
+                <span className="text-white font-semibold text-base">{displayName}</span>
               </div>
               <span className={`px-2 py-0.5 text-xs font-medium rounded border ${assetClassColor}`}>
                 {assetClassLabel}
@@ -104,7 +108,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
           </div>
         </div>
         
-        {/* Chart */}
+        {/* Chart - Nutzt jetzt das korrekt gemappte Symbol */}
         <TradingViewChart
           symbol={tvSymbol}
           interval={tvInterval}
