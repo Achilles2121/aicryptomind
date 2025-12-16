@@ -3448,30 +3448,72 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
             <Paywall minTier="elite" userTier={effectiveTier} lockText={t("eliteRequired")}>
               <Card title={t("aiSignalTitle")} icon={Signal}>
-                <div className="space-y-2 text-sm text-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span>Aktion</span>
-                    <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-semibold">{aiSignal.action}</span>
+                <div className="space-y-3 text-sm text-slate-200">
+                  {/* Main Action Badge - Large and Prominent */}
+                  <div className="flex items-center justify-center">
+                    <span className={`rounded-xl px-4 py-2 text-lg font-bold ${
+                      aiSignal.action === "Kaufen" || aiSignal.action === "Buy" 
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" 
+                        : aiSignal.action === "Verkaufen" || aiSignal.action === "Sell"
+                        ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                        : "bg-slate-800 text-slate-300 border border-slate-700"
+                    }`}>
+                      {aiSignal.action === "Kaufen" ? "📈 LONG" : aiSignal.action === "Verkaufen" ? "📉 SHORT" : "⏸ WARTEN"}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Begründung</span>
-                    <span className="text-right text-slate-200">{aiSignal.reason}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Konfidenz (~ Backtest)</span>
-                    <span className="text-emerald-300 font-semibold">{(aiSignal.confidence * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs">
-                    <div className="flex justify-between">
-                      <span>TP Ziel</span>
-                      <span className="font-semibold">{aiSignal.tp ? formatUSD(aiSignal.tp) : "-"}</span>
+                  
+                  {/* Confidence Bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">Konfidenz</span>
+                      <span className={`font-bold ${aiSignal.confidence >= 0.65 ? "text-emerald-300" : aiSignal.confidence >= 0.55 ? "text-amber-300" : "text-slate-400"}`}>
+                        {(aiSignal.confidence * 100).toFixed(0)}%
+                      </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>SL Ziel</span>
-                      <span className="font-semibold">{aiSignal.sl ? formatUSD(aiSignal.sl) : "-"}</span>
+                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          aiSignal.confidence >= 0.65 ? "bg-emerald-500" : aiSignal.confidence >= 0.55 ? "bg-amber-500" : "bg-slate-600"
+                        }`}
+                        style={{ width: `${Math.min(100, aiSignal.confidence * 100)}%` }}
+                      />
                     </div>
                   </div>
-                  <p className="text-[11px] text-amber-300">{t("aiHint")}</p>
+
+                  {/* TP/SL Box - Prominent */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
+                      <div className="text-[10px] uppercase tracking-wide text-emerald-400 mb-1">Take Profit</div>
+                      <div className="text-lg font-bold text-emerald-300">{aiSignal.tp ? formatUSD(aiSignal.tp) : "-"}</div>
+                      {aiSignal.tp && displayPrice && (
+                        <div className="text-[10px] text-emerald-400/70">
+                          +{(((aiSignal.tp - displayPrice) / displayPrice) * 100).toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center">
+                      <div className="text-[10px] uppercase tracking-wide text-red-400 mb-1">Stop Loss</div>
+                      <div className="text-lg font-bold text-red-300">{aiSignal.sl ? formatUSD(aiSignal.sl) : "-"}</div>
+                      {aiSignal.sl && displayPrice && (
+                        <div className="text-[10px] text-red-400/70">
+                          -{(((displayPrice - aiSignal.sl) / displayPrice) * 100).toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* R/R Ratio */}
+                  {aiSignal.tp && aiSignal.sl && displayPrice && (
+                    <div className="flex justify-between items-center text-xs bg-slate-800/50 rounded-lg px-3 py-2">
+                      <span className="text-slate-400">Risk/Reward</span>
+                      <span className="font-bold text-cyan-300">
+                        1:{((aiSignal.tp - displayPrice) / (displayPrice - aiSignal.sl)).toFixed(1)}
+                      </span>
+                    </div>
+                  )}
+                  
+                  <div className="text-[10px] text-slate-500">{aiSignal.reason}</div>
+                  <p className="text-[10px] text-amber-300/80">{t("aiHint")}</p>
                 </div>
               </Card>
             </Paywall>
