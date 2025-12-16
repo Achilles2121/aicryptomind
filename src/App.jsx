@@ -1015,8 +1015,13 @@ function App() {
     if (msg.includes("429") || msg.includes("rate limit")) return true;
     if (msg.includes("cors") || msg.includes("network")) return true;
     if (msg.includes("timeout") || msg.includes("abort")) return true;
+    if (msg.includes("insufficient") || msg.includes("empty")) return true;
+    if (msg.includes("fetch") || msg.includes("failed")) return true;
+    // API/Proxy Fehler unterdrücken - wir haben Fallback-Logik
+    if (src.includes("proxy") || src.includes("ohlc") || src.includes("price")) return true;
+    if (src.includes("htf") || src.includes("derivatives") || src.includes("market")) return true;
     // Bekannte Services die oft temporär ausfallen
-    const knownFlaky = ["coingecko", "binance", "kraken", "glassnode", "santiment"];
+    const knownFlaky = ["coingecko", "binance", "kraken", "glassnode", "santiment", "cryptocompare", "coinapi", "fear_greed"];
     if (knownFlaky.some((s) => src.includes(s))) return true;
     return false;
   };

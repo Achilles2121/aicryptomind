@@ -55,42 +55,18 @@ export async function loadChart(
   { assetId, pair = "XXBTZUSD", binanceSymbol = "BTCUSDT", interval = 60, limit = 160 }: ChartLoadConfig,
   options: SafeFetchOptions = {}
 ): Promise<Candle[] | null> {
-  if (!assetId && !pair && !binanceSymbol) return null;
-  const attempts: { key: string; url: string }[] = [];
-  if (assetId) {
-    attempts.push({
-      key: `asset:${assetId}`,
-      url: `/api/ohlc?asset=${encodeURIComponent(assetId)}&interval=${interval}&limit=${limit}`,
-    });
-  }
-  if (pair) {
-    attempts.push({
-      key: "kraken",
-      url: `/api/kraken/ohlc?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}`,
-    });
-  }
-  if (binanceSymbol) {
-    attempts.push({
-      key: "binance",
-      url: `/api/binance/klines?symbol=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=${limit}`,
-    });
-  }
-  if (!assetId) {
-    attempts.push({
-      key: "proxy",
-      url: `/api/ohlc?pair=${encodeURIComponent(pair)}&binance=${encodeURIComponent(binanceSymbol)}&interval=${interval}&limit=${limit}`,
-    });
-  }
-  for (const attempt of attempts) {
-    try {
-      const candles = await fetchCandles(attempt.url, attempt.key, options);
-      if (hasEnoughData(candles)) {
-        return candles;
-      }
-    } catch (err) {
-      if (import.meta.env.DEV) {
-        console.warn(`[chartLoader] ${attempt.key} failed`, err);
-      }
+  // Use consolidated /api/ohlc endpoint which has Binance/Kraken/CoinGecko fallback built-in
+  const asset = assetId || pair?.replace(/^X+|Z+/g, "").replace("USD", "") || binanceSymbol?.replace("USDT", "") || "BTC";
+  const url = `/api/ohlc?asset=${encodeURIComponent(asset)}&interval=${interval}&limit=${limit}`;
+  
+  try {
+    const candles = await fetchCandles(url, "ohlc", options);
+    if (hasEnoughData(candles)) {
+      return candles;
+    }
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      console.warn(`[chartLoader] ohlc failed`, err);
     }
   }
   return null;
