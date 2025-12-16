@@ -8,13 +8,19 @@ export default defineConfig({
   plugins: [react()],
   envPrefix: "VITE_",
   // Fix für Vite 7 import-analysis Bug mit index.html
+  assetsInclude: ["**/*.html"],
   optimizeDeps: {
     exclude: ['index.html'],
+    entries: ['src/main.jsx'],
   },
   server: {
     // Verhindert, dass Vite HTML-Dateien falsch transformiert
     warmup: {
       clientFiles: ['./src/**/*.jsx', './src/**/*.tsx', './src/**/*.js', './src/**/*.ts'],
+    },
+    fs: {
+      // Erlaube Zugriff auf das gesamte Projektverzeichnis
+      allow: ['.'],
     },
     // Proxy nur aktiv wenn dev:api läuft (Port 5176)
     // Für lokale Tests ohne API: auskommentieren oder vercel dev nutzen
