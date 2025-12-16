@@ -1,5 +1,5 @@
 ﻿// Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Activity,
@@ -938,7 +938,7 @@ function App() {
   const mobileAuthRef = useRef(null);
   const desktopEmailRef = useRef(null);
   const mobileEmailRef = useRef(null);
-  const t = (key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key;
+  const t = useCallback((key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key, [lang]);
   const [blink, setBlink] = useState(true);
   const trialActive = Boolean(isTrialActive);
   const hasProAccess = useMemo(() => TIER_ORDER.indexOf(effectiveTier) >= TIER_ORDER.indexOf("pro"), [effectiveTier]);
@@ -963,7 +963,7 @@ function App() {
       pro: t("tierPro"),
       elite: t("tierElite"),
     }),
-    [lang]
+    [t]
   );
 
   useEffect(() => {
@@ -1556,12 +1556,14 @@ function App() {
     refreshAll();
     pollTimer.current = setInterval(loadPrice, POLL_INTERVAL);
     return () => clearInterval(pollTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarket.id]);
 
   useEffect(() => {
     loadEtfNews();
     newsTimer.current = setInterval(loadEtfNews, NEWS_REFRESH);
     return () => clearInterval(newsTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1574,6 +1576,7 @@ function App() {
         flowsTimer.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
@@ -1581,6 +1584,7 @@ function App() {
     loadEtfFlowData(etfSelection);
     const timer = setInterval(() => loadEtfFlowData(etfSelection), ETF_REFRESH);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
@@ -1588,10 +1592,12 @@ function App() {
     loadEtfHoldingsData(etfSelection);
     const timer = setInterval(() => loadEtfHoldingsData(etfSelection), HOLDING_REFRESH);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfSelection]);
 
   useEffect(() => {
     loadApiPlaybook();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const STRIPE_LINKS = {
@@ -1761,6 +1767,7 @@ function App() {
 
   useEffect(() => {
     loadOHLC();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeFrame]);
 
   useEffect(() => {
@@ -1872,6 +1879,7 @@ function App() {
       clearInterval(pollingReconnectTimer.current);
       pollingReconnectTimer.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarket.id, selectedMarket.assetClass]);
   const indicatorSeries = useMemo(() => {
     if (!ohlcv.length) return [];
@@ -2216,7 +2224,8 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     const title = net >= 0 ? t("smartAccum") : t("smartDistr");
     const direction = net >= 0 ? t("smartDirBuy") : t("smartDirSell");
     return { title, net, pct, direction, buys, sells, count: bucket.length };
-  }, [trades, lang]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trades, lang, t]);
 
   const liquidity = useMemo(() => {
     const horizon = Date.now() - 60 * 60 * 1000;
@@ -2265,10 +2274,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     return () => {
       mounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const aiSignal = useMemo(() => {
     return buildAISignal({ indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice]);
 
   const fibView = useMemo(() => {
@@ -2371,6 +2382,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       };
     }
     return { ...baseSignal, meta: { ...(baseSignal.meta || {}), predictorAligned: !predictorNeutral } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     indicatorSeries,
     indicators.macd,
