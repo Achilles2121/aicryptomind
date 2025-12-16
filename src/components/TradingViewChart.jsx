@@ -93,6 +93,13 @@ const TradingViewChart = memo(function TradingViewChart({
     
     script.onload = () => {
       scriptLoadedRef.current = true;
+      // Hide TradingView copyright text after load
+      setTimeout(() => {
+        const copyrightElements = container.querySelectorAll(".tradingview-widget-copyright");
+        copyrightElements.forEach(el => {
+          el.style.display = "none";
+        });
+      }, 1000);
     };
     
     widgetContainer.appendChild(script);

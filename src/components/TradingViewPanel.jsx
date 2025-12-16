@@ -96,7 +96,10 @@ const TradingViewPanel = memo(function TradingViewPanel({
               <span className={`px-2 py-0.5 text-xs font-medium rounded border ${assetClassColor}`}>
                 {assetClassLabel}
               </span>
-              <span className="text-slate-400 text-sm hidden sm:inline">• TradingView</span>
+              <span className="hidden sm:inline-flex items-center gap-1 text-violet-400/80 text-xs font-medium">
+                <Activity className="w-3 h-3" />
+                Vision AI Mind
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-slate-400 text-sm">{intervalLabel}</span>
