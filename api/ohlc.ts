@@ -130,11 +130,11 @@ function setCache(key: string, data: { candles: Candle[]; provider: string; curr
 }
 
 // ============================================
-// RATE LIMITING (300ms for fast UX)
+// RATE LIMITING (50ms - relaxed for serverless)
 // ============================================
 
 const rateLimitMap = new Map<string, number>();
-const RATE_LIMIT_MS = 300;
+const RATE_LIMIT_MS = 50; // Relaxed from 300ms - serverless has natural rate limiting
 
 function isRateLimited(key: string): boolean {
   const last = rateLimitMap.get(key);

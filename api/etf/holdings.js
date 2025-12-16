@@ -7,6 +7,24 @@ import { fillSeries, computeChange, upsertMarketShare } from "../_lib/etf.js";
 
 export const config = { runtime: "edge" };
 
+// ============================================
+// IN-MEMORY CACHE (5 minutes for ETF data)
+// ============================================
+const holdingsCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - ETF data doesn't change frequently
+
+function getCached(key) {
+  const entry = holdingsCache.get(key);
+  if (entry && Date.now() < entry.expires) return entry.data;
+  holdingsCache.delete(key);
+  return null;
+}
+
+function setCache(key, data) {
+  holdingsCache.set(key, { data, expires: Date.now() + CACHE_TTL });
+  return data;
+}
+
 const DEFAULT_SYMBOLS = (process.env.ETF_SYMBOLS || "IBIT,FBTC,ARKB,BITB,HODL").split(",").map((s) => s.trim().toUpperCase());
 const MAX_SYMBOLS = Number(process.env.ETF_SYMBOL_LIMIT || 12);
 
@@ -96,6 +114,14 @@ async function buildHolding(symbol, tracker, fetchSoso, fetchCoinstats) {
 export default async function handler(req) {
   const { searchParams } = new URL(req.url);
   const symbols = parseSymbols(searchParams.get("symbols"));
+  
+  // Check cache first
+  const cacheKey = `holdings_${symbols.join("_")}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return jsonResponse({ ...cached, cached: true });
+  }
+  
   const tracker = createHealthTracker();
   const fetchSoso = createLazy(() => fetchSosoHoldingsSnapshot());
   const fetchCoinstats = createLazy(() => fetchCoinstatsHoldingsSnapshot());
@@ -106,11 +132,13 @@ export default async function handler(req) {
       const holding = await buildHolding(symbol, tracker, fetchSoso, fetchCoinstats);
       items.push(holding);
     }
-    return jsonResponse({
+    const response = {
       data: upsertMarketShare(items),
       health: tracker.toArray(),
       generatedAt: new Date().toISOString(),
-    });
+    };
+    setCache(cacheKey, response);
+    return jsonResponse(response);
   } catch (err) {
     return errorResponse(err?.message || "Failed to fetch holdings", 502, { health: tracker.toArray() });
   }

@@ -7,6 +7,24 @@ import { fillFlowSeries, computeFlowsFromAum, normalizeFlowRow, sumRange } from 
 
 export const config = { runtime: "edge" };
 
+// ============================================
+// IN-MEMORY CACHE (5 minutes for ETF data)
+// ============================================
+const flowsCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - ETF data doesn't change frequently
+
+function getCached(key) {
+  const entry = flowsCache.get(key);
+  if (entry && Date.now() < entry.expires) return entry.data;
+  flowsCache.delete(key);
+  return null;
+}
+
+function setCache(key, data) {
+  flowsCache.set(key, { data, expires: Date.now() + CACHE_TTL });
+  return data;
+}
+
 const DEFAULT_SYMBOLS = (process.env.ETF_SYMBOLS || "IBIT,FBTC,ARKB,BITB,HODL").split(",").map((s) => s.trim().toUpperCase());
 const MAX_SYMBOLS = Number(process.env.ETF_SYMBOL_LIMIT || 12);
 
@@ -94,6 +112,14 @@ async function buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats) {
 export default async function handler(req) {
   const { searchParams } = new URL(req.url);
   const symbols = parseSymbols(searchParams.get("symbols"));
+  
+  // Check cache first
+  const cacheKey = `flows_${symbols.join("_")}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return jsonResponse({ ...cached, cached: true });
+  }
+  
   const tracker = createHealthTracker();
   const fetchSoso = createLazy(() => fetchSosoEtfFlow().then((rows) => rows.map(normalizeFlowRow)));
   const fetchCoinstats = createLazy(() => fetchCoinstatsFlows().then((rows) => rows.map(normalizeFlowRow)));
@@ -103,7 +129,9 @@ export default async function handler(req) {
     for (const symbol of symbols) {
       data.push(await buildFlowSeries(symbol, tracker, fetchSoso, fetchCoinstats));
     }
-    return jsonResponse({ data, health: tracker.toArray(), generatedAt: new Date().toISOString() });
+    const response = { data, health: tracker.toArray(), generatedAt: new Date().toISOString() };
+    setCache(cacheKey, response);
+    return jsonResponse(response);
   } catch (err) {
     return errorResponse(err?.message || "Failed to fetch flows", 502, { health: tracker.toArray() });
   }
