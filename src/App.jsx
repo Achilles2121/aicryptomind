@@ -15,12 +15,10 @@ import {
   WifiOff,
 } from "lucide-react";
 import {
-  Area,
   Bar,
   BarChart,
   CartesianGrid,
   ComposedChart,
-  Customized,
   Legend,
   Line,
   ReferenceArea,
@@ -44,6 +42,8 @@ const EtfHoldingsCard = lazy(() => import("./components/etf/EtfHoldingsCard"));
 const EtfProviderQualityCard = lazy(() => import("./components/etf/EtfProviderQualityCard"));
 import { fetchEtfHoldingsLive } from "./services/etfHoldingsLive";
 const EtfCorrelationCard = lazy(() => import("./components/etf/EtfCorrelationCard"));
+const TradingViewPanel = lazy(() => import("./components/TradingViewPanel"));
+// TradingViewHeatmap is available for future use
 import { safeFetch, subscribeToSourceHealth, getSourceHealthSnapshot } from "./lib/safeFetch";
 import { loadChart, buildFallbackChart } from "./lib/chartLoader";
 import { fetchHtfOhlc } from "./services/marketDataLive";
@@ -2734,54 +2734,18 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         </div>
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            <Card
-              title={t("liveMarket")}
-              icon={TrendingUp}
-              actions={<span className="text-xs text-slate-400">{selectedMarket.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
-            >
-              <LazyRender placeholder={<div className="h-80 flex items-center justify-center"><Skeleton className="h-72 w-full" /></div>}>
-                {indicatorSeries.length ? (
-                  <div className="w-full min-w-0" style={{ minHeight: 200 }}>
-                    <ResponsiveContainer width="100%" height={200}>
-                        <ComposedChart data={indicatorSeries}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                          <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                          <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={65} />
-                          <YAxis
-                            yAxisId="vol"
-                            orientation="right"
-                            tick={{ fill: "#94a3b8", fontSize: 10 }}
-                            tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
-                            width={55}
-                          />
-                          <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
-                          <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                          <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                        <Line
-                          type="monotone"
-                          dataKey="close"
-                          stroke="#22c55e"
-                          dot={renderLastDot(indicatorSeries.length, "#22c55e")}
-                          yAxisId="y"
-                          strokeWidth={2}
-                          name="Close"
-                          isAnimationActive
-                          animationDuration={650}
-                          animationEasing="ease-out"
-                        />
-                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                  <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
-                )}
-              </LazyRender>
-            </Card>
+            {/* TradingView Live Chart - Zuverlässige Echtzeit-Daten */}
+            <Suspense fallback={<div className="h-[500px] flex items-center justify-center bg-slate-900/50 rounded-xl"><Skeleton className="h-96 w-full" /></div>}>
+              <TradingViewPanel
+                assetId={selectedMarket.id}
+                assetClass={selectedMarket.assetClass}
+                timeFrame={timeFrame}
+                showTechnicalAnalysis={true}
+                chartHeight={450}
+                technicalHeight={300}
+                theme="dark"
+              />
+            </Suspense>
             <div className="mt-4">
               <Card
                 title={t("fibMap")}
@@ -4471,43 +4435,18 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           ) : null}
           {mobileTab === "charts" ? (
             <div className="space-y-4">
-              <Card
-                title={t("liveMarket")}
-                icon={TrendingUp}
-                actions={<span className="text-xs text-slate-400">{selectedMarket.label} · {t("liveMarketMeta")} {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
-              >
-                <LazyRender placeholder={<div className="h-72 flex items-center justify-center"><Skeleton className="h-64 w-full" /></div>}>
-                  {indicatorSeries.length ? (
-                    <div className="w-full min-w-0" style={{ minHeight: 200 }}>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <ComposedChart data={indicatorSeries}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                          <XAxis dataKey="label" xAxisId="x" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                          <YAxis yAxisId="y" domain={["auto", "auto"]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={55} />
-                          <YAxis
-                            yAxisId="vol"
-                            orientation="right"
-                            tick={{ fill: "#94a3b8", fontSize: 10 }}
-                            tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : Math.round(v).toString())}
-                            width={50}
-                          />
-                          <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
-                          <Legend verticalAlign="top" height={24} wrapperStyle={{ color: "#cbd5e1" }} />
-                          <Customized component={<CandleLayer data={indicatorSeries} xAxisId="x" yAxisId="y" />} />
-                          <Area type="monotone" dataKey="bollUpper" stroke="#38bdf8" fillOpacity={0} name="Boll Upper" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Area type="monotone" dataKey="bollLower" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.08} name="Boll Lower" yAxisId="y" dot={false} strokeWidth={1} isAnimationActive animationDuration={600} animationEasing="ease-out" />
-                          <Line type="monotone" dataKey="bollBasis" stroke="#8b5cf6" strokeDasharray="4 4" dot={false} yAxisId="y" name="Basis" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                          <Line type="monotone" dataKey="close" stroke="#22c55e" dot={renderLastDot(indicatorSeries.length, "#22c55e")} yAxisId="y" strokeWidth={2} name="Close" isAnimationActive animationDuration={650} animationEasing="ease-out" />
-                          <Bar dataKey="volumeUp" yAxisId="vol" barSize={6} stackId="vol" fill="#22c55e" opacity={0.9} name="Buy Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                          <Bar dataKey="volumeDown" yAxisId="vol" barSize={6} stackId="vol" fill="#ef4444" opacity={0.9} name="Sell Vol" isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-400">{t("loadingCandles")}</p>
-                  )}
-                </LazyRender>
-              </Card>
+              {/* TradingView Mobile Chart */}
+              <Suspense fallback={<div className="h-[400px] flex items-center justify-center bg-slate-900/50 rounded-xl"><Skeleton className="h-80 w-full" /></div>}>
+                <TradingViewPanel
+                  assetId={selectedMarket.id}
+                  assetClass={selectedMarket.assetClass}
+                  timeFrame={timeFrame}
+                  showTechnicalAnalysis={true}
+                  chartHeight={350}
+                  technicalHeight={250}
+                  theme="dark"
+                />
+              </Suspense>
 
               <Card
                 title={t("fibMap")}

@@ -7,20 +7,19 @@ export default defineConfig({
   base: "/",
   plugins: [react()],
   envPrefix: "VITE_",
-  // Fix für Vite 7 import-analysis Bug mit index.html
-  assetsInclude: ["**/*.html"],
+  // Vite 7 Bug fix: Exclude index.html from import analysis
   optimizeDeps: {
-    exclude: ['index.html'],
     entries: ['src/main.jsx'],
+    exclude: ['index.html'],
   },
   server: {
-    // Verhindert, dass Vite HTML-Dateien falsch transformiert
     warmup: {
       clientFiles: ['./src/**/*.jsx', './src/**/*.tsx', './src/**/*.js', './src/**/*.ts'],
     },
     fs: {
       // Erlaube Zugriff auf das gesamte Projektverzeichnis
       allow: ['.'],
+      strict: false,
     },
     // Proxy nur aktiv wenn dev:api läuft (Port 5176)
     // Für lokale Tests ohne API: auskommentieren oder vercel dev nutzen
