@@ -1,4 +1,17 @@
-// STANDALONE PRICE ENDPOINT - NO EXTERNAL IMPORTS
+/**
+ * Unified Price API Endpoint
+ * Vision AI Mind - Elite Trader
+ * 
+ * Supports ALL assets via Yahoo Finance:
+ * - Crypto: BTC, ETH, SOL, etc.
+ * - Forex: EUR/USD, GBP/USD, etc.
+ * - Indices: S&P 500, DAX, NASDAQ, etc.
+ * - Commodities: Gold, Silver, Oil, etc.
+ */
+
+// ============================================
+// TYPES
+// ============================================
 
 type Req = {
   query?: Record<string, string | string[]>;
@@ -12,9 +25,93 @@ type Res = {
   setHeader?: (name: string, value: string) => void;
 };
 
-// Simple rate limiting
+// ============================================
+// YAHOO FINANCE SYMBOL MAPPING
+// ============================================
+
+const YAHOO_SYMBOLS: Record<string, string> = {
+  // Crypto
+  BTC: "BTC-USD", BTCUSD: "BTC-USD", BTCUSDT: "BTC-USD",
+  ETH: "ETH-USD", ETHUSD: "ETH-USD", ETHUSDT: "ETH-USD",
+  SOL: "SOL-USD", SOLUSD: "SOL-USD",
+  XRP: "XRP-USD", DOGE: "DOGE-USD",
+  ADA: "ADA-USD", DOT: "DOT-USD",
+  AVAX: "AVAX-USD", MATIC: "MATIC-USD",
+  LINK: "LINK-USD", UNI: "UNI-USD", LTC: "LTC-USD",
+  
+  // Forex
+  EURUSD: "EURUSD=X", GBPUSD: "GBPUSD=X",
+  USDJPY: "JPY=X", USDCHF: "CHF=X",
+  AUDUSD: "AUDUSD=X", USDCAD: "CAD=X",
+  NZDUSD: "NZDUSD=X", EURGBP: "EURGBP=X",
+  EURJPY: "EURJPY=X", GBPJPY: "GBPJPY=X",
+  
+  // Indices
+  SPX: "^GSPC", SP500: "^GSPC",
+  DAX: "^GDAXI", NASDAQ: "^IXIC",
+  NDX: "^NDX", DJI: "^DJI", DOW: "^DJI",
+  NIKKEI: "^N225", FTSE: "^FTSE",
+  CAC40: "^FCHI", STOXX50: "^STOXX50E",
+  
+  // Commodities
+  GOLD: "GC=F", XAUUSD: "GC=F",
+  SILVER: "SI=F", XAGUSD: "SI=F",
+  OIL: "CL=F", WTI: "CL=F", BRENT: "BZ=F",
+  NATGAS: "NG=F", COPPER: "HG=F",
+};
+
+function getAssetCategory(asset: string): string {
+  const norm = asset.toUpperCase();
+  if (["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI", "LTC"].some(c => norm.includes(c))) return "crypto";
+  if (["EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD"].some(c => norm.includes(c))) return "forex";
+  if (["SPX", "SP500", "DAX", "NASDAQ", "NDX", "DJI", "DOW", "NIKKEI", "FTSE", "CAC", "STOXX"].some(c => norm.includes(c))) return "index";
+  if (["GOLD", "XAU", "SILVER", "XAG", "OIL", "CL", "GC", "SI", "NG", "BRENT", "COPPER"].some(c => norm.includes(c))) return "commodity";
+  return "unknown";
+}
+
+// ============================================
+// CACHE (30 seconds)
+// ============================================
+
+interface CacheEntry {
+  data: PriceData;
+  expires: number;
+}
+
+interface PriceData {
+  asset: string;
+  price: number;
+  change24h: number | null;
+  changePercent24h: number | null;
+  high24h: number | null;
+  low24h: number | null;
+  volume24h: number | null;
+  timestamp: number;
+  provider: string;
+  category: string;
+}
+
+const priceCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 30000;
+
+function getCached(key: string): PriceData | null {
+  const entry = priceCache.get(key);
+  if (entry && Date.now() < entry.expires) return entry.data;
+  priceCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: PriceData): PriceData {
+  priceCache.set(key, { data, expires: Date.now() + CACHE_TTL });
+  return data;
+}
+
+// ============================================
+// RATE LIMITING
+// ============================================
+
 const rateLimitMap = new Map<string, number>();
-const RATE_LIMIT_MS = 1000;
+const RATE_LIMIT_MS = 300;
 
 function isRateLimited(key: string): boolean {
   const last = rateLimitMap.get(key);
@@ -24,7 +121,10 @@ function isRateLimited(key: string): boolean {
   return false;
 }
 
-// Simple fetch with timeout
+// ============================================
+// FETCH UTILITIES
+// ============================================
+
 async function safeFetch<T>(url: string, options?: { timeoutMs?: number }): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options?.timeoutMs || 5000);
@@ -32,7 +132,10 @@ async function safeFetch<T>(url: string, options?: { timeoutMs?: number }): Prom
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { "Accept": "application/json" },
+      headers: { 
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
     });
     clearTimeout(timeout);
     
@@ -46,69 +149,110 @@ async function safeFetch<T>(url: string, options?: { timeoutMs?: number }): Prom
   }
 }
 
-const now = () => Date.now();
+// ============================================
+// YAHOO FINANCE PRICE FETCHER
+// ============================================
 
-type FxPrice = { base: string; quote: string; price: number; provider: string; timestamp: number };
-type MetalPrice = { symbol: string; price: number; provider: string; timestamp: number };
-
-// --- Price fetchers ---
-const fetchBtcUsd = async (): Promise<{ price: number; source: string; timestamp: number }> => {
-  const url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
-  const data = await safeFetch<Record<string, { usd: number }>>(url, { timeoutMs: 4500 });
-  const price = Number(data?.bitcoin?.usd);
-  if (!Number.isFinite(price)) throw new Error("CoinGecko BTC price missing");
-  return { price, source: "coingecko", timestamp: now() };
-};
-
-// Use open.er-api.com (free, no API key required)
-const fetchFxFromOpenExchangeRate = async (base: string, quote: string): Promise<FxPrice> => {
-  const url = `https://open.er-api.com/v6/latest/${encodeURIComponent(base.toUpperCase())}`;
-  const res = await safeFetch<{ result?: string; rates?: Record<string, number> }>(url, { timeoutMs: 4000 });
-  if (res?.result !== "success" || !res?.rates) throw new Error("OpenExchangeRate API failed");
-  const rate = Number(res.rates[quote.toUpperCase()]);
-  if (!Number.isFinite(rate)) throw new Error(`OpenExchangeRate missing rate for ${quote}`);
-  return { base, quote, price: rate, provider: "open.er-api.com", timestamp: now() };
-};
-
-// Legacy fallback (requires API key now)
-const fetchFxFromExchangeRateHost = async (base: string, quote: string): Promise<FxPrice> => {
-  const url = `https://api.exchangerate.host/convert?from=${encodeURIComponent(base)}&to=${encodeURIComponent(quote)}`;
-  const res = await safeFetch<{ result?: number; info?: { rate?: number } }>(url, { timeoutMs: 4000 });
-  const rate = Number(res?.result ?? res?.info?.rate);
-  if (!Number.isFinite(rate)) throw new Error("ExchangeRateHost missing rate");
-  return { base, quote, price: rate, provider: "exchangerate.host", timestamp: now() };
-};
-
-const buildMetalApiUrl = (symbol: string): string => {
-  if (process.env.METALS_DEV_KEY) {
-    return `https://api.metals.dev/v1/latest?api_key=${process.env.METALS_DEV_KEY}&symbols=${symbol}`;
+async function fetchYahooPrice(asset: string): Promise<PriceData> {
+  const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const yahooSymbol = YAHOO_SYMBOLS[normalized];
+  
+  if (!yahooSymbol) {
+    throw new Error(`Unsupported asset: ${asset}`);
   }
-  if (process.env.METALS_API_KEY) {
-    return `https://metals-api.com/api/latest?access_key=${process.env.METALS_API_KEY}&base=USD&symbols=${symbol}`;
+  
+  const encodedSymbol = encodeURIComponent(yahooSymbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=2d`;
+  
+  interface YahooResponse {
+    chart?: {
+      result?: Array<{
+        meta?: {
+          regularMarketPrice?: number;
+          previousClose?: number;
+          regularMarketDayHigh?: number;
+          regularMarketDayLow?: number;
+          regularMarketVolume?: number;
+        };
+      }>;
+      error?: { description?: string };
+    };
   }
-  if (process.env.METALPRICEAPI_KEY) {
-    return `https://api.metalpriceapi.com/v1/latest?api_key=${process.env.METALPRICEAPI_KEY}&base=USD&currencies=${symbol}`;
+  
+  const data = await safeFetch<YahooResponse>(url, { timeoutMs: 4000 });
+  
+  if (data.chart?.error) {
+    throw new Error(data.chart.error.description || "Yahoo API error");
   }
-  return `https://www.goldapi.io/api/${symbol}/USD`;
-};
+  
+  const meta = data.chart?.result?.[0]?.meta;
+  if (!meta?.regularMarketPrice) {
+    throw new Error("No Yahoo price data");
+  }
+  
+  const price = meta.regularMarketPrice;
+  const prevClose = meta.previousClose || price;
+  const change24h = price - prevClose;
+  const changePercent24h = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+  
+  return {
+    asset: normalized,
+    price,
+    change24h,
+    changePercent24h,
+    high24h: meta.regularMarketDayHigh || null,
+    low24h: meta.regularMarketDayLow || null,
+    volume24h: meta.regularMarketVolume || null,
+    timestamp: Date.now(),
+    provider: "yahoo",
+    category: getAssetCategory(normalized),
+  };
+}
 
-const fetchMetalFromMetalsDev = async (symbol: string): Promise<MetalPrice> => {
-  const key = process.env.METALS_DEV_KEY || process.env.METALS_API_KEY || process.env.METALPRICEAPI_KEY || process.env.GOLDAPI_KEY;
-  if (!key) throw new Error("Metal API key missing");
-  const url = buildMetalApiUrl(symbol);
+// ============================================
+// BINANCE FALLBACK (CRYPTO)
+// ============================================
 
-  const res = await safeFetch<any>(url, { timeoutMs: 4500 });
-  const rate =
-    res?.data?.[symbol]?.price ??
-    res?.rates?.[symbol] ??
-    res?.price ??
-    res?.[symbol] ??
-    res?.[`${symbol}USD`] ??
-    res?.[symbol.toLowerCase()];
-  const price = Number(rate);
-  if (!Number.isFinite(price)) throw new Error("Metal price missing");
-  return { symbol, price, provider: "metals", timestamp: now() };
-};
+async function fetchBinancePrice(asset: string): Promise<PriceData> {
+  const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  let pair = normalized;
+  if (pair === "BTC" || pair === "BTCUSD") pair = "BTCUSDT";
+  else if (pair === "ETH" || pair === "ETHUSD") pair = "ETHUSDT";
+  else if (pair === "SOL" || pair === "SOLUSD") pair = "SOLUSDT";
+  else if (!pair.endsWith("USDT")) pair = pair + "USDT";
+  
+  const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${pair}`;
+  const data = await safeFetch<{
+    lastPrice?: string;
+    priceChange?: string;
+    priceChangePercent?: string;
+    highPrice?: string;
+    lowPrice?: string;
+    volume?: string;
+  }>(url, { timeoutMs: 3000 });
+  
+  const price = Number(data.lastPrice);
+  if (!Number.isFinite(price)) {
+    throw new Error("Invalid Binance price");
+  }
+  
+  return {
+    asset: normalized,
+    price,
+    change24h: Number(data.priceChange) || null,
+    changePercent24h: Number(data.priceChangePercent) || null,
+    high24h: Number(data.highPrice) || null,
+    low24h: Number(data.lowPrice) || null,
+    volume24h: Number(data.volume) || null,
+    timestamp: Date.now(),
+    provider: "binance",
+    category: "crypto",
+  };
+}
+
+// ============================================
+// UTILITY
+// ============================================
 
 const getQueryParam = (query: Record<string, string | string[]> | undefined, key: string): string | undefined => {
   const val = query?.[key];
@@ -117,112 +261,96 @@ const getQueryParam = (query: Record<string, string | string[]> | undefined, key
   return undefined;
 };
 
+// ============================================
+// MAIN HANDLER
+// ============================================
+
 export default async function handler(req: Req, res: Res) {
+  // CORS
+  res.setHeader?.("Access-Control-Allow-Origin", "*");
+  res.setHeader?.("Access-Control-Allow-Methods", "GET, OPTIONS");
+  
+  if (req.method === "OPTIONS") {
+    return res.status(200).json({ ok: true });
+  }
+  
   try {
-    const assetParamRaw = getQueryParam(req.query, "asset");
-    const assetParam = assetParamRaw?.toUpperCase?.();
-
-    const supportedAssets = ["BTCUSD", "BTCUSDT", "EURUSD", "XAUUSD"];
-    if (!assetParam || !supportedAssets.includes(assetParam)) {
-      return res.status(400).json({
-        ok: false,
-        status: "error",
-        error: "Invalid or missing asset. Supported: BTCUSD, BTCUSDT, EURUSD, XAUUSD",
-      });
-    }
-
-    const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
-    if (isRateLimited(`price:${rateKey}`)) {
+    const assetParam = getQueryParam(req.query, "asset")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") ||
+                       getQueryParam(req.query, "symbol")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") ||
+                       "BTCUSD";
+    
+    // Rate limiting
+    const clientKey = req.headers?.["x-forwarded-for"] ?? "anon";
+    if (isRateLimited(`price:${clientKey}`)) {
       return res.status(429).json({
         ok: false,
         status: "rate_limited",
-        error: "Rate limited. Slow down requests.",
+        error: "Rate limited. Please slow down.",
       });
     }
-
-    // Fast-path for required assets
-    if (assetParam.startsWith("BTC")) {
+    
+    // Check cache
+    const cached = getCached(assetParam);
+    if (cached) {
+      return res.status(200).json({
+        ok: true,
+        status: "ok",
+        data: cached,
+        cached: true,
+      });
+    }
+    
+    const category = getAssetCategory(assetParam);
+    let result: PriceData | null = null;
+    let lastError: Error | null = null;
+    
+    // Check if Yahoo supports this asset
+    const isYahooSupported = !!YAHOO_SYMBOLS[assetParam];
+    
+    // Try Yahoo Finance first
+    if (isYahooSupported) {
       try {
-        const btc = await fetchBtcUsd();
-        return res.status(200).json({
-          ok: true,
-          status: "ok",
-          data: { asset: "BTCUSD", value: btc.price, ts: btc.timestamp, source: btc.source },
-        });
-      } catch (err: unknown) {
-        console.error("[price] btc fetch error", err);
-        return res.status(502).json({
-          ok: false,
-          status: "error",
-          error: (err as Error)?.message || "BTC price fetch failed",
-        });
+        result = await fetchYahooPrice(assetParam);
+      } catch (err) {
+        lastError = err as Error;
+        console.log(`[price] Yahoo failed for ${assetParam}:`, (err as Error).message);
       }
     }
-
-    if (assetParam === "EURUSD") {
+    
+    // Crypto fallback: Binance
+    if (!result && category === "crypto") {
       try {
-        // Try free open.er-api.com first
-        let fx: FxPrice;
-        try {
-          fx = await fetchFxFromOpenExchangeRate("EUR", "USD");
-        } catch {
-          // Fallback to exchangerate.host (may require API key)
-          fx = await fetchFxFromExchangeRateHost("EUR", "USD");
-        }
-        if (!Number.isFinite(fx.price)) throw new Error("Invalid FX price");
-        return res.status(200).json({
-          ok: true,
-          status: "ok",
-          data: { asset: "EURUSD", value: fx.price, ts: fx.timestamp, source: fx.provider },
-        });
-      } catch (err: unknown) {
-        console.error("[price] fx fetch error", err);
-        return res.status(502).json({
-          ok: false,
-          status: "error",
-          error: (err as Error)?.message || "FX price fetch failed",
-        });
+        result = await fetchBinancePrice(assetParam);
+      } catch (err) {
+        lastError = err as Error;
+        console.log(`[price] Binance failed for ${assetParam}:`, (err as Error).message);
       }
     }
-
-    if (assetParam === "XAUUSD") {
-      try {
-        if (!process.env.METALS_DEV_KEY && !process.env.METALS_API_KEY && !process.env.METALPRICEAPI_KEY && !process.env.GOLDAPI_KEY) {
-          return res.status(500).json({
-            ok: false,
-            status: "error",
-            error: "Missing metals API key",
-          });
-        }
-        const metal = await fetchMetalFromMetalsDev("XAU");
-        if (!Number.isFinite(metal.price)) throw new Error("Invalid metal price");
-        return res.status(200).json({
-          ok: true,
-          status: "ok",
-          data: { asset: "XAUUSD", value: metal.price, ts: metal.timestamp, source: metal.provider },
-        });
-      } catch (err: unknown) {
-        console.error("[price] metal fetch error", err);
-        return res.status(502).json({
-          ok: false,
-          status: "error",
-          error: (err as Error)?.message || "Metal price fetch failed",
-        });
-      }
+    
+    if (!result) {
+      return res.status(502).json({
+        ok: false,
+        status: "error",
+        error: lastError?.message || `Unable to fetch price for ${assetParam}`,
+      });
     }
-
-    // For unsupported assets, return error
-    return res.status(400).json({
-      ok: false,
-      status: "error",
-      error: `Asset ${assetParam} not supported yet`,
+    
+    // Cache and return
+    setCache(assetParam, result);
+    
+    return res.status(200).json({
+      ok: true,
+      status: "ok",
+      data: result,
+      cached: false,
     });
+    
   } catch (error) {
-    console.error("[price] handler error", error);
+    console.error("[price] handler error:", error);
     return res.status(500).json({
       ok: false,
       status: "error",
-      error: (error as Error)?.message || "Internal error",
+      error: (error as Error)?.message || "Internal server error",
     });
   }
 }
