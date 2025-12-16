@@ -259,12 +259,11 @@ export function computeVSA(candles: IndicatorRow[], lookback: number = 20): VSAR
   
   const currentVolume = current.v;
   const currentSpread = Math.abs(current.h - current.l);
-  const currentBody = Math.abs(current.c - current.o);
   const isUp = current.c > current.o;
   
   const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
   const spreadRatio = avgSpread > 0 ? currentSpread / avgSpread : 1;
-  const bodyToSpread = currentSpread > 0 ? currentBody / currentSpread : 0.5;
+  // bodyToSpread reserved for future VSA enhancements
   
   let type: VSAResult["type"] = "neutral";
   let strength = 0;
@@ -322,7 +321,6 @@ export function detectLiquiditySweep(candles: OHLCCandle[], lookback: number = 1
   }
   
   const current = candles[candles.length - 1];
-  const prev = candles[candles.length - 2];
   const historical = candles.slice(-lookback - 1, -1);
   
   const recentHighs = historical.map(c => c.h);
@@ -337,7 +335,6 @@ export function detectLiquiditySweep(candles: OHLCCandle[], lookback: number = 1
   // Sell-side sweep (Stop hunt below lows, then recovery)
   // Price wicks below recent lows but closes back above
   if (current.l < minLow && current.c > minLow && isGreenCandle) {
-    const sweepDepth = minLow - current.l;
     const recovery = current.c - current.l;
     const recoveryStrength = currentRange > 0 ? recovery / currentRange : 0;
     
@@ -355,7 +352,6 @@ export function detectLiquiditySweep(candles: OHLCCandle[], lookback: number = 1
   // Buy-side sweep (Stop hunt above highs, then reversal)
   // Price wicks above recent highs but closes back below
   if (current.h > maxHigh && current.c < maxHigh && isRedCandle) {
-    const sweepDepth = current.h - maxHigh;
     const recovery = current.h - current.c;
     const recoveryStrength = currentRange > 0 ? recovery / currentRange : 0;
     
@@ -427,7 +423,6 @@ function computeIndicatorScore(row: IndicatorRow): IndicatorScore {
   // EMA trend scoring
   const ema9 = getNum(row.ema9, 0);
   const ema21 = getNum(row.ema21, 0);
-  const ema50 = getNum(row.ema50, 0);
   const price = row.c;
   
   if (ema9 && ema21) {
