@@ -84,17 +84,17 @@ const ASSET_CLASS_LABELS = {
 const _API_SOURCES_OLD = [
   {
     name: "DeFiLlama",
-    desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.",
+    desc: "DeFi-Yields, TVL, Chains - for Yield Tracker.",
     limit: "Unlimited free",
   },
   {
     name: "Santiment",
     desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).",
-    limit: "100 Calls/Monat free",
+    limit: "100 Calls/month free",
   },
   {
     name: "HuggingFace",
-    desc: "AI-Predictions (Inference für Price-Forecast).",
+    desc: "AI-Predictions (Inference for Price-Forecast).",
     limit: "Free Inference",
   },
   {
@@ -110,9 +110,9 @@ const _API_SOURCES_OLD = [
 ];
 
 const API_SOURCES = [
-  { name: "DeFiLlama", desc: "DeFi-Yields, TVL, Chains – für Yield Tracker.", limit: "Unlimited free" },
+  { name: "DeFiLlama", desc: "DeFi-Yields, TVL, Chains - fuer Yield Tracker.", limit: "Unlimited free" },
   { name: "Santiment", desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: "100 Calls/Monat free" },
-  { name: "HuggingFace", desc: "AI-Predictions (Inference für Price-Forecast).", limit: "Free Inference" },
+  { name: "HuggingFace", desc: "AI-Predictions (Inference fuer Price-Forecast).", limit: "Free Inference" },
   { name: "Alpha Vantage", desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
   { name: "FMP", desc: "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
 ];
@@ -323,7 +323,7 @@ LiveClock.propTypes = {
 const TRANSLATIONS = {
   de: {
     action: "Aktion",
-    reasonLabel: "Begründung",
+    reasonLabel: "Begruendung",
     confidence: "Konfidenz",
     tp: "TP",
     sl: "SL",
@@ -367,14 +367,14 @@ const TRANSLATIONS = {
     logout: "Logout",
     liveCheck: "Live-Check",
     liveLabel: "Live",
-    keyNeeded: "Key nötig",
+    keyNeeded: "Key noetig",
     errorLabel: "Fehler",
     liveData: "Live Data",
     reachable: "Erreichbar",
     unavailable: "Unavailable",
     proRequired: "Pro erforderlich",
     eliteRequired: "Elite erforderlich",
-    apiKeyNeeded: "API Key nötig",
+    apiKeyNeeded: "API Key noetig",
     demoUser: "trader@demo.app",
     aiTags: "AI-Tags",
     heroSubtitle: "Live Daten mit Multi-Source Fallback, Indikatoren & WebSocket Autoreconnect.",
@@ -393,10 +393,10 @@ const TRANSLATIONS = {
     signalsLive: "Live Checks",
     signalsOversold: "RSI < 30 -> Oversold Alert",
     signalsOverbought: "RSI > 70 -> Overbought Alert",
-    signalsFallback: "Fallback aktiv bei Primärfehler",
+    signalsFallback: "Fallback aktiv bei Primaerfehler",
     loadingCandles: "Candles werden geladen...",
     loadingFib: "Fib Map wird geladen...",
-    noBubbles: "Keine Bubbles verfügbar.",
+    noBubbles: "Keine Bubbles verfuegbar.",
     loadingRSI: "RSI wird geladen...",
     loadingMACD: "MACD wird geladen...",
     loadingFlows: "Volumen wird gesammelt...",
@@ -411,7 +411,7 @@ const TRANSLATIONS = {
     apiReachable: "Erreichbar",
     apiUnavailable: "Unavailable",
     marketRegimeDesc: "Basierend auf EMA200, ADX & Bollinger Band Width.",
-    liquidityDesc: "Orderbuch-Stärke – Bids vs. Asks (letzte 1h).",
+    liquidityDesc: "Orderbuch-Staerke - Bids vs. Asks (letzte 1h).",
     onchainDesc: "Active Addresses & Supply Split.",
     sentimentDesc: "Social Score (CryptoCompare).",
     correlationDesc: "Coin-Korrelationen (CoinGecko).",
@@ -419,7 +419,7 @@ const TRANSLATIONS = {
     dataIntegrity1: "CoinGecko to CryptoCompare, Polling Backup 30s, Cache 5m.",
     dataIntegrity2: "WebSocket Auto-Reconnect bis 5x, Volume & Candles von Kraken.",
     dataIntegrity3: "RSI (14), MACD (12/26/9), Bollinger (20, 2 std) live berechnet.",
-    backtestNote: "Backtest V3: TP/SL, Fees & Slippage berücksichtigt. Historische Trefferquote ist keine Garantie.",
+    backtestNote: "Backtest V3: TP/SL, Fees & Slippage beruecksichtigt. Historische Trefferquote ist keine Garantie.",
     netFlowsLabel: "Net Flows",
     newsLabel: "News",
     smartAccum: "Smart Money: Accumulation Phase",
@@ -457,23 +457,23 @@ const TRANSLATIONS = {
     profitAtTp: "Gewinn @TP",
     lossAtSl: "Verlust @SL",
     rrLabel: "Risk/Reward",
-    aiHint: "Hinweis: Heuristik basiert auf RSI/MACD/Bollinger. Keine Garantie; Märkte sind volatil.",
+    aiHint: "Hinweis: Heuristik basiert auf RSI/MACD/Bollinger. Keine Garantie; Maerkte sind volatil.",
     fibTp: "TP",
     fibSl: "SL",
     fibNow: "Now",
     bubblesTop: "Top 10 Extrem RSI",
     tpAlarm: "TP Alarm",
     slAlarm: "SL Alarm",
-    noEntries: "Noch keine Einträge.",
+    noEntries: "Noch keine Eintraege.",
     diarySave: "Speichern",
-    diaryAutosave: "Autosave (local) · max 50 Einträge",
+    diaryAutosave: "Autosave (local) - max 50 Eintraege",
     loadingTrades: "Warte auf Trades...",
-    fetchFailPricePrimary: "Primäre Quelle ausgefallen – Fallback aktiv (CryptoCompare).",
+    fetchFailPricePrimary: "Primaere Quelle ausgefallen - Fallback aktiv (CryptoCompare).",
     fetchFailPrice: "Preisquellen derzeit nicht erreichbar.",
     fetchFailFearGreed: "Fear & Greed Quelle nicht erreichbar.",
     fetchFailOHLC: "Kraken OHLCV konnte nicht geladen werden.",
-    fetchFailETF: "ETF News derzeit nicht verfügbar.",
-    fetchFailETFFlows: "ETF Flows derzeit nicht verfügbar.",
+    fetchFailETF: "ETF News derzeit nicht verfuegbar.",
+    fetchFailETFFlows: "ETF Flows derzeit nicht verfuegbar.",
     tpSlTitle: "TP / SL Rechner (AI Assist)",
     aiSignalTitle: "AI Signal (Heuristik, Open-Source Stil)",
     proSignalsTitle: "Pro Signals",
@@ -487,8 +487,8 @@ const TRANSLATIONS = {
     signup: "Signup",
     startTrial: "7 Tage Elite-Test",
     trialActive: "Elite Trial aktiv",
-    madeBy: "Made by Ömer Alpay",
-    consentText: "Wir verwenden optionale GeoIP-Tags für Meta/AI. Zustimmen?",
+    madeBy: "Made by Oemer Alpay",
+    consentText: "Wir verwenden optionale GeoIP-Tags fuer Meta/AI. Zustimmen?",
     consentAllow: "Erlauben",
     consentDeny: "Ablehnen",
     consentRevoke: "Opt-out",
@@ -499,7 +499,7 @@ const TRANSLATIONS = {
     checkTrend: "Trend",
     checkMomentum: "Momentum",
     checkFlow: "Flow",
-    checkVol: "Volatilität",
+    checkVol: "Volatilitaet",
     rrTarget: "Ziel-RR",
     setupTrend: "Trendfolge",
     setupBreakout: "Breakout",
@@ -672,7 +672,7 @@ const TRANSLATIONS = {
     signup: "Signup",
     startTrial: "7-day Elite Trial",
     trialActive: "Elite trial active",
-    madeBy: "Made by Ömer Alpay",
+    madeBy: "Made by Oemer Alpay",
     consentText: "We use optional GeoIP tags for Meta/AI. Allow?",
     consentAllow: "Allow",
     consentDeny: "Deny",
@@ -1011,16 +1011,16 @@ function App() {
   const isKnownApiIssue = (source, message) => {
     const msg = (message || "").toLowerCase();
     const src = (source || "").toLowerCase();
-    // Rate limits und bekannte temporäre Fehler
+    // Rate limits und bekannte temporaere Fehler
     if (msg.includes("429") || msg.includes("rate limit")) return true;
     if (msg.includes("cors") || msg.includes("network")) return true;
     if (msg.includes("timeout") || msg.includes("abort")) return true;
     if (msg.includes("insufficient") || msg.includes("empty")) return true;
     if (msg.includes("fetch") || msg.includes("failed")) return true;
-    // API/Proxy Fehler unterdrücken - wir haben Fallback-Logik
+    // API/Proxy Fehler unterdruecken - wir haben Fallback-Logik
     if (src.includes("proxy") || src.includes("ohlc") || src.includes("price")) return true;
     if (src.includes("htf") || src.includes("derivatives") || src.includes("market")) return true;
-    // Bekannte Services die oft temporär ausfallen
+    // Bekannte Services die oft temporaer ausfallen
     const knownFlaky = ["coingecko", "binance", "kraken", "glassnode", "santiment", "cryptocompare", "coinapi", "fear_greed"];
     if (knownFlaky.some((s) => src.includes(s))) return true;
     return false;
@@ -1039,12 +1039,12 @@ function App() {
       else console.log("[log]", payload);
     }
     const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
-    // Keine Toast-Meldungen für bekannte temporäre API-Probleme
+    // Keine Toast-Meldungen fuer bekannte temporaere API-Probleme
     const showToast = !isEtfService && level === "error" && !isKnownApiIssue(source, message);
     if (showToast) {
       addToast(`${source}: ${message || level}`, "error", {
         key: source || message,
-        cooldownMs: 60000, // Längere Cooldown Zeit (1 Minute)
+        cooldownMs: 60000, // Laengere Cooldown Zeit (1 Minute)
       });
     }
   };
@@ -1074,7 +1074,7 @@ function App() {
       };
       reconcileEtfAggregator();
       const isEtfService = typeof source === "string" && source.toUpperCase().startsWith("ETF_");
-      // Keine Recovery-Toast für bekannte flaky Services oder ETF-Services
+      // Keine Recovery-Toast fuer bekannte flaky Services oder ETF-Services
       const showRecoveryToast = !isEtfService && !isKnownApiIssue(source, message);
       if ((prevStatus === "error" || prevStatus === "degraded" || prevStatus === "fallback") && status === "ok") {
         if (showRecoveryToast) addToast(`${source} wiederhergestellt`, "info", { allowInfoWarn: true });
@@ -1418,7 +1418,7 @@ function App() {
     } catch (err) {
       console.error("ETF flows failed", err);
       setEtfFlowSeries([]);
-      setEtfAumError("Daten derzeit nicht verfügbar");
+      setEtfAumError("Daten derzeit nicht verfuegbar");
       updateApiHealth("etfFlows", "error", err.message);
     } finally {
       setEtfAumLoading(false);
@@ -1440,7 +1440,7 @@ function App() {
     } catch (err) {
       console.error("ETF holdings failed", err);
       setEtfHoldings([]);
-      setEtfHoldingsError("Daten derzeit nicht verfügbar");
+      setEtfHoldingsError("Daten derzeit nicht verfuegbar");
       updateApiHealth("ETF_HOLDINGS_FMP", "error", err.message);
     } finally {
       setEtfHoldingsLoading(false);
@@ -1472,7 +1472,7 @@ function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: "{ projectBySlug(slug:\"bitcoin\"){slug} }" }),
         });
-        if (res.status === 401) throw new Error("API Key benötigt (401)");
+        if (res.status === 401) throw new Error("API Key benoetigt (401)");
         if (!res.ok) throw new Error("santiment failed");
         const data = await res.json();
         const slug = data?.data?.projectBySlug?.slug || "ok";
@@ -1484,7 +1484,7 @@ function App() {
       name: "HuggingFace",
       run: async () => {
         const res = await fetch("https://huggingface.co/api/models/facebook/prophet-net");
-        if (res.status === 401) throw new Error("HF Token benötigt (401)");
+        if (res.status === 401) throw new Error("HF Token benoetigt (401)");
         if (!res.ok) throw new Error("huggingface failed");
         const data = await res.json();
         const downloads = data?.downloads ?? null;
@@ -1513,7 +1513,7 @@ function App() {
       name: "FMP",
       run: async () => {
         const res = await fetch("https://financialmodelingprep.com/api/v3/stock_market/actives?apikey=demo");
-        if (res.status === 403) throw new Error("FMP Key benötigt");
+        if (res.status === 403) throw new Error("FMP Key benoetigt");
         if (!res.ok) throw new Error("fmp failed");
         const data = await res.json();
         return { status: "ok", detail: `${data.length || 0} Ticker`, data: data?.[0]?.symbol ? `Top: ${data[0].symbol}` : "Aktive geladen" };
@@ -1738,14 +1738,14 @@ function App() {
   };
 
   const handleStartTrial = async () => {
-    addToast(lang === "de" ? "Elite-Test läuft automatisch für 7 Tage." : "Elite trial runs automatically for 7 days.", "info", {
+    addToast(lang === "de" ? "Elite-Test laeuft automatisch fuer 7 Tage." : "Elite trial runs automatically for 7 days.", "info", {
       allowInfoWarn: true,
     });
   };
 
   const persistTier = async (tier) => {
     if (!auth || !auth.currentUser) {
-      addToast(lang === "de" ? "Login nötig, um den Plan zu ändern." : "Login required to change plan.", "warn", { allowInfoWarn: true });
+      addToast(lang === "de" ? "Login noetig, um den Plan zu aendern." : "Login required to change plan.", "warn", { allowInfoWarn: true });
       return;
     }
     try {
@@ -2365,7 +2365,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         ...baseSignal,
         reason:
           lang === "de"
-            ? `AI Predictor (4h Kraken) bullisch mit hoher Sicherheit; ${baseSignal.reason || "Setup bestätigt."}`
+            ? `AI Predictor (4h Kraken) bullisch mit hoher Sicherheit; ${baseSignal.reason || "Setup bestaetigt."}`
             : `AI predictor (4h Kraken) bullish with solid confidence; ${baseSignal.reason || "setup confirmed."}`,
         meta: { ...(baseSignal.meta || {}), predictorAligned: true },
       };
@@ -2457,7 +2457,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
       {showTrialBanner && trialActive ? (
         <div className="bg-emerald-500/10 border-b border-emerald-500/40 text-emerald-100 text-sm px-4 py-2 text-center">
-          7-Tage-Testversion aktiv. Läuft ab am {trialEnd || "-"}
+          7-Tage-Testversion aktiv. Laeuft ab am {trialEnd || "-"}
         </div>
       ) : null}
       {toasts.length ? (
@@ -2642,7 +2642,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           <Card
             title={t("livePrice")}
             icon={Activity}
@@ -2860,8 +2860,8 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </Card>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schätzung + Confidence.">
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schaetzung + Confidence.">
                 <div className="flex flex-col gap-3">
                   <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
                   <div className="flex items-center justify-between text-sm">
@@ -2905,8 +2905,8 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </Card>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Card title="Risk Score Summary" icon={Shield} tooltip="Aggregiert RSI/MACD/ADX in einem Ampel-Bar für schnelle Übersicht.">
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Card title="Risk Score Summary" icon={Shield} tooltip="Aggregiert RSI/MACD/ADX in einem Ampel-Bar fuer schnelle Uebersicht.">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-400">Score</span>
@@ -2929,23 +2929,23 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     />
                   </div>
                   <p className="text-sm text-slate-300">
-                    Grün = Momentum + Stärke. Rot = schwach/Seitwärts. Nutzt RSI, MACD-Signal und ADX ≥ 20 als Verstärker.
+                    Gruen = Momentum + Staerke. Rot = schwach/Seitwaerts. Nutzt RSI, MACD-Signal und ADX 20+ als Verstaerker.
                   </p>
                 </div>
               </Card>
 
-              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide für erste Trades.">
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide fuer erste Trades.">
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
-                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone für mögliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% – siehe TP/SL Rechner.</li>
-                  <li>Beginner-Mode hält nur Kernkarten aktiv; pro View für volle Tiefe.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fuer moegliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% - siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode haelt nur Kernkarten aktiv; pro View fuer volle Tiefe.</li>
                 </ul>
               </Card>
             </div>
 
             {/* === NEUE PRO-CARDS === */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
               <section
                 className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
                 aria-label="Market Regime Detector"
@@ -3393,7 +3393,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 <LockedCard
                   title="Vision AI Assistant"
                   requiredTier="elite"
-                  description="Nur für Elite-Mitglieder. Der Vision AI Assistant analysiert Ihre Plattform-Daten in Echtzeit."
+                  description="Nur fuer Elite-Mitglieder. Der Vision AI Assistant analysiert Ihre Plattform-Daten in Echtzeit."
                 />
               )
             ) : null}
@@ -3885,7 +3885,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       {indicatorSeries.at(-1)?.cci ? indicatorSeries.at(-1).cci.toFixed(1) : "-"}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">+100 Überkauft · -100 Überverkauft</p>
+                  <p className="text-xs text-slate-400">+100 Ueberkauft - -100 Ueberverkauft</p>
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">{t("loadingCCI")}</p>
@@ -3902,7 +3902,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       {indicatorSeries.at(-1)?.atrPct ? indicatorSeries.at(-1).atrPct.toFixed(2) : "-"}%
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">Höher = mehr Volatilität → breitere SL/TP</p>
+                  <p className="text-xs text-slate-400">Hoeher = mehr Volatilitaet - breitere SL/TP</p>
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">{t("loadingATR")}</p>
@@ -3955,7 +3955,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   >
                     Speichern
                   </button>
-                  <span className="text-xs text-slate-400">Autosave (local) · max 50 Einträge</span>
+                  <span className="text-xs text-slate-400">Autosave (local) - max 50 Eintraege</span>
                 </div>
               </div>
             </div>
@@ -3981,15 +3981,15 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-slate-400">Noch keine Einträge.</p>
+                <p className="text-sm text-slate-400">Noch keine Eintraege.</p>
               )}
             </div>
           </Card>
         </div>
         <div className="mt-4">
-              <Card title="ETF Zuflüsse" icon={TrendingUp}>
+              <Card title="ETF Zufluesse" icon={TrendingUp}>
                 <div className="space-y-3">
-                  <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF Holdings…</div>}>
+                  <Suspense fallback={<div className="text-xs text-slate-400">Laedt ETF Holdings...</div>}>
                     <EtfHoldingsCard
                       holdings={etfHoldings}
                       loading={etfHoldingsLoading}
@@ -4055,7 +4055,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
+                  <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfuegbar"}</p>
                 )}
               </LazyRender>
               <div className="grid grid-cols-1 gap-2 text-sm text-slate-200 md:grid-cols-2">
@@ -4081,10 +4081,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
             </div>
           </Card>
-          <Suspense fallback={<div className="text-xs text-slate-400">Lädt Provider-Metriken…</div>}>
+          <Suspense fallback={<div className="text-xs text-slate-400">Laedt Provider-Metriken...</div>}>
             <EtfProviderQualityCard />
           </Suspense>
-          <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
+          <Suspense fallback={<div className="text-xs text-slate-400">Laedt ETF-Korrelationen...</div>}>
             <EtfCorrelationCard onHealthUpdate={updateApiHealth} />
           </Suspense>
           <Card title={t("etfCard")} icon={TrendingUp}>
@@ -4577,7 +4577,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           ) : null}
           {mobileTab === "signals" ? (
             <div className="space-y-4">
-              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schätzung + Confidence.">
+              <Card title="AI Predictor" icon={Signal} tooltip="HuggingFace-Style Inference: Richtungs-Schaetzung + Confidence.">
                 <div className="flex flex-col gap-3">
                   <div className="text-3xl font-bold text-white">{aiPredict.forecast ? formatUSD(aiPredict.forecast) : "-"}</div>
                   <div className="flex items-center justify-between text-sm">
@@ -4620,7 +4620,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-semibold">{aiSignal.action}</span>
                     </div>
                       <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span>Begründung</span>
+                        <span>Begruendung</span>
                         <span className="text-right text-slate-200">{aiSignal.reason}</span>
                       </div>
                     <div className="flex items-center justify-between text-xs text-slate-400">
@@ -4728,12 +4728,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </Card>
               )}
 
-              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide für erste Trades.">
+              <Card title="Quick Tips for Beginners" icon={AlertTriangle} tooltip="Short Guide fuer erste Trades.">
                 <ul className="space-y-2 text-sm text-slate-200 list-disc list-inside">
                   <li>Starte mit BTC/ETH und 1h-Chart.</li>
-                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone für mögliche Rebounds.</li>
-                  <li>Setze SL 3% unter Entry, TP 4-6% – siehe TP/SL Rechner.</li>
-                  <li>Beginner-Mode hält nur Kernkarten aktiv; pro View für volle Tiefe.</li>
+                  <li>RSI &lt; 30? Beobachte Fib-Golden-Zone fuer moegliche Rebounds.</li>
+                  <li>Setze SL 3% unter Entry, TP 4-6% - siehe TP/SL Rechner.</li>
+                  <li>Beginner-Mode haelt nur Kernkarten aktiv; pro View fuer volle Tiefe.</li>
                 </ul>
               </Card>
             </div>
@@ -4802,9 +4802,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </section>
               </Paywall>
 
-              <Card title="ETF Zuflüsse" icon={TrendingUp}>
+              <Card title="ETF Zufluesse" icon={TrendingUp}>
                 <div className="space-y-3">
-                  <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF Holdings…</div>}>
+                  <Suspense fallback={<div className="text-xs text-slate-400">Laedt ETF Holdings...</div>}>
                     <EtfHoldingsCard
                       holdings={etfHoldings}
                       loading={etfHoldingsLoading}
@@ -4868,7 +4868,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfügbar"}</p>
+                      <p className="text-sm text-slate-400">{etfAumError || "Daten derzeit nicht verfuegbar"}</p>
                     )}
                   </LazyRender>
                   <div className="grid grid-cols-1 gap-2 text-sm text-slate-200">
@@ -4894,10 +4894,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 </div>
               </Card>
-              <Suspense fallback={<div className="text-xs text-slate-400">Lädt Provider-Metriken…</div>}>
+              <Suspense fallback={<div className="text-xs text-slate-400">Laedt Provider-Metriken...</div>}>
                 <EtfProviderQualityCard />
               </Suspense>
-              <Suspense fallback={<div className="text-xs text-slate-400">Lädt ETF-Korrelationen…</div>}>
+              <Suspense fallback={<div className="text-xs text-slate-400">Laedt ETF-Korrelationen...</div>}>
                 <EtfCorrelationCard onHealthUpdate={updateApiHealth} />
               </Suspense>
 
@@ -5074,12 +5074,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3">
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-                <p className="text-sm font-semibold text-emerald-300">1) Asset wählen</p>
+                <p className="text-sm font-semibold text-emerald-300">1) Asset waehlen</p>
                 <p className="text-sm text-slate-300">Oben links BTC/ETH umschalten. Preise und Fib-Map laden live.</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                 <p className="text-sm font-semibold text-emerald-300">2) Beginner-Mode</p>
-                <p className="text-sm text-slate-300">Lässt Advanced Karten weg – perfekt für den Einstieg.</p>
+                <p className="text-sm text-slate-300">Laesst Advanced Karten weg - perfekt fuer den Einstieg.</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                 <p className="text-sm font-semibold text-emerald-300">3) AI & Backtest</p>

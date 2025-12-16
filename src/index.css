@@ -224,6 +224,71 @@ body {
 .status-error { @apply bg-red-500/20 text-red-400; }
 
 /* ============================================
+   MOBILE & TOUCH OPTIMIZATION
+   ============================================ */
+
+/* iOS Safe Area Padding */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Prevent iOS zoom on input focus - use 16px minimum */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+@media (min-width: 768px) {
+  input, select, textarea {
+    font-size: inherit !important;
+  }
+}
+
+/* Touch Target Optimization - minimum 44px for iOS/Android */
+button, a, [role="button"], .touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile-specific touch targets */
+@media (max-width: 767px) {
+  button, a, [role="button"] {
+    min-height: 48px;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+  
+  /* Larger touch area for nav buttons */
+  .mobile-nav-button {
+    min-height: 52px;
+    min-width: 52px;
+  }
+  
+  /* Safe spacing for bottom navigation */
+  .mobile-bottom-nav {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Prevent text selection on touch devices */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling for mobile */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* ============================================
    UTILITY CLASSES
    ============================================ */
 
@@ -267,4 +332,26 @@ body {
 .price-up { @apply text-emerald-400; }
 .price-down { @apply text-red-400; }
 .price-neutral { @apply text-slate-400; }
+
+/* ============================================
+   RESPONSIVE BREAKPOINT HELPERS
+   ============================================ */
+
+/* Tablet-specific adjustments */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .tablet-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  
+  .tablet-text {
+    font-size: 0.875rem;
+  }
+}
+
+/* Large screen optimizations */
+@media (min-width: 1280px) {
+  .xl-grid-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
 

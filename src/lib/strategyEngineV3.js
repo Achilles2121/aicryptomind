@@ -1,6 +1,127 @@
 // Strategy Engine V3: separates setups and confidence computation.
+// Vision AI Mind - Enhanced with MTF Confirmation, Volume Analysis, Dynamic TP/SL
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+// ============================================
+// MULTI-TIMEFRAME (MTF) ALIGNMENT
+// ============================================
+
+/**
+ * Checks if multiple timeframes align for signal confirmation.
+ * Returns a score from 0 (no alignment) to 1 (full alignment).
+ * @param {Object} mtfData - Object containing regime labels for 1h, 4h, 1d
+ * @param {string} signalDirection - 'long' or 'short'
+ */
+export const computeMTFAlignment = (mtfData = {}, signalDirection) => {
+  if (!signalDirection) return { score: 0, aligned: false, breakdown: {} };
+  
+  const regimes = {
+    htf1h: mtfData.htf1h || null,
+    htf4h: mtfData.htf4h || null,
+    htf1d: mtfData.htf1d || null,
+  };
+  
+  const bullishRegimes = ['Bull'];
+  const bearishRegimes = ['Bear'];
+  const neutralRegimes = ['Crab', 'Choppy'];
+  
+  let alignedCount = 0;
+  let totalChecked = 0;
+  const breakdown = {};
+  
+  for (const [tf, regime] of Object.entries(regimes)) {
+    if (!regime) continue;
+    totalChecked++;
+    
+    let isAligned = false;
+    if (signalDirection === 'long') {
+      isAligned = bullishRegimes.includes(regime) || neutralRegimes.includes(regime);
+    } else if (signalDirection === 'short') {
+      isAligned = bearishRegimes.includes(regime) || neutralRegimes.includes(regime);
+    }
+    
+    if (isAligned) alignedCount++;
+    breakdown[tf] = { regime, aligned: isAligned };
+  }
+  
+  const score = totalChecked > 0 ? alignedCount / totalChecked : 0;
+  const aligned = score >= 0.66; // At least 2 of 3 timeframes must align
+  
+  return { score, aligned, breakdown, alignedCount, totalChecked };
+};
+
+// ============================================
+// ENHANCED VOLUME CONFIRMATION
+// ============================================
+
+/**
+ * Computes volume confirmation score with multiple checks:
+ * 1. Volume spike detection (current vs 20-period average)
+ * 2. Volume trend (increasing/decreasing)
+ * 3. Price-Volume divergence detection
+ */
+export const computeVolumeConfirmation = (row, prevRows = []) => {
+  if (!row || !Number.isFinite(row.volume)) {
+    return { score: 0.5, confirmed: false, spike: false, trend: 'neutral' };
+  }
+  
+  // Volume spike check
+  const volumeSpike = row.volumeSpike && row.volumeSpike >= 1.3;
+  const strongSpike = row.volumeSpike && row.volumeSpike >= 2.0;
+  
+  // Volume trend (last 5 bars if available)
+  let volTrend = 'neutral';
+  let trendScore = 0.5;
+  if (prevRows.length >= 5) {
+    const recent5 = prevRows.slice(-5);
+    const volChange = recent5.reduce((acc, r, i) => {
+      if (i === 0 || !Number.isFinite(r.volume) || !Number.isFinite(recent5[i-1].volume)) return acc;
+      return acc + (r.volume > recent5[i-1].volume ? 1 : -1);
+    }, 0);
+    
+    if (volChange >= 2) {
+      volTrend = 'increasing';
+      trendScore = 0.8;
+    } else if (volChange <= -2) {
+      volTrend = 'decreasing';
+      trendScore = 0.3;
+    }
+  }
+  
+  // Price-Volume divergence (bearish divergence = price up, volume down)
+  let divergence = 'none';
+  if (prevRows.length >= 3) {
+    const priceUp = row.close > prevRows[prevRows.length - 3].close;
+    const volDown = row.volume < prevRows[prevRows.length - 3].volume;
+    const priceDown = row.close < prevRows[prevRows.length - 3].close;
+    const volUp = row.volume > prevRows[prevRows.length - 3].volume;
+    
+    if (priceUp && volDown) divergence = 'bearish';
+    if (priceDown && volUp) divergence = 'bullish';
+  }
+  
+  // Calculate final score
+  let score = 0.5;
+  if (volumeSpike) score += 0.2;
+  if (strongSpike) score += 0.15;
+  score += (trendScore - 0.5) * 0.3;
+  
+  const confirmed = volumeSpike || (volTrend === 'increasing' && divergence !== 'bearish');
+  
+  return {
+    score: clamp01(score),
+    confirmed,
+    spike: volumeSpike,
+    strongSpike,
+    trend: volTrend,
+    divergence,
+  };
+};
+
+// ============================================
+// VOLATILITY SCORE (Enhanced)
+// ============================================
 
 export const computeVolatilityScore = (atrPct) => {
   if (!Number.isFinite(atrPct)) return 0.3;
