@@ -21,21 +21,31 @@ const TradingViewChart = memo(function TradingViewChart({
   containerClassName = "",
 }) {
   const containerRef = useRef(null);
+  const scriptLoadedRef = useRef(false);
   
   // Symbol-Mapping: UI-Name -> TradingView-Ticker
   const tvSymbol = useMemo(() => {
-    if (symbol && symbol.includes(":")) {
+    if (symbol?.includes(":")) {
       return symbol;
     }
     return getTVSymbol(symbol);
   }, [symbol]);
 
+  // Stabilisiere studies array
+  const studiesKey = useMemo(() => JSON.stringify(studies), [studies]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    // Verhindere mehrfaches Laden
+    if (scriptLoadedRef.current && container.querySelector(".tradingview-widget-container")) {
+      return;
+    }
+
     // Komplett leeren
     container.innerHTML = "";
+    scriptLoadedRef.current = false;
 
     // TradingView Widget Container Struktur erstellen
     const widgetContainer = document.createElement("div");
@@ -50,7 +60,7 @@ const TradingViewChart = memo(function TradingViewChart({
     widgetInner.style.width = "100%";
     widgetContainer.appendChild(widgetInner);
 
-    // Script Element mit Konfiguration als innerHTML (so wie TradingView es erwartet)
+    // Script Element mit Konfiguration als innerHTML
     const script = document.createElement("script");
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.type = "text/javascript";
@@ -75,26 +85,27 @@ const TradingViewChart = memo(function TradingViewChart({
       calendar: false,
       details: false,
       hotlist: false,
-      studies: studies.length > 0 ? studies : [],
+      studies: studies,
       support_host: "https://www.tradingview.com",
     };
     
     script.innerHTML = JSON.stringify(widgetConfig);
-    widgetContainer.appendChild(script);
     
-    // Debug
-    if (import.meta.env.DEV) {
-      console.log(`[TradingViewChart] Loading: ${tvSymbol} (from: ${symbol})`);
-    }
-
+    script.onload = () => {
+      scriptLoadedRef.current = true;
+    };
+    
+    widgetContainer.appendChild(script);
     container.appendChild(widgetContainer);
 
     return () => {
+      scriptLoadedRef.current = false;
       if (container) {
         container.innerHTML = "";
       }
     };
-  }, [tvSymbol, symbol, interval, theme, showToolbar, showVolume, studies]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tvSymbol, interval, theme, showToolbar, showVolume, studiesKey]);
 
   return (
     <div 
