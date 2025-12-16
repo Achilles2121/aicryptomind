@@ -2389,6 +2389,36 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     lang,
   ]);
 
+  // Platform context for Vision AI Chat - passes live data to chatbot
+  const chatContext = useMemo(() => ({
+    asset: selectedMarket.id || "BTC",
+    price: displayPrice,
+    rsi: indicators?.rsi,
+    macd: indicators?.macd,
+    macdSignal: indicators?.signal,
+    trend: marketRegime?.label,
+    regime: marketRegime?.label,
+    fearGreed: fearGreed?.value ? Number(fearGreed.value) : undefined,
+    signal: aiSignal?.action?.toUpperCase() || proSignal?.action?.toUpperCase(),
+    confidence: aiSignal?.confidence || proSignal?.confidence,
+    tp: takeProfitPrice,
+    sl: stopLossPrice,
+  }), [
+    selectedMarket.id,
+    displayPrice,
+    indicators?.rsi,
+    indicators?.macd,
+    indicators?.signal,
+    marketRegime?.label,
+    fearGreed?.value,
+    aiSignal?.action,
+    aiSignal?.confidence,
+    proSignal?.action,
+    proSignal?.confidence,
+    takeProfitPrice,
+    stopLossPrice,
+  ]);
+
   // backtestStats handled via state setter to avoid duplicate declarations
 
   const addJournalEntry = () => {
@@ -3358,12 +3388,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
             {SHOW_CRYPTO_EDU_CHAT ? (
               effectiveTier === "elite" ? (
-                <CryptoEduChatCard />
+                <CryptoEduChatCard platformContext={chatContext} />
               ) : (
                 <LockedCard
-                  title="Crypto Education AI Chat"
+                  title="Vision AI Assistant"
                   requiredTier="elite"
-                  description="Nur für Elite-Mitglieder. Demo-Stub bis LLM-Backend angebunden ist."
+                  description="Nur für Elite-Mitglieder. Der Vision AI Assistant analysiert Ihre Plattform-Daten in Echtzeit."
                 />
               )
             ) : null}

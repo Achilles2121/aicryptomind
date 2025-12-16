@@ -29,7 +29,7 @@ type Candle = {
 
 // Simple in-memory cache
 const ohlcCache = new Map<string, { data: { candles: Candle[]; provider: string }; expires: number }>();
-const CACHE_TTL = 60000; // 1 minute
+const CACHE_TTL = 120000; // 2 minutes - optimized for faster loading
 
 function getCached(key: string) {
   const entry = ohlcCache.get(key);
@@ -341,8 +341,8 @@ export default async function handler(req: Req, res: Res) {
     const assetParam = getQueryParam(req.query, "asset")?.toUpperCase();
     const symbolParam = getQueryParam(req.query, "symbol")?.toUpperCase() ?? getQueryParam(req.query, "pair")?.toUpperCase() ?? "BTCUSDT";
     
-    const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 60;
-    const limit = Number.isFinite(limitParam) ? Math.max(20, Math.min(500, limitParam)) : 120;
+    const limitParam = typeof req.query?.limit === "string" ? Number(req.query.limit) : 80;
+    const limit = Number.isFinite(limitParam) ? Math.max(20, Math.min(300, limitParam)) : 80;
 
     const rateKey = req.headers?.["x-forwarded-for"] ?? "anon";
     if (isRateLimited(`ohlc:${rateKey}`)) {

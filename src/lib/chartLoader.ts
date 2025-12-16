@@ -52,7 +52,7 @@ export type ChartLoadConfig = {
 };
 
 export async function loadChart(
-  { assetId, pair = "XXBTZUSD", binanceSymbol = "BTCUSDT", interval = 60, limit = 160 }: ChartLoadConfig,
+  { assetId, pair = "XXBTZUSD", binanceSymbol = "BTCUSDT", interval = 60, limit = 80 }: ChartLoadConfig,
   options: SafeFetchOptions = {}
 ): Promise<Candle[] | null> {
   // Use consolidated /api/ohlc endpoint which has Binance/Kraken/CoinGecko fallback built-in

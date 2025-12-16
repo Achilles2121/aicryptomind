@@ -1,5 +1,5 @@
-// Standalone Crypto Education Chat API using Groq (free tier, fast inference)
-// Uses Llama 3.1 8B - great for crypto education
+// Vision AI Mind - Intelligent Crypto Trading Assistant
+// Analyzes platform data and provides contextual answers
 
 type VercelRequest = {
   method?: string;
@@ -16,120 +16,242 @@ type VercelResponse = {
 };
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-const GROQ_MODEL = "llama-3.1-8b-instant"; // Fast, free, good for education
+const GROQ_MODEL = "llama-3.1-8b-instant";
 
-const SYSTEM_PROMPT = `Du bist ein erfahrener Krypto-Trading-Educator und Analyst. 
-Deine Aufgabe ist es, Trading-Konzepte klar und verständlich zu erklären.
+// Platform context for intelligent responses
+type PlatformContext = {
+  asset?: string;
+  price?: number;
+  rsi?: number;
+  macd?: number;
+  macdSignal?: number;
+  trend?: string;
+  regime?: string;
+  fearGreed?: number;
+  signal?: string;
+  confidence?: number;
+  tp?: number;
+  sl?: number;
+};
 
-Deine Expertise umfasst:
+const buildSystemPrompt = (ctx: PlatformContext) => {
+  let contextInfo = "";
+  
+  if (ctx.asset && ctx.price) {
+    contextInfo += `\n\nAKTUELLE MARKTDATEN (Vision AI Mind Platform):
+- Asset: ${ctx.asset}
+- Preis: $${ctx.price?.toLocaleString() || "N/A"}`;
+    
+    if (ctx.rsi !== undefined) {
+      const rsiStatus = ctx.rsi < 30 ? "überverkauft" : ctx.rsi > 70 ? "überkauft" : "neutral";
+      contextInfo += `\n- RSI: ${ctx.rsi.toFixed(1)} (${rsiStatus})`;
+    }
+    if (ctx.macd !== undefined && ctx.macdSignal !== undefined) {
+      const macdStatus = ctx.macd > ctx.macdSignal ? "bullish" : "bearish";
+      contextInfo += `\n- MACD: ${macdStatus} (${ctx.macd.toFixed(2)} vs Signal ${ctx.macdSignal.toFixed(2)})`;
+    }
+    if (ctx.trend) contextInfo += `\n- Trend: ${ctx.trend}`;
+    if (ctx.regime) contextInfo += `\n- Markt-Regime: ${ctx.regime}`;
+    if (ctx.fearGreed !== undefined) contextInfo += `\n- Fear & Greed Index: ${ctx.fearGreed}`;
+    if (ctx.signal) contextInfo += `\n- Aktuelles Signal: ${ctx.signal} (${(ctx.confidence || 0) * 100}% Konfidenz)`;
+    if (ctx.tp) contextInfo += `\n- Take Profit Ziel: $${ctx.tp.toLocaleString()}`;
+    if (ctx.sl) contextInfo += `\n- Stop Loss: $${ctx.sl.toLocaleString()}`;
+  }
+
+  return `Du bist Vision AI, der intelligente Trading-Assistent der Vision AI Mind Plattform.
+
+DEINE IDENTITÄT:
+- Du heißt "Vision AI" und bist Teil der Vision AI Mind Trading-Plattform
+- Du analysierst Echtzeit-Marktdaten und erklärst Trading-Konzepte
+- Du bist ein Educator, KEIN Finanzberater
+
+DEINE EXPERTISE:
 - Technische Analyse (RSI, MACD, Bollinger Bands, EMA, VWAP, Order Blocks, Fair Value Gaps)
 - Fundamentalanalyse (On-Chain-Metriken, TVL, Funding Rates, Open Interest)
 - Risk Management (Position Sizing, Stop Loss, Take Profit, R/R-Verhältnis)
 - Marktzyklen (BTC Dominance, Alt Season, Market Regimes)
 - DeFi-Konzepte (Liquidity Mining, Yield Farming, AMMs)
-- Trading-Psychologie und Mindset
+${contextInfo}
 
-Regeln:
-- Antworte präzise und strukturiert
-- Nutze Beispiele wenn hilfreich
-- Erkläre komplexe Konzepte einfach
-- Warne vor Risiken ohne Angst zu machen
-- Gib niemals konkrete Kauf/Verkauf-Empfehlungen
-- Antworte in der Sprache der Frage (Deutsch oder Englisch)
-- Halte Antworten unter 300 Wörter`;
+REGELN:
+1. Beginne JEDE Antwort mit "Vision AI:" 
+2. Analysiere die aktuellen Plattform-Daten wenn relevant
+3. Erkläre komplexe Konzepte einfach und verständlich
+4. Nutze die Marktdaten um Kontext zu geben (KEINE Kaufempfehlungen!)
+5. Antworte präzise und strukturiert (max 250 Wörter)
+6. Bei Fragen zu aktuellen Werten: Beziehe dich auf die Plattform-Daten oben
+7. Warne IMMER: "Dies ist keine Anlageberatung. Eigene Recherche erforderlich."
+8. Antworte in der Sprache der Frage (Deutsch oder Englisch)`;
+};
 
-// Simple in-memory rate limiting
+// Intelligent context-aware responses
+const getContextualResponse = (prompt: string, ctx: PlatformContext): string => {
+  const lower = prompt.toLowerCase();
+  const hasCtx = ctx.asset && ctx.price;
+  
+  // RSI questions
+  if (lower.includes("rsi")) {
+    if (hasCtx && ctx.rsi !== undefined) {
+      const status = ctx.rsi < 30 ? "überverkauft (potenziell bullish)" : 
+                     ctx.rsi > 70 ? "überkauft (Vorsicht bei Longs)" : "neutral";
+      return `Vision AI: Der aktuelle RSI für ${ctx.asset} liegt bei ${ctx.rsi.toFixed(1)} - das ist ${status}.
+
+Der RSI (Relative Strength Index) misst Momentum auf einer Skala von 0-100:
+• Unter 30: Überverkauft - oft folgt eine Erholung
+• Über 70: Überkauft - Konsolidierung/Korrektur möglich
+• 40-60: Neutral Zone
+
+Wichtig: RSI allein ist kein Handelssignal. Auf Vision AI Mind kombinieren wir RSI mit MACD, Volumen und Market Regime für bessere Signale.
+
+⚠️ Dies ist keine Anlageberatung. Eigene Recherche erforderlich.`;
+    }
+    return `Vision AI: Der RSI (Relative Strength Index) ist ein Momentum-Indikator.
+
+Werte unter 30 = überverkauft, über 70 = überkauft. Auf unserer Plattform siehst du den RSI-Verlauf im Chart mit farblicher Hervorhebung.
+
+⚠️ Dies ist keine Anlageberatung.`;
+  }
+  
+  // MACD questions
+  if (lower.includes("macd")) {
+    if (hasCtx && ctx.macd !== undefined) {
+      const status = ctx.macd > (ctx.macdSignal || 0) ? "bullish (MACD über Signal)" : "bearish (MACD unter Signal)";
+      return `Vision AI: Der MACD für ${ctx.asset} ist aktuell ${status}.
+
+MACD zeigt Trend-Momentum:
+• MACD über Signallinie = Aufwärtsmomentum
+• MACD unter Signallinie = Abwärtsmomentum  
+• Histogramm zeigt die Differenz
+
+Auf Vision AI Mind siehst du MACD-Crossovers und Divergenzen automatisch markiert.
+
+⚠️ Dies ist keine Anlageberatung. Eigene Recherche erforderlich.`;
+    }
+  }
+  
+  // Price questions
+  if (lower.includes("preis") || lower.includes("price") || lower.includes("aktuell")) {
+    if (hasCtx) {
+      let response = `Vision AI: ${ctx.asset} notiert aktuell bei $${ctx.price?.toLocaleString()}.`;
+      if (ctx.regime) response += ` Das Markt-Regime ist "${ctx.regime}".`;
+      if (ctx.signal) response += ` Unser Signal zeigt: ${ctx.signal} (${((ctx.confidence || 0) * 100).toFixed(0)}% Konfidenz).`;
+      response += `\n\n⚠️ Dies ist keine Anlageberatung. Eigene Recherche erforderlich.`;
+      return response;
+    }
+  }
+  
+  // Signal/Trade questions
+  if (lower.includes("signal") || lower.includes("trade") || lower.includes("kaufen") || lower.includes("verkaufen")) {
+    if (hasCtx && ctx.signal) {
+      return `Vision AI: Basierend auf unseren Algorithmen zeigt ${ctx.asset} ein "${ctx.signal}"-Signal mit ${((ctx.confidence || 0) * 100).toFixed(0)}% Konfidenz.
+
+${ctx.tp ? `• Take Profit Ziel: $${ctx.tp.toLocaleString()}` : ""}
+${ctx.sl ? `• Stop Loss: $${ctx.sl.toLocaleString()}` : ""}
+
+Unsere Signale basieren auf RSI, MACD, Market Regime und weiteren Faktoren - sie sind KEINE Kaufempfehlung, sondern Bildungszwecke.
+
+⚠️ Dies ist keine Anlageberatung. Eigene Recherche und Risikomanagement sind essentiell!`;
+    }
+    return `Vision AI: Auf Vision AI Mind berechnen wir Signale basierend auf technischer Analyse (RSI, MACD, Bollinger Bands) und Market Regime.
+
+Signale zeigen Wahrscheinlichkeiten, keine Garantien. Immer eigenes Risikomanagement anwenden!
+
+⚠️ Dies ist keine Anlageberatung.`;
+  }
+  
+  // Stop Loss / Take Profit
+  if (lower.includes("stop") || lower.includes("loss") || lower.includes("take profit") || lower.includes("tp") || lower.includes("sl")) {
+    if (hasCtx && (ctx.tp || ctx.sl)) {
+      return `Vision AI: Für ${ctx.asset} bei $${ctx.price?.toLocaleString()} berechnet unsere Plattform:
+
+${ctx.tp ? `• Take Profit: $${ctx.tp.toLocaleString()} (+${(((ctx.tp - (ctx.price || 0)) / (ctx.price || 1)) * 100).toFixed(1)}%)` : ""}
+${ctx.sl ? `• Stop Loss: $${ctx.sl.toLocaleString()} (-${(((ctx.price || 0) - ctx.sl) / (ctx.price || 1) * 100).toFixed(1)}%)` : ""}
+
+Diese Werte basieren auf ATR (Average True Range) und Market Regime. Du kannst sie im TP/SL-Rechner anpassen.
+
+⚠️ Dies ist keine Anlageberatung. Passe Stops an dein Risikoprofil an!`;
+    }
+  }
+  
+  // Fear & Greed
+  if (lower.includes("fear") || lower.includes("greed") || lower.includes("sentiment") || lower.includes("stimmung")) {
+    if (hasCtx && ctx.fearGreed !== undefined) {
+      const status = ctx.fearGreed < 30 ? "Extreme Fear (oft Kaufgelegenheit historisch)" :
+                     ctx.fearGreed > 70 ? "Greed (Vorsicht bei neuen Positionen)" : "Neutral";
+      return `Vision AI: Der Fear & Greed Index steht bei ${ctx.fearGreed} - ${status}.
+
+Der Index misst Marktstimmung von 0 (Extreme Fear) bis 100 (Extreme Greed). Historisch waren extreme Fear-Phasen oft gute Einstiegspunkte - aber keine Garantie!
+
+⚠️ Dies ist keine Anlageberatung.`;
+    }
+  }
+  
+  // Default response
+  return `Vision AI: Das ist eine gute Frage! Als Trading-Educator auf Vision AI Mind erkläre ich gerne Konzepte.
+
+Auf unserer Plattform findest du:
+• Live-Preise mit RSI, MACD, Bollinger Bands
+• AI-basierte Signale mit Konfidenzwerten
+• TP/SL-Rechner mit ATR-Berechnung
+• Market Regime Analyse
+
+Frag mich zu spezifischen Themen wie RSI, MACD, Stop Loss, Fibonacci oder Trading-Strategien!
+
+⚠️ Vision AI Mind bietet Education, keine Anlageberatung.`;
+};
+
+// Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 20; // requests per minute
+const RATE_LIMIT = 30;
 const RATE_WINDOW = 60 * 1000;
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
-  
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW });
     return false;
   }
-  
-  if (entry.count >= RATE_LIMIT) {
-    return true;
-  }
-  
+  if (entry.count >= RATE_LIMIT) return true;
   entry.count++;
   return false;
 }
 
-// Fallback responses when no API key or rate limited
-const FALLBACK_RESPONSES: Record<string, string> = {
-  rsi: "Der RSI (Relative Strength Index) misst die Stärke von Preisbewegungen auf einer Skala von 0-100. Werte unter 30 signalisieren 'überverkauft' (potenzielle Kaufgelegenheit), über 70 'überkauft' (möglicher Verkaufsdruck). RSI 50 ist neutral. Kombiniere RSI immer mit anderen Indikatoren wie MACD oder Volumen.",
-  macd: "MACD (Moving Average Convergence Divergence) zeigt Trend-Momentum durch den Vergleich zweier EMAs. Signale: MACD über Signal-Linie = bullish, darunter = bearish. Das Histogramm zeigt die Differenz. Divergenzen zwischen MACD und Preis können Trendwenden ankündigen.",
-  "stop loss": "Stop Loss ist eine automatische Verkaufsorder bei einem bestimmten Preis, um Verluste zu begrenzen. Typische Platzierung: unter wichtigen Support-Levels oder 1-2 ATR unter Entry. Regel: Riskiere nie mehr als 1-2% deines Portfolios pro Trade.",
-  "take profit": "Take Profit ist eine automatische Verkaufsorder bei einem Gewinnziel. Strategien: Feste Prozente (z.B. +5%), Fibonacci-Levels, oder Trailing Stop. Gestaffelte TPs (z.B. 30% bei +40%, 30% bei +80%, Rest mit Trailing) sichern Gewinne und lassen Upside offen.",
-  "funding rate": "Funding Rates sind periodische Zahlungen zwischen Long- und Short-Positionen bei Perpetual Futures. Positive Rate = Longs zahlen Shorts (bullisher Markt), negative = Shorts zahlen Longs. Extreme Rates können Reversals ankündigen.",
-  "order block": "Order Blocks sind Bereiche mit starkem institutionellem Kauf-/Verkaufsinteresse. Erkennbar an starken Bewegungen nach Konsolidierung. Der letzte bearishe Candle vor einer Aufwärtsbewegung = Demand Zone, der letzte bullishe vor Abwärtsbewegung = Supply Zone.",
-  default: "Das ist eine interessante Frage! Als Krypto-Trading-Educator empfehle ich, verschiedene Indikatoren und Konzepte zu kombinieren. Wichtige Grundlagen: Verstehe technische Analyse (RSI, MACD, EMAs), lerne Risk Management (Position Sizing, Stop Loss), und studiere Marktzyklen. Frag mich gerne zu spezifischen Themen!"
-};
-
-function getFallbackResponse(prompt: string): string {
-  const lower = prompt.toLowerCase();
-  for (const [key, response] of Object.entries(FALLBACK_RESPONSES)) {
-    if (lower.includes(key)) {
-      return response;
-    }
-  }
-  return FALLBACK_RESPONSES.default;
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
   
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-  
-  const { prompt, messages } = req.body || {};
+  const { prompt, messages, context } = req.body || {};
   
   if (!prompt && (!messages || !messages.length)) {
-    return res.status(400).json({ ok: false, error: "Missing prompt or messages" });
+    return res.status(400).json({ ok: false, error: "Missing prompt" });
   }
   
-  // Rate limiting by IP
-  const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0] || req.socket?.remoteAddress || "unknown";
+  const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0] || "unknown";
   if (isRateLimited(ip)) {
-    return res.status(429).json({ 
-      ok: false, 
-      error: "Rate limit exceeded. Please wait a minute.",
-      response: getFallbackResponse(prompt || messages?.[messages.length - 1]?.content || "")
-    });
+    const fallback = getContextualResponse(prompt || "", context || {});
+    return res.status(200).json({ ok: true, response: fallback, source: "vision-ai-fallback" });
   }
   
-  // If no Groq API key, use intelligent fallback
+  const platformContext: PlatformContext = context || {};
+  const userMessage = prompt || messages?.[messages.length - 1]?.content || "";
+  
+  // If no API key, use intelligent contextual fallback
   if (!GROQ_API_KEY) {
-    const fallbackResponse = getFallbackResponse(prompt || messages?.[messages.length - 1]?.content || "");
-    return res.status(200).json({
-      ok: true,
-      response: fallbackResponse,
-      source: "fallback",
-      note: "LLM-API nicht konfiguriert. Zeige vordefinierte Antwort."
-    });
+    const response = getContextualResponse(userMessage, platformContext);
+    return res.status(200).json({ ok: true, response, source: "vision-ai" });
   }
   
   try {
-    // Build messages array for chat completion
-    const chatMessages = [
-      { role: "system", content: SYSTEM_PROMPT }
-    ];
+    const systemPrompt = buildSystemPrompt(platformContext);
+    const chatMessages = [{ role: "system", content: systemPrompt }];
     
     if (messages && Array.isArray(messages)) {
-      chatMessages.push(...messages.slice(-10)); // Keep last 10 messages for context
+      chatMessages.push(...messages.slice(-8));
     } else if (prompt) {
       chatMessages.push({ role: "user", content: prompt });
     }
@@ -143,46 +265,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: GROQ_MODEL,
         messages: chatMessages,
-        max_tokens: 500,
-        temperature: 0.7,
-        top_p: 0.9
+        max_tokens: 400,
+        temperature: 0.7
       })
     });
     
     if (!groqResponse.ok) {
-      const errorText = await groqResponse.text();
-      console.error("Groq API error:", errorText);
-      
-      // Fallback on API error
-      const fallbackResponse = getFallbackResponse(prompt || messages?.[messages.length - 1]?.content || "");
-      return res.status(200).json({
-        ok: true,
-        response: fallbackResponse,
-        source: "fallback",
-        note: "LLM temporär nicht verfügbar. Zeige vordefinierte Antwort."
-      });
+      const response = getContextualResponse(userMessage, platformContext);
+      return res.status(200).json({ ok: true, response, source: "vision-ai-fallback" });
     }
     
     const data = await groqResponse.json();
-    const aiResponse = data.choices?.[0]?.message?.content || "Keine Antwort erhalten.";
+    let aiResponse = data.choices?.[0]?.message?.content || "";
+    
+    // Ensure response starts with Vision AI branding
+    if (!aiResponse.startsWith("Vision AI")) {
+      aiResponse = "Vision AI: " + aiResponse;
+    }
     
     return res.status(200).json({
       ok: true,
       response: aiResponse,
-      source: "groq",
-      model: GROQ_MODEL,
-      usage: data.usage
+      source: "vision-ai-llm",
+      model: GROQ_MODEL
     });
     
   } catch (error) {
-    console.error("Chat API error:", error);
-    
-    const fallbackResponse = getFallbackResponse(prompt || "");
-    return res.status(200).json({
-      ok: true,
-      response: fallbackResponse,
-      source: "fallback",
-      error: "Internal error, using fallback"
-    });
+    const response = getContextualResponse(userMessage, platformContext);
+    return res.status(200).json({ ok: true, response, source: "vision-ai-fallback" });
   }
 }

@@ -7,12 +7,17 @@ const QUICK_PROMPTS = [
   { label: "RSI erklärt", prompt: "Erkläre mir den RSI Indikator und wie ich ihn im Trading nutze" },
   { label: "Stop Loss", prompt: "Wie setze ich einen guten Stop Loss?" },
   { label: "MACD Signale", prompt: "Was sind MACD Crossover Signale?" },
-  { label: "Risk Management", prompt: "Grundlagen des Risikomanagements beim Trading" },
-  { label: "Order Blocks", prompt: "Was sind Order Blocks und wie finde ich sie?" },
+  { label: "Aktuelles Signal", prompt: "Was zeigt das aktuelle Signal für diesen Asset?" },
+  { label: "Take Profit", prompt: "Wo liegt das Take Profit Ziel?" },
 ];
 
-const CryptoEduChatCard = ({ title = "Crypto Education AI", subtitle = "Powered by Llama 3.1" }) => {
-  const { messages, sendMessage, clearMessages, isSending, error } = useCryptoEduChat();
+const CryptoEduChatCard = ({ 
+  title = "Vision AI Assistant", 
+  subtitle = "Powered by Vision AI Mind",
+  platformContext = {}
+}) => {
+  // Pass platform context to the chat hook for intelligent responses
+  const { messages, sendMessage, clearMessages, isSending, error } = useCryptoEduChat(platformContext);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
 
@@ -93,11 +98,11 @@ const CryptoEduChatCard = ({ title = "Crypto Education AI", subtitle = "Powered 
             >
               <div className="flex items-center gap-2 mb-1">
                 <span className={`text-[10px] uppercase tracking-tight ${m.role === "user" ? "text-slate-400" : "text-emerald-400"}`}>
-                  {m.role === "user" ? "Du" : "AI"}
+                  {m.role === "user" ? "Du" : "Vision AI"}
                 </span>
-                {m.source && m.source !== "ai" && (
-                  <span className="text-[9px] text-slate-500 bg-slate-800/50 px-1.5 py-0.5 rounded">
-                    {m.source === "groq" ? "Llama 3.1" : m.source}
+                {m.source && m.source.includes("vision-ai") && (
+                  <span className="text-[9px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">
+                    {m.source === "vision-ai-llm" ? "LLM" : "Local"}
                   </span>
                 )}
               </div>
@@ -106,7 +111,7 @@ const CryptoEduChatCard = ({ title = "Crypto Education AI", subtitle = "Powered 
           ))}
           {isSending && (
             <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 mr-4 animate-pulse">
-              <span className="text-[10px] uppercase tracking-tight text-emerald-400">AI</span>
+              <span className="text-[10px] uppercase tracking-tight text-emerald-400">Vision AI</span>
               <div className="flex items-center gap-1 mt-1">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "0ms" }} />
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -147,6 +152,20 @@ const CryptoEduChatCard = ({ title = "Crypto Education AI", subtitle = "Powered 
 CryptoEduChatCard.propTypes = {
   title: PropTypes.string,
   subtitle: PropTypes.string,
+  platformContext: PropTypes.shape({
+    asset: PropTypes.string,
+    price: PropTypes.number,
+    rsi: PropTypes.number,
+    macd: PropTypes.number,
+    macdSignal: PropTypes.number,
+    trend: PropTypes.string,
+    regime: PropTypes.string,
+    fearGreed: PropTypes.number,
+    signal: PropTypes.string,
+    confidence: PropTypes.number,
+    tp: PropTypes.number,
+    sl: PropTypes.number,
+  }),
 };
 
 export default CryptoEduChatCard;

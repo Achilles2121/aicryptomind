@@ -14,7 +14,8 @@ const isRelevantQuestion = (text) => {
   return CRYPTO_KEYWORDS.some((kw) => lower.includes(kw)) || lower.length < 100;
 };
 
-export const useCryptoEduChat = () => {
+// Hook that accepts platform context for intelligent responses
+export const useCryptoEduChat = (platformContext = {}) => {
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
@@ -34,12 +35,14 @@ export const useCryptoEduChat = () => {
         content: m.content
       }));
       
+      // Pass platform context (price, RSI, MACD, etc.) to API
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           prompt: content.trim(),
-          messages: history
+          messages: history,
+          context: platformContext
         })
       });
       
@@ -49,7 +52,7 @@ export const useCryptoEduChat = () => {
         setMessages((prev) => [...prev, { 
           role: "assistant", 
           content: data.response,
-          source: data.source || "ai"
+          source: data.source || "vision-ai"
         }]);
       } else {
         throw new Error(data.error || "Keine Antwort erhalten");
@@ -59,16 +62,16 @@ export const useCryptoEduChat = () => {
       setError(err.message);
       
       // Intelligent fallback based on keywords
-      const fallback = getFallbackAnswer(content);
+      const fallback = getFallbackAnswer(content, platformContext);
       setMessages((prev) => [...prev, { 
         role: "assistant", 
         content: fallback,
-        source: "fallback"
+        source: "vision-ai-local"
       }]);
     } finally {
       setIsSending(false);
     }
-  }, [messages]);
+  }, [messages, platformContext]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -78,32 +81,48 @@ export const useCryptoEduChat = () => {
   return { messages, sendMessage, clearMessages, isSending, error, isRelevantQuestion };
 };
 
-// Local fallback answers for common questions
-function getFallbackAnswer(prompt) {
+// Local fallback answers that use platform context
+function getFallbackAnswer(prompt, ctx = {}) {
   const lower = (prompt || "").toLowerCase();
+  const hasCtx = ctx.asset && ctx.price;
   
   if (lower.includes("rsi")) {
-    return "RSI (Relative Strength Index) misst Momentum auf einer Skala von 0-100. Unter 30 = überverkauft (Kaufsignal), über 70 = überkauft (Verkaufssignal). Kombiniere RSI mit anderen Indikatoren für bessere Signale.";
+    if (hasCtx && ctx.rsi !== undefined) {
+      const status = ctx.rsi < 30 ? "überverkauft" : ctx.rsi > 70 ? "überkauft" : "neutral";
+      return `Vision AI: Der RSI für ${ctx.asset} liegt bei ${ctx.rsi?.toFixed(1)} (${status}). RSI misst Momentum: Unter 30 = überverkauft, über 70 = überkauft. ⚠️ Keine Anlageberatung.`;
+    }
+    return "Vision AI: RSI misst Momentum von 0-100. Unter 30 = überverkauft, über 70 = überkauft. Auf Vision AI Mind siehst du den Live-RSI im Chart. ⚠️ Keine Anlageberatung.";
   }
   if (lower.includes("macd")) {
-    return "MACD zeigt Trend-Momentum durch EMAs. Wenn MACD die Signallinie von unten kreuzt = bullish, von oben = bearish. Das Histogramm zeigt die Stärke des Momentums.";
+    if (hasCtx && ctx.macd !== undefined) {
+      const status = ctx.macd > (ctx.macdSignal || 0) ? "bullish" : "bearish";
+      return `Vision AI: MACD für ${ctx.asset} ist aktuell ${status}. MACD über Signal = Aufwärtsmomentum. ⚠️ Keine Anlageberatung.`;
+    }
+    return "Vision AI: MACD zeigt Trend-Momentum. MACD über Signallinie = bullish, darunter = bearish. ⚠️ Keine Anlageberatung.";
+  }
+  if (lower.includes("preis") || lower.includes("price")) {
+    if (hasCtx) {
+      return `Vision AI: ${ctx.asset} notiert bei $${ctx.price?.toLocaleString()}. ${ctx.signal ? `Signal: ${ctx.signal}` : ""} ⚠️ Keine Anlageberatung.`;
+    }
   }
   if (lower.includes("stop") || lower.includes("loss")) {
-    return "Ein Stop Loss begrenzt Verluste automatisch. Platziere ihn unter Support-Levels oder nutze ATR (1-2x ATR unter Entry). Nie mehr als 1-2% des Portfolios pro Trade riskieren!";
+    if (hasCtx && ctx.sl) {
+      return `Vision AI: Stop Loss für ${ctx.asset} bei $${ctx.sl?.toLocaleString()} (basierend auf ATR). Immer max 1-2% Risiko pro Trade! ⚠️ Keine Anlageberatung.`;
+    }
+    return "Vision AI: Stop Loss begrenzt Verluste automatisch. Platziere unter Support oder nutze ATR. Nie mehr als 1-2% des Portfolios pro Trade riskieren! ⚠️ Keine Anlageberatung.";
   }
   if (lower.includes("take profit") || lower.includes("tp")) {
-    return "Take Profit sichert Gewinne. Strategien: Feste % (z.B. +5%), Fibonacci-Extensions, oder gestaffelt (30% bei +40%, 30% bei +80%, Rest mit Trailing Stop).";
+    if (hasCtx && ctx.tp) {
+      return `Vision AI: Take Profit für ${ctx.asset} bei $${ctx.tp?.toLocaleString()}. Gestaffeltes TP empfohlen: 30% bei +40%, 30% bei +80%, Rest mit Trailing. ⚠️ Keine Anlageberatung.`;
+    }
+    return "Vision AI: Take Profit sichert Gewinne. Strategien: Feste %, Fibonacci-Extensions, oder gestaffelt. ⚠️ Keine Anlageberatung.";
   }
-  if (lower.includes("funding")) {
-    return "Funding Rates sind Zahlungen zwischen Long/Short-Positionen. Positive Rate = Longs zahlen (bullisher Markt). Extreme Rates können Reversals ankündigen.";
-  }
-  if (lower.includes("order block")) {
-    return "Order Blocks sind Zonen mit institutionellem Interesse. Demand Zone = letzte bearishe Candle vor Aufwärtsbewegung. Supply Zone = letzte bullishe vor Abwärtsbewegung.";
-  }
-  if (lower.includes("leverage") || lower.includes("hebel")) {
-    return "Leverage erhöht Gewinne UND Verluste. Anfänger: max 2-3x. Erfahrene: max 5-10x. Höherer Hebel = höheres Liquidationsrisiko. Immer Stop Loss setzen!";
+  if (lower.includes("signal")) {
+    if (hasCtx && ctx.signal) {
+      return `Vision AI: ${ctx.asset} zeigt "${ctx.signal}" mit ${((ctx.confidence || 0) * 100).toFixed(0)}% Konfidenz. Unsere Signale sind Education, keine Kaufempfehlung! ⚠️ Keine Anlageberatung.`;
+    }
   }
   
-  return "Gute Frage! Für Trading-Erfolg kombiniere technische Analyse (RSI, MACD, EMAs), Risikomanagement (Stop Loss, Position Sizing), und Marktverständnis. Frag mich zu spezifischen Themen!";
+  return `Vision AI: Auf Vision AI Mind findest du Live-Preise, RSI, MACD, Signale und TP/SL-Berechnung. Frag mich zu spezifischen Themen! ⚠️ Dies ist keine Anlageberatung.`;
 }
 
