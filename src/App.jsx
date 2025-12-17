@@ -2547,6 +2547,17 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <p className="text-xs uppercase tracking-widest text-emerald-300">Vision AI Mind</p>
             <h1 className="text-3xl font-bold text-slate-50">Crypto Risk Manager</h1>
             <p className="text-sm text-slate-400">{t("heroSubtitle")}</p>
+            {/* Navigation Links */}
+            <nav className="flex items-center gap-4 mt-2">
+              <a href="/coins" className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>
+                Coins
+              </a>
+              <a href="/signals" className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                Signals
+              </a>
+            </nav>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <select
@@ -4177,6 +4188,15 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-300">Vision AI Mind</p>
             <h1 className="text-2xl font-bold text-slate-50">Crypto Risk Manager</h1>
             <p className="text-sm text-slate-400">{t("heroSubtitle")}</p>
+            {/* Mobile Navigation Links */}
+            <nav className="flex items-center gap-3 mt-2">
+              <a href="/coins" className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors">
+                Coins
+              </a>
+              <a href="/signals" className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors">
+                Signals
+              </a>
+            </nav>
           </div>
           <div className="flex flex-wrap gap-2">
             <select

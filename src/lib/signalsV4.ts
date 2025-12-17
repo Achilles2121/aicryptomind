@@ -886,7 +886,7 @@ export interface BeginnerSignal {
 
 export function buildBeginnerSignal(
   candles: IndicatorRow[],
-  portfolioSize: number = 1000,
+  _portfolioSize: number = 1000,
   riskTolerance: "conservative" | "moderate" | "aggressive" = "moderate"
 ): BeginnerSignal {
   const signal = buildSignalsV4({ candles, minConfidence: 0.5 });
