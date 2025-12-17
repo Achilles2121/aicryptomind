@@ -8,7 +8,7 @@ import { formatPercent } from "../../lib/formatters";
 
 export function EtfHoldings({ fund = "ELITE" }) {
   const { data, loading, error } = useDataFetch(
-    () => api.get("/etfHoldings", { symbol: fund }),
+    () => api.get("/etf/holdings", { symbol: fund }),
     [fund],
     { initialData: { holdings: [] }, refreshMs: 60_000 }
   );

@@ -7,7 +7,7 @@ import { api } from "../../lib/api";
 import { formatCurrency, formatPercent } from "../../lib/formatters";
 
 export function EtfFlows() {
-  const { data, loading, error } = useDataFetch(() => api.get("/etfFlows"), [], {
+  const { data, loading, error } = useDataFetch(() => api.get("/etf/flows"), [], {
     initialData: { flows: [] },
     refreshMs: 45_000,
   });

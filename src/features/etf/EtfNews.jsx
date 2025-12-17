@@ -7,7 +7,7 @@ import { api } from "../../lib/api";
 import { formatDate } from "../../lib/formatters";
 
 export function EtfNews() {
-  const { data, loading, error } = useDataFetch(() => api.get("/etfNews"), [], {
+  const { data, loading, error } = useDataFetch(() => api.get("/etf/news"), [], {
     initialData: { news: [] },
     refreshMs: 60_000,
   });

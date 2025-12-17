@@ -1,6 +1,19 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
 // Coins API - Top 100 Cryptocurrencies with Market Data
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+// Local types to avoid @vercel/node dependency
+type VercelRequest = {
+  query?: Record<string, string | string[]>;
+  headers?: Record<string, string>;
+  method?: string;
+};
+
+type VercelResponse = {
+  status: (code: number) => VercelResponse;
+  json: (body: unknown) => void;
+  setHeader: (name: string, value: string) => void;
+  end: () => void;
+};
 
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 

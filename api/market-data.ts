@@ -19,6 +19,20 @@
 // TYPES
 // ============================================================================
 
+// Local types to avoid @vercel/node dependency
+type VercelRequest = {
+  query?: Record<string, string | string[]>;
+  headers?: Record<string, string>;
+  method?: string;
+};
+
+type VercelResponse = {
+  status: (code: number) => VercelResponse;
+  json: (body: unknown) => void;
+  setHeader: (name: string, value: string) => void;
+  end: () => void;
+};
+
 type AssetType = 'crypto' | 'index' | 'commodity' | 'forex';
 
 interface AssetConfig {

@@ -71,9 +71,12 @@ export const marketService = {
       return normalizeOhlcEnvelope({ ok: false, status: "upstream_error", error: err?.message || "OHLC unavailable" });
     }
   },
-  getIndicators: (symbol, interval = "1h", limit = 180) => api.get("/indicators", { symbol, interval, limit }),
-  getEtfNews: () => api.get("/etfNews"),
-  getEtfFlows: () => api.get("/etfFlows"),
-  getEtfHoldings: (symbol) => api.get("/etfHoldings", { symbol }),
-  getCorrelations: () => api.get("/correlations"),
+  // Disabled - indicators endpoint not available on Hobby plan
+  getIndicators: () => Promise.resolve({ frames: {}, status: "disabled" }),
+  // ETF endpoints - correct paths
+  getEtfNews: () => api.get("/etf/news"),
+  getEtfFlows: () => api.get("/etf/flows"),
+  getEtfHoldings: (symbol) => api.get("/etf/holdings", { symbol }),
+  // Disabled - correlations endpoint not available on Hobby plan
+  getCorrelations: () => Promise.resolve({ status: "disabled", data: [] }),
 };
