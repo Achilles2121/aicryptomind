@@ -265,9 +265,49 @@ const deriveRegimeWinrate = (backtestStats, regimeLabel) => {
   return Number.isFinite(perRegime) ? perRegime : backtestStats.winRate ? backtestStats.winRate / 100 : 0.55;
 };
 
+/**
+ * Enhanced Social Sentiment Normalization
+ * Now includes Long/Short Ratio and Top Trader Positions
+ * Returns a value between -1 (extremely bearish) and +1 (extremely bullish)
+ */
 const normalizeSocial = (sentimentMetrics) => {
-  if (!sentimentMetrics || sentimentMetrics.score === null || sentimentMetrics.score === undefined) return 0;
+  if (!sentimentMetrics) return 0;
+  
+  // If we have the new enhanced sentiment data with Long/Short ratio
+  if (sentimentMetrics.longShortRatio !== undefined) {
+    const lsRatio = sentimentMetrics.longShortRatio;
+    const topTraderRatio = sentimentMetrics.topTraderRatio || lsRatio;
+    const combinedScore = sentimentMetrics.score ?? 50;
+    
+    // Calculate bias from Long/Short ratio
+    // Ratio 0.5 = -0.6 (bearish), Ratio 1.0 = 0 (neutral), Ratio 2.0 = +0.6 (bullish)
+    let lsBias = 0;
+    if (lsRatio < 1) {
+      lsBias = -1 * (1 - lsRatio); // 0.5 -> -0.5, 0.7 -> -0.3
+    } else {
+      lsBias = Math.min(1, (lsRatio - 1) / 2); // 1.5 -> 0.25, 2.0 -> 0.5, 3.0 -> 1.0
+    }
+    
+    // Weight top trader ratio more heavily (they're often right)
+    let topBias = 0;
+    if (topTraderRatio < 1) {
+      topBias = -1 * (1 - topTraderRatio);
+    } else {
+      topBias = Math.min(1, (topTraderRatio - 1) / 2);
+    }
+    
+    // Combined score bias (0-100 -> -1 to +1)
+    const scoreBias = (combinedScore - 50) / 50;
+    
+    // Weighted combination: 30% L/S, 40% Top Traders, 30% Combined Score
+    const finalBias = (lsBias * 0.3) + (topBias * 0.4) + (scoreBias * 0.3);
+    
+    return Math.max(-1, Math.min(1, finalBias));
+  }
+  
+  // Fallback to original logic for legacy data
   const score = sentimentMetrics.score;
+  if (score === null || score === undefined) return 0;
   if (Math.abs(score) <= 1) return score;
   if (score > 1000 || score < -1000) return Math.tanh(score / 1000);
   return Math.max(-1, Math.min(1, (score - 50) / 50));

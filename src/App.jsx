@@ -38,6 +38,7 @@ import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
 import WelcomeModal from "./components/WelcomeModal";
 import Footer from "./components/Footer";
+import SocialSentimentCard from "./components/SocialSentimentCard";
 import { useEliteTrial } from "./hooks/useEliteTrial";
 import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
 const EtfHoldingsCard = lazy(() => import("./components/etf/EtfHoldingsCard"));
@@ -3187,38 +3188,24 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   }
                   lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                 >
-                <section
-                  className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between overflow-hidden"
-                  aria-label="Sentiment Analysis"
-                  itemScope
-                  itemType="https://schema.org/Dataset"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Signal className="h-5 w-5 text-cyan-400" aria-hidden />
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-50">Sentiment Analysis</h3>
-                    </div>
-                    <span className="rounded-full bg-slate-800/80 px-2 py-1 text-[12px] font-semibold text-slate-200 whitespace-nowrap">
-                      {formatClock(sentimentMetrics.updatedAt)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-200 leading-snug">{t("sentimentDesc")}</p>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="relative h-16 w-16 flex-shrink-0">
-                      <div className="absolute inset-0 rounded-full border-4 border-slate-800" />
-                      <div className="absolute inset-0 rounded-full border-4 border-cyan-400 opacity-80" style={{ clipPath: "polygon(0 0, 100% 0, 100% 50%, 0 50%)" }} />
-                      <div className="absolute inset-0 flex items-center justify-center text-lg font-black text-emerald-400">
-                        {sentimentMetrics.score ?? "--"}
-                      </div>
-                    </div>
-                    <div className="text-xs text-slate-300 text-left leading-tight break-words max-w-[180px] space-y-1">
-                      <p>Label: {sentimentMetrics.label}</p>
-                      <p>Trend: {sentimentMetrics.score !== null ? (sentimentMetrics.score > 60 ? "Positiv" : "Neutral") : "-"}</p>
-                      <p>Tweets: {sentimentMetrics.tweets ?? "--"}</p>
-                    </div>
-                  </div>
-                </section>
-              </Paywall>
+                  {/* New Social Sentiment Card with real-time data */}
+                  <SocialSentimentCard 
+                    onSentimentChange={(newSentiment) => {
+                      // Update sentiment metrics for signal calculation
+                      if (newSentiment?.combinedScore !== undefined) {
+                        setSentimentMetrics(prev => ({
+                          ...prev,
+                          score: newSentiment.combinedScore,
+                          label: newSentiment.combinedLabel,
+                          longShortRatio: newSentiment.longShortRatio,
+                          topTraderRatio: newSentiment.topTraderLongShortRatio,
+                          updatedAt: Date.now(),
+                        }));
+                      }
+                    }}
+                    minTier="pro"
+                  />
+                </Paywall>
 
                 <Paywall
                   minTier="pro"
