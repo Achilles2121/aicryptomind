@@ -72,6 +72,7 @@ import { buildSignalsV4, buildAISignalV4 } from "./lib/signalsV4";
 import { runBacktestV3 } from "./lib/backtestV3";
 import VolatilityGauge from "./components/VolatilityGauge";
 import VolatilityAlerts from "./components/VolatilityAlerts";
+import BacktestDashboard from "./components/BacktestDashboard";
 
 const CACHE_TTL = 60 * 1000; // 60 seconds - faster updates for real-time feel
 const OHLC_CACHE_TTL = 60 * 1000; // 60 seconds for candle data
@@ -3654,6 +3655,14 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 lang={lang} 
               />
             )}
+
+            {/* Backtest Dashboard - Strategy Performance Validation */}
+            <Paywall minTier="elite" userTier={effectiveTier} lockText={t("eliteRequired")}>
+              <BacktestDashboard 
+                asset={selectedMarket.id} 
+                lang={lang} 
+              />
+            </Paywall>
 
             <Paywall
               minTier="pro"
