@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import { fetchEtfCorrelationsLive } from "../../services/etfCorrelationLive";
 import { type ApiHealthUpdateFn, type ToastFn } from "../../lib/safeFetch";
@@ -30,30 +30,47 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
   const [lastUpdated, setLastUpdated] = useState("");
   // isDisabled tracks if API is disabled, keeping for future use
   const [, setIsDisabled] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetchEtfCorrelationsLive(onHealthUpdate, onToast);
-      setData(res.data || []);
-      setLastUpdated(res.lastUpdated);
-      setCorrelationCache(res.data || [], res.lastUpdated);
-      const disabled = res.status === "disabled";
-      setError(res.error || ((!res.data?.length && !disabled) ? "ETF-Korrelationen aktuell nicht verfügbar." : ""));
-      setIsDisabled(disabled);
-    } catch (err) {
-      console.error("etf correlation fetch failed", err);
-      setError("ETF-Korrelationen aktuell nicht verfügbar.");
-    } finally {
-      setLoading(false);
-    }
-  }, [onHealthUpdate, onToast]);
+  
+  // Use refs for callbacks to avoid re-triggering effects
+  const onHealthUpdateRef = React.useRef(onHealthUpdate);
+  const onToastRef = React.useRef(onToast);
+  
+  // Keep refs updated
+  React.useEffect(() => {
+    onHealthUpdateRef.current = onHealthUpdate;
+    onToastRef.current = onToast;
+  });
 
   useEffect(() => {
+    let mounted = true;
+    
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await fetchEtfCorrelationsLive(onHealthUpdateRef.current, onToastRef.current);
+        if (!mounted) return;
+        setData(res.data || []);
+        setLastUpdated(res.lastUpdated);
+        setCorrelationCache(res.data || [], res.lastUpdated);
+        const disabled = res.status === "disabled";
+        setError(res.error || ((!res.data?.length && !disabled) ? "ETF-Korrelationen aktuell nicht verfügbar." : ""));
+        setIsDisabled(disabled);
+      } catch (err) {
+        if (!mounted) return;
+        console.error("etf correlation fetch failed", err);
+        setError("ETF-Korrelationen aktuell nicht verfügbar.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    
     load();
     const timer = setInterval(load, 10 * 60 * 1000);
-    return () => clearInterval(timer);
-  }, [load]);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []); // Empty deps - runs once on mount
 
   const assets = ["BTC", "ETH", "^GSPC", "XAU"];
   const etfs = ["IBIT", "FBTC", "ARKB", "BITB", "HODL"];
