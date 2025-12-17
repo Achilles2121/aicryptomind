@@ -5,6 +5,8 @@ import App from "./App";
 import "./index.css";
 import { UserTierProvider } from "./context/UserTierContext";
 
+// Build: v2.0.2 - Fixed infinite re-render loops
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
