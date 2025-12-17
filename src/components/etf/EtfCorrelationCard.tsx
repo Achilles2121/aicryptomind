@@ -28,7 +28,8 @@ const EtfCorrelationCard = ({ onHealthUpdate, onToast }: EtfCorrelationCardProps
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
-  const [isDisabled, setIsDisabled] = useState(false);
+  // isDisabled tracks if API is disabled, keeping for future use
+  const [, setIsDisabled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
