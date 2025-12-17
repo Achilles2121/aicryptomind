@@ -67,8 +67,11 @@ import {
   calculatePearson,
 } from "./lib/indicators";
 import { computeStopAndTarget } from "./lib/riskEngine";
-import { buildAISignal, buildBacktestSignals, buildSignalsV3 } from "./lib/signalsV2";
+import { buildBacktestSignals } from "./lib/signalsV2";
+import { buildSignalsV4, buildAISignalV4 } from "./lib/signalsV4";
 import { runBacktestV3 } from "./lib/backtestV3";
+import VolatilityGauge from "./components/VolatilityGauge";
+import VolatilityAlerts from "./components/VolatilityAlerts";
 
 const CACHE_TTL = 60 * 1000; // 60 seconds - faster updates for real-time feel
 const OHLC_CACHE_TTL = 60 * 1000; // 60 seconds for candle data
@@ -903,6 +906,7 @@ function App() {
   const [showTutorial, setShowTutorial] = useState(() => localStorage.getItem("tutorial:shown") !== "true");
   const [aiPredict, setAiPredict] = useState({ forecast: null, confidence: null, trend: "neutral", refreshedAt: null });
   const [backtestStats, setBacktestStats] = useState({ trades: 0, wins: 0, losses: 0, winRate: null, avgRr: null, avgRR: null });
+  const [volatilityData, setVolatilityData] = useState(null); // NEW: Volatility Engine data
   const [mobileTab, setMobileTab] = useState("overview");
   const trialRemainingDays = Math.max(0, Math.floor(remainingMs / DAY_MS));
   const trialEnd = trialExpiresAt ? trialExpiresAt.toLocaleDateString() : null;
@@ -1259,8 +1263,43 @@ function App() {
 
   const refreshAll = async () => {
     setIsRefreshing(true);
-    await Promise.allSettled([loadPrice(), loadFearGreed(), loadOHLC(), loadHTF(), loadDerivatives()]);
+    await Promise.allSettled([loadPrice(), loadFearGreed(), loadOHLC(), loadHTF(), loadDerivatives(), loadVolatility()]);
     setIsRefreshing(false);
+  };
+
+  // NEW: Volatility Engine Loader
+  const loadVolatility = async () => {
+    try {
+      const symbol = selectedMarket?.id || "BTC";
+      const interval = timeFrame === "15" ? "15m" : timeFrame === "240" ? "4h" : "1h";
+      const cacheKey = `volatility:${symbol}:${interval}`;
+      
+      const data = await fetchWithCache(cacheKey, async () => {
+        const response = await fetch(`/api/volatility?symbol=${encodeURIComponent(symbol)}&interval=${interval}&lookback=100`);
+        if (!response.ok) throw new Error(`Volatility API: ${response.status}`);
+        return response.json();
+      }, 60000); // 1 minute cache
+      
+      setVolatilityData(data);
+      updateApiHealth("volatility", "ok");
+      
+      // Show toast for extreme volatility
+      if (data?.classification === "EXTREME") {
+        addToast({
+          type: "warn",
+          message: `🚨 EXTREME VOLATILITÄT: ${data.volatilityScore?.toFixed(0)}/100 - Trading pausieren!`,
+        });
+      } else if (data?.classification === "HIGH" && data?.volatilityScore > 75) {
+        addToast({
+          type: "info",
+          message: `⚠️ Hohe Volatilität: ${data.volatilityScore?.toFixed(0)}/100 - Vorsicht!`,
+        });
+      }
+    } catch (err) {
+      console.error("Volatility load failed", err);
+      setVolatilityData(null);
+      updateApiHealth("volatility", "degraded", err?.message);
+    }
   };
 
   const loadFearGreed = async () => {
@@ -2326,9 +2365,17 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   }, []);
 
   const aiSignal = useMemo(() => {
-    return buildAISignal({ indicatorSeries, indicators, displayPrice, takeProfitPrice, stopLossPrice });
+    // Use V4 signal builder with volatility integration for improved win-rate
+    return buildAISignalV4({ 
+      indicatorSeries, 
+      indicators, 
+      displayPrice, 
+      takeProfitPrice, 
+      stopLossPrice,
+      volatilityData, // NEW: Pass volatility data for adaptive signals
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice]);
+  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, takeProfitPrice, stopLossPrice, volatilityData]);
 
   const fibView = useMemo(() => {
     if (!indicatorSeries.length) {
@@ -2396,8 +2443,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
       score: 0,
       meta: {},
     };
+    // Use V4 with volatility integration for improved win-rate
     const baseSignal =
-      buildSignalsV3({
+      buildSignalsV4({
         indicatorSeries,
         marketRegime,
         smartMoney,
@@ -2405,6 +2453,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         backtestStats: enrichedBacktest,
         htfRegime,
         derivativesRisk,
+        volatilityData, // NEW: Volatility-aware signal generation
       }) || defaultSignal;
     const predictorStrong = aiPredict?.trend === "bullish" && (aiPredict?.confidence ?? 0) >= 70;
     const predictorNeutral = (aiPredict?.confidence ?? 0) < 60 || aiPredict?.trend === "neutral";
@@ -2446,6 +2495,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     derivativesRisk,
     aiPredict?.trend,
     aiPredict?.confidence,
+    volatilityData, // NEW: Volatility dependency
     lang,
   ]);
 
@@ -3578,6 +3628,32 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 </div>
               </Card>
             </Paywall>
+
+            {/* Volatility Gauge - NEW: Win-rate optimization system */}
+            <Paywall minTier="pro" userTier={effectiveTier} lockText={t("proRequired")}>
+              <Card title="Volatility Engine" icon={Activity}>
+                {volatilityData ? (
+                  <VolatilityGauge 
+                    volatilityData={volatilityData} 
+                    lang={lang} 
+                  />
+                ) : (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="text-xs text-slate-500">
+                      {lang === "de" ? "Volatilitätsdaten werden geladen..." : "Loading volatility data..."}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </Paywall>
+
+            {/* Volatility Alerts - Real-time warnings */}
+            {volatilityData && (
+              <VolatilityAlerts 
+                volatilityData={volatilityData} 
+                lang={lang} 
+              />
+            )}
 
             <Paywall
               minTier="pro"
