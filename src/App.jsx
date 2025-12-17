@@ -2878,15 +2878,15 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   }
                 >
                   {bubbleData.length > 0 ? (
-                    <div className="flex flex-wrap items-center justify-center gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 p-2">
                       {bubbleData.map((b) => (
                         <div
                           key={b.id}
-                          className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
-                          style={{ width: `${b.size}px`, height: `${b.size}px` }}
+                          className={`flex items-center justify-center rounded-full bg-slate-900/80 border aspect-square min-w-[60px] max-w-[100px] mx-auto ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
+                          style={{ width: `${Math.max(60, Math.min(100, b.size))}px`, height: `${Math.max(60, Math.min(100, b.size))}px` }}
                         >
                           <div className="text-center text-[10px] font-semibold leading-tight px-1">
-                            <div className="truncate">{b.label}</div>
+                            <div className="truncate max-w-[80px]">{b.label}</div>
                             <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
                           </div>
                         </div>
@@ -4584,15 +4584,15 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   }
                 >
                   {bubbleData.length > 0 ? (
-                    <div className="flex flex-wrap items-center justify-center gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 p-2">
                       {bubbleData.map((b) => (
                         <div
                           key={b.id}
-                          className={`flex items-center justify-center rounded-full bg-slate-900/80 border ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
-                          style={{ width: `${b.size}px`, height: `${b.size}px` }}
+                          className={`flex items-center justify-center rounded-full bg-slate-900/80 border aspect-square min-w-[60px] max-w-[100px] mx-auto ${b.bias === "buy" ? "border-emerald-500/60 text-emerald-100" : "border-red-500/60 text-red-100"}`}
+                          style={{ width: `${Math.max(60, Math.min(100, b.size))}px`, height: `${Math.max(60, Math.min(100, b.size))}px` }}
                         >
                           <div className="text-center text-[10px] font-semibold leading-tight px-1">
-                            <div className="truncate">{b.label}</div>
+                            <div className="truncate max-w-[80px]">{b.label}</div>
                             <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
                           </div>
                         </div>
