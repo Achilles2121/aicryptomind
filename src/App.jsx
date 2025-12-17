@@ -1,4 +1,4 @@
-Ôªø// Copyright (c) 2025 Vision AI Mind. All rights reserved.
+// Copyright (c) 2025 Vision AI Mind. All rights reserved.
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
@@ -332,7 +332,7 @@ const TRANSLATIONS = {
     tradesLookahead: "Trades (Lookahead 5)",
     winRate: "Win Rate",
     winsLosses: "Wins / Losses",
-    avgRR: "√ò RR",
+    avgRR: "ÿ RR",
     status: "Status",
     loading: "Lade Daten...",
     livePrice: "Live Price",
@@ -442,14 +442,14 @@ const TRANSLATIONS = {
     backtestTrades: "Trades (Lookahead 5)",
     backtestWinRate: "Win Rate",
     backtestWinsLosses: "Wins / Losses",
-    backtestAvgRR: "√ò RR",
+    backtestAvgRR: "ÿ RR",
     cardMarketRegime: "Market Regime Detector",
     cardSmartMoney: "Smart Money Flow",
     cardLiquidity: "Liquidity Heatmap",
     cardManualControls: "Manual Controls",
     cardDataIntegrity: "Data Integrity",
     fibGolden: "Golden Zone, TP/SL",
-    liveMarketMeta: "Kraken OHLC ¬∑ TF",
+    liveMarketMeta: "Kraken OHLC ∑ TF",
     tpEntryLabel: "Entry Price",
     tpQtyLabel: "Menge",
     tpTpLabel: "Take Profit %",
@@ -598,7 +598,7 @@ const TRANSLATIONS = {
     apiReachable: "Reachable",
     apiUnavailable: "Unavailable",
     marketRegimeDesc: "Based on EMA200, ADX & Bollinger Band Width.",
-    liquidityDesc: "Orderbook strength ‚Äì bids vs. asks (last 1h).",
+    liquidityDesc: "Orderbook strength ñ bids vs. asks (last 1h).",
     onchainDesc: "Active addresses & supply split.",
     sentimentDesc: "Social Score (CryptoCompare).",
     correlationDesc: "Coin correlations (CoinGecko).",
@@ -634,7 +634,7 @@ const TRANSLATIONS = {
     cardManualControls: "Manual Controls",
     cardDataIntegrity: "Data Integrity",
     fibGolden: "Golden Zone, TP/SL",
-    liveMarketMeta: "Kraken OHLC ¬∑ TF",
+    liveMarketMeta: "Kraken OHLC ∑ TF",
     tpEntryLabel: "Entry Price",
     tpQtyLabel: "Quantity",
     tpTpLabel: "Take Profit %",
@@ -653,7 +653,7 @@ const TRANSLATIONS = {
     slAlarm: "SL Alarm",
     noEntries: "No entries yet.",
     diarySave: "Save",
-    diaryAutosave: "Autosave (local) ¬∑ max 50 entries",
+    diaryAutosave: "Autosave (local) ∑ max 50 entries",
     loadingTrades: "Waiting for trades...",
     fetchFailPricePrimary: "Primary source failed - fallback active (CryptoCompare).",
     fetchFailPrice: "Price sources not reachable.",
@@ -1261,7 +1261,7 @@ function App() {
 
   const loadFearGreed = async () => {
     try {
-      // K√ºrzerer Cache-TTL f√ºr Fear & Greed (1 Minute statt 5)
+      // K¸rzerer Cache-TTL f¸r Fear & Greed (1 Minute statt 5)
       const fg = await fetchWithCache("fng", fetchFearGreed, FNG_CACHE_TTL);
       setFearGreed(fg);
     } catch (err) {
@@ -1594,7 +1594,7 @@ function App() {
 
   useEffect(() => {
     refreshAll();
-    // Polling f√ºr Preis und Fear & Greed Index alle 30 Sekunden
+    // Polling f¸r Preis und Fear & Greed Index alle 30 Sekunden
     pollTimer.current = setInterval(() => {
       loadPrice();
       loadFearGreed(); // Fear & Greed auch im Polling-Intervall aktualisieren
@@ -2177,7 +2177,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
     if (displayPrice && tpForm.entry === null) setTpForm((prev) => ({ ...prev, entry: displayPrice }));
   }, [displayPrice, tpForm.entry]);
 
-  const lastPoint = useMemo(() => (indicatorSeries.length ? indicatorSeries[indicatorSeries.length - 1] : null), [indicatorSeries]);
+  const lastPoint = useMemo(() => (indicatorSeries.length > 0 ? indicatorSeries[indicatorSeries.length - 1] : null), [indicatorSeries]);
   const lastClose = lastPoint?.close ?? null;
   const tpZone = useMemo(() => {
     if (!takeProfitPrice) return null;
@@ -2410,8 +2410,8 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         action: "wait",
         reason:
           lang === "de"
-            ? "AI Predictor (4h) neutral/geringe Sicherheit ‚Äì wir warten."
-            : "AI predictor (4h) neutral/low confidence ‚Äì waiting.",
+            ? "AI Predictor (4h) neutral/geringe Sicherheit ñ wir warten."
+            : "AI predictor (4h) neutral/low confidence ñ waiting.",
         meta: { ...(baseSignal.meta || {}), predictorAligned: false },
       };
     }
@@ -2516,7 +2516,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           7-Tage-Testversion aktiv. Laeuft ab am {trialEnd || "-"}
         </div>
       ) : null}
-      {toasts.length ? (
+      {toasts.length > 0 ? (
         <div className="fixed right-3 left-3 top-16 md:left-auto md:top-4 md:right-4 z-50 space-y-2 pointer-events-none">
           {toasts.map((t) => (
             <div
@@ -2534,7 +2534,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </span>
               <p className="text-sm leading-snug">{t.message}</p>
               <button onClick={() => removeToast(t.id)} className="ml-auto text-xs text-slate-200/80 hover:text-white">
-                √ó
+                ◊
               </button>
             </div>
           ))}
@@ -2741,7 +2741,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
                 </div>
                 <span className="text-xs text-slate-400">
-                  Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} ¬∑ Source: {fearGreed.source || "alternative.me"}
+                  Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} ∑ Source: {fearGreed.source || "alternative.me"}
                 </span>
               </div>
             ) : (
@@ -2789,7 +2789,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         </div>
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            {/* TradingView Live Chart - Zuverl√§ssige Echtzeit-Daten mit unseren Algorithmus-Signalen */}
+            {/* TradingView Live Chart - Zuverl‰ssige Echtzeit-Daten mit unseren Algorithmus-Signalen */}
             <Suspense fallback={<div className="h-[500px] flex items-center justify-center bg-slate-900/50 rounded-xl"><Skeleton className="h-96 w-full" /></div>}>
               <TradingViewPanel
                 assetId={selectedMarket.id}
@@ -2812,10 +2812,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <Card
                 title={t("fibMap")}
                 icon={LineChartIcon}
-                actions={<span className="text-xs text-slate-400">{t("fibGolden")} ¬∑ TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+                actions={<span className="text-xs text-slate-400">{t("fibGolden")} ∑ TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
                 <LazyRender placeholder={<div className="h-64 flex items-center justify-center"><Skeleton className="h-56 w-full" /></div>}>
-                  {indicatorSeries.length ? (
+                  {indicatorSeries.length > 0 ? (
                     <div className="relative w-full min-w-0" style={{ minHeight: 200 }}>
                       {(nearTp || nearSl) && (
                         <div className="absolute right-3 top-3 flex gap-2 text-xs">
@@ -2876,7 +2876,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     </div>
                   }
                 >
-                  {bubbleData.length ? (
+                  {bubbleData.length > 0 ? (
                     <div className="flex flex-wrap items-center justify-center gap-3">
                       {bubbleData.map((b) => (
                         <div
@@ -3130,7 +3130,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <p className="text-sm text-slate-200 leading-snug">{t("onchainDesc")}</p>
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-3xl font-black text-emerald-400 whitespace-nowrap">
-                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "‚Äî"}
+                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "ó"}
                     </div>
                     <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[140px] space-y-1 break-words">
                       <div className="flex items-center justify-between gap-2">
@@ -3208,7 +3208,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     <div className="text-xs text-slate-300 text-left leading-tight break-words max-w-[180px] space-y-1">
                       <p>Label: {sentimentMetrics.label}</p>
                       <p>Trend: {sentimentMetrics.score !== null ? (sentimentMetrics.score > 60 ? "Positiv" : "Neutral") : "-"}</p>
-                      <p>Tweets: {sentimentMetrics.tweets ?? "‚Äî"}</p>
+                      <p>Tweets: {sentimentMetrics.tweets ?? "ó"}</p>
                     </div>
                   </div>
                 </section>
@@ -3526,7 +3526,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                         ? "bg-red-500/20 text-red-300 border border-red-500/40"
                         : "bg-slate-800 text-slate-300 border border-slate-700"
                     }`}>
-                      {aiSignal.action === "Kaufen" ? "üìà LONG" : aiSignal.action === "Verkaufen" ? "üìâ SHORT" : "‚è∏ WARTEN"}
+                      {aiSignal.action === "Kaufen" ? "?? LONG" : aiSignal.action === "Verkaufen" ? "?? SHORT" : "? WARTEN"}
                     </span>
                   </div>
                   
@@ -3637,7 +3637,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-slate-400 sm:grid-cols-2">
                       <span>ATR%: {proSignal.meta?.atrPct ? proSignal.meta.atrPct.toFixed(2) : "-"}</span>
-                      <span>MACD Œî: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
+                      <span>MACD ?: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
                       <span>VWAP: {proSignal.meta?.vwap ? formatUSD(proSignal.meta.vwap) : "-"}</span>
                       <span>Vol Spike: {proSignal.meta?.volSpike ? "Ja" : "Nein"}</span>
                     </div>
@@ -3710,7 +3710,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 icon={PlugZap}
                 actions={
                   <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>Limits ¬∑ Snippets</span>
+                    <span>Limits ∑ Snippets</span>
                     <button
                       onClick={loadApiPlaybook}
                       className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60"
@@ -3734,7 +3734,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                         ? "bg-red-500/15 text-red-200"
                         : "bg-slate-800 text-slate-200";
                     const label =
-                      status === "ok" ? t("liveLabel") : status === "auth" ? t("keyNeeded") : status === "fail" ? t("errorLabel") : "‚Ä¶";
+                      status === "ok" ? t("liveLabel") : status === "auth" ? t("keyNeeded") : status === "fail" ? t("errorLabel") : "Ö";
                     return (
                       <div key={api.name} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
@@ -3774,7 +3774,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card title={t("rsiChart")} icon={LineChartIcon}>
               <div className="w-full min-w-0" style={{ minHeight: 200 }}>
-                {indicatorSeries.length ? (
+                {indicatorSeries.length > 0 ? (
                   <ResponsiveContainer width="100%" height={200}>
                     <ComposedChart data={indicatorSeries}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
@@ -3806,7 +3806,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
           <Card title={t("macdChart")} icon={TrendingUp}>
             <div className="w-full min-w-0" style={{ minHeight: 200 }}>
-              {indicatorSeries.length ? (
+              {indicatorSeries.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <ComposedChart data={indicatorSeries}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
@@ -3827,7 +3827,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
           <Card title={t("flowsCard")} icon={Activity}>
             <div className="w-full min-w-0" style={{ minHeight: 200 }}>
-              {volumeBuckets.length ? (
+              {volumeBuckets.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <ComposedChart data={volumeBuckets}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
@@ -3845,7 +3845,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               )}
             </div>
             <div className="mt-3 max-h-28 overflow-y-auto overscroll-contain touch-pan-y rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs text-slate-200">
-              {trades.length ? (
+              {trades.length > 0 ? (
                 trades.map((trade, idx) => (
                   <div key={idx} className="flex items-center justify-between border-b border-slate-800/60 py-1 last:border-b-0">
                     <span className={`font-semibold ${trade.side === "buy" ? "text-emerald-300" : "text-red-300"}`}>
@@ -3883,7 +3883,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card title={t("trendStoch")} icon={TrendingUp}>
             <div className="h-40 flex flex-col justify-center">
-              {indicatorSeries.length ? (
+              {indicatorSeries.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
                     <span>%K</span>
@@ -3915,7 +3915,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           </Card>
           <Card title={t("cciCard")} icon={TrendingUp}>
             <div className="h-40 flex flex-col justify-center">
-              {indicatorSeries.length ? (
+              {indicatorSeries.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
                     <span>CCI</span>
@@ -3932,7 +3932,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           </Card>
           <Card title={t("volatilityCard")} icon={TrendingUp}>
             <div className="h-40 flex flex-col justify-center">
-              {indicatorSeries.length ? (
+              {indicatorSeries.length > 0 ? (
                 <div className="space-y-2 text-sm text-slate-200">
                   <div className="flex items-center justify-between">
                     <span>ATR%</span>
@@ -3950,7 +3950,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
         </div>
 
         <div className="mt-4">
-          <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory ¬∑ Notes</span>}>
+          <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory ∑ Notes</span>}>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="space-y-2 text-sm text-slate-200">
                 <label className="flex flex-col gap-1 text-xs text-slate-400">
@@ -3998,7 +3998,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
-              {journalEntries.length ? (
+              {journalEntries.length > 0 ? (
                 journalEntries.slice(0, 6).map((e) => (
                   <div key={e.ts} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
                     <div className="flex items-center justify-between mb-1">
@@ -4066,7 +4066,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   </div>
                 }
               >
-                {etfFlowSeries.length ? (
+                {etfFlowSeries.length > 0 ? (
                   <div className="w-full min-w-0" style={{ minHeight: 200 }}>
                     <ResponsiveContainer width="100%" height={200}>
                       <BarChart data={buildEtfChartData(etfFlowSeries)}>
@@ -4129,12 +4129,12 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             <div className="flex flex-col gap-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">{t("netFlowsLabel")}</p>
-                {etfFlows.length ? (
+                {etfFlows.length > 0 ? (
                   <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                     {etfFlows.map((f, idx) => (
                       <div key={`${f.name}-${idx}`} className="rounded-lg border border-slate-800/70 bg-slate-900/60 p-3">
                         <p className="text-sm font-semibold text-slate-100 line-clamp-1">{f.name}</p>
-                        <p className="text-[11px] text-slate-400">{f.date ? new Date(f.date).toLocaleDateString() : "‚Äî"}</p>
+                        <p className="text-[11px] text-slate-400">{f.date ? new Date(f.date).toLocaleDateString() : "ó"}</p>
                         <p className={`text-sm font-semibold ${f.inflow >= 0 ? "text-emerald-300" : "text-red-300"}`}>{formatUSD(f.inflow)}</p>
                       </div>
                     ))}
@@ -4147,8 +4147,8 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">{t("newsLabel")}</p>
-                {etfLoading && !etfNews.length ? <p className="text-sm text-slate-400">{t("loadingETFNews")}</p> : null}
-                {etfNews.length ? (
+                {etfLoading && etfNews.length === 0 ? <p className="text-sm text-slate-400">{t("loadingETFNews")}</p> : null}
+                {etfNews.length > 0 ? (
                   <div className="mt-2 space-y-2">
                     {etfNews.map((item, idx) => {
                       const ts = item.publishedAt ? new Date(Number(item.publishedAt) || item.publishedAt) : null;
@@ -4164,7 +4164,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                             <div className="space-y-1">
                               <p className="text-sm font-semibold text-slate-100 line-clamp-2">{item.title}</p>
                               <p className="text-[11px] text-slate-400">
-                                {item.source || "News"} {ts ? `¬∑ ${ts.toLocaleDateString([], { day: "2-digit", month: "short" })} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+                                {item.source || "News"} {ts ? `∑ ${ts.toLocaleDateString([], { day: "2-digit", month: "short" })} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
                               </p>
                             </div>
                             <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] text-slate-300">View</span>
@@ -4174,7 +4174,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     })}
                   </div>
                 ) : null}
-                {!etfLoading && !etfNews.length ? <p className="text-sm text-slate-400">{t("noETFNews")}</p> : null}
+                {!etfLoading && etfNews.length === 0 ? <p className="text-sm text-slate-400">{t("noETFNews")}</p> : null}
                 {etfError ? <p className="mt-2 text-xs text-amber-300">{etfError}</p> : null}
               </div>
             </div>
@@ -4392,7 +4392,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
                     </div>
                     <span className="text-xs text-slate-400">
-                      Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} ¬∑ Source: {fearGreed.source || "alternative.me"}
+                      Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} ∑ Source: {fearGreed.source || "alternative.me"}
                     </span>
                   </div>
                 ) : (
@@ -4529,10 +4529,10 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <Card
                 title={t("fibMap")}
                 icon={LineChartIcon}
-                actions={<span className="text-xs text-slate-400">{t("fibGolden")} ¬∑ TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
+                actions={<span className="text-xs text-slate-400">{t("fibGolden")} ∑ TF {timeFrame === "15" ? "15m" : timeFrame === "60" ? "1h" : timeFrame === "240" ? "4h" : "1d"}</span>}
               >
                 <LazyRender placeholder={<div className="h-64 flex items-center justify-center"><Skeleton className="h-56 w-full" /></div>}>
-                  {indicatorSeries.length ? (
+                  {indicatorSeries.length > 0 ? (
                     <div className="relative w-full min-w-0" style={{ minHeight: 200 }}>
                       {(nearTp || nearSl) && (
                         <div className="absolute right-3 top-3 flex gap-2 text-xs">
@@ -4582,7 +4582,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                     </div>
                   }
                 >
-                  {bubbleData.length ? (
+                  {bubbleData.length > 0 ? (
                     <div className="flex flex-wrap items-center justify-center gap-3">
                       {bubbleData.map((b) => (
                         <div
@@ -4800,7 +4800,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                   <p className="text-sm text-slate-200 leading-snug">{t("onchainDesc")}</p>
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-3xl font-black text-emerald-400 whitespace-nowrap">
-                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "‚Äî"}
+                      {onChainMetrics.active ? onChainMetrics.active.toLocaleString("en-US") : "ó"}
                     </div>
                     <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[160px] space-y-1 break-words">
                       <div className="flex items-center justify-between gap-2">
@@ -4870,7 +4870,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                       </div>
                     }
                   >
-                    {etfFlowSeries.length ? (
+                    {etfFlowSeries.length > 0 ? (
                       <div className="w-full min-w-0" style={{ minHeight: 200 }}>
                         <ResponsiveContainer width="100%" height={200}>
                           <BarChart data={buildEtfChartData(etfFlowSeries)}>
@@ -4963,7 +4963,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Card title="Correlations" icon={Activity}>
                   <div className="space-y-2 text-sm text-slate-200">
-                    {correlations.length ? (
+                    {correlations.length > 0 ? (
                       correlations.map((c) => {
                         const pct = Math.round(c.value * 100);
                         const color = c.value >= 0.6 ? "bg-emerald-500/60" : c.value >= 0.3 ? "bg-amber-500/60" : c.value >= 0 ? "bg-slate-700" : "bg-red-500/60";
@@ -4987,7 +4987,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
 
                 <Card title="Funding Rates" icon={TrendingUp}>
                   <div className="space-y-2 text-sm text-slate-200">
-                    {fundingRates.length ? (
+                    {fundingRates.length > 0 ? (
                       fundingRates.map((f) => {
                         const pct = f.rate ? f.rate * 100 : 0;
                         const bullish = pct >= 0;
