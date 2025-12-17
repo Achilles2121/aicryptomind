@@ -126,7 +126,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
       {/* ═══════════════════════════════════════════════════════════════════════
           FIB LEVELS & TRADE SIGNALS - Our Algorithm Calculations
           ═══════════════════════════════════════════════════════════════════════ */}
-      {(fibLevels || tpLevels.length > 0 || slLevel) && (
+      {(fibLevels || tpLevels.length > 0 || (typeof slLevel === 'number' && slLevel !== 0)) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {/* Fibonacci Levels */}
           {fibLevels && (
@@ -147,12 +147,12 @@ const TradingViewPanel = memo(function TradingViewPanel({
           )}
 
           {/* TP/SL Levels */}
-          {(tpLevels.length > 0 || slLevel) && (
+          {(tpLevels.length > 0 || (typeof slLevel === 'number' && slLevel !== 0)) && (
             <div className="rounded-xl bg-gradient-to-br from-slate-900/80 via-slate-800/50 to-slate-900/80 border border-slate-700/50 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Target className="w-4 h-4 text-emerald-400" />
                 <span className="text-emerald-400 font-semibold text-sm">Trade Levels</span>
-                {riskReward && (
+                {typeof riskReward === 'number' && riskReward !== 0 && (
                   <span className="ml-auto text-xs text-slate-400">
                     R:R {riskReward.toFixed(2)}
                   </span>
@@ -170,7 +170,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
                   </div>
                 ))}
                 {/* Stop Loss */}
-                {slLevel && (
+                {typeof slLevel === 'number' && slLevel !== 0 && (
                   <div className="flex items-center justify-between text-sm pt-2 border-t border-slate-700/50">
                     <div className="flex items-center gap-2">
                       <Shield className="w-3.5 h-3.5 text-red-400" />
@@ -216,7 +216,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
       {/* ═══════════════════════════════════════════════════════════════════════
           SIGNAL SUMMARY BAR (wenn Trend/Signal verfügbar)
           ═══════════════════════════════════════════════════════════════════════ */}
-      {(trendDirection || signalStrength) && (
+      {(trendDirection || (typeof signalStrength === 'number' && signalStrength > 0)) && (
         <div className="rounded-xl bg-gradient-to-r from-slate-800/50 via-slate-800/30 to-slate-800/50 border border-slate-700/50 p-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             {/* Trend */}
@@ -234,7 +234,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
             )}
             
             {/* Signal Strength */}
-            {signalStrength && (
+            {typeof signalStrength === 'number' && signalStrength > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-slate-400 text-sm">Signal-Stärke:</span>
                 <div className="flex gap-1">
@@ -253,7 +253,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
             )}
             
             {/* Current Price */}
-            {currentPrice && (
+            {typeof currentPrice === 'number' && currentPrice !== 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-slate-400 text-sm">Preis:</span>
                 <span className="text-white font-mono font-semibold">{formatPrice(currentPrice)}</span>

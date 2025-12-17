@@ -233,7 +233,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
           <div className="flex items-center gap-2 mb-3">
             <Target className="w-4 h-4 text-emerald-400" />
             <span className="text-emerald-400 font-semibold text-sm">Take Profit / Stop Loss</span>
-            {riskReward && (
+            {typeof riskReward === 'number' && riskReward !== 0 && (
               <span className="ml-auto text-xs bg-slate-700/50 px-2 py-0.5 rounded text-slate-300">
                 R:R {riskReward.toFixed(2)}
               </span>
@@ -241,7 +241,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
           </div>
           <div className="space-y-2">
             {/* Current Price */}
-            {currentPrice && (
+            {typeof currentPrice === 'number' && currentPrice !== 0 && (
               <div className="flex items-center justify-between text-sm py-1 border-b border-slate-700/30">
                 <span className="text-slate-400">Aktuell</span>
                 <span className="text-white font-mono font-bold">{formatPrice(currentPrice)}</span>
@@ -323,7 +323,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
           </div>
           <div className="space-y-2">
             {/* Signal Strength */}
-            {signalStrength && (
+            {typeof signalStrength === 'number' && signalStrength > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-400">Signalstärke</span>
                 <div className="flex gap-0.5">
