@@ -36,6 +36,8 @@ import { dataSources } from "./config/dataSources";
 import { DEFAULT_MARKET_ID, MARKETS } from "./config/markets";
 import CryptoEduChatCard from "./components/CryptoEduChatCard";
 import FullScreenLoader from "./components/FullScreenLoader";
+import WelcomeModal from "./components/WelcomeModal";
+import Footer from "./components/Footer";
 import { useEliteTrial } from "./hooks/useEliteTrial";
 import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
 const EtfHoldingsCard = lazy(() => import("./components/etf/EtfHoldingsCard"));
@@ -2512,6 +2514,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   const showTrialBanner = false;
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
+      {/* Welcome Modal for new users */}
+      <WelcomeModal />
+      
       {showTrialBanner && trialActive ? (
         <div className="bg-emerald-500/10 border-b border-emerald-500/40 text-emerald-100 text-sm px-4 py-2 text-center">
           7-Tage-Testversion aktiv. Laeuft ab am {trialEnd || "-"}
@@ -5178,6 +5183,9 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
           {t("consentRevoke")}
         </button>
       )}
+      
+      {/* Footer with Legal Disclaimer */}
+      <Footer />
     </div>
   );
 }
