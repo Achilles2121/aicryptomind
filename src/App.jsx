@@ -3519,7 +3519,7 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                         ? "bg-red-500/20 text-red-300 border border-red-500/40"
                         : "bg-slate-800 text-slate-300 border border-slate-700"
                     }`}>
-                      {aiSignal.action === "Kaufen" ? "?? LONG" : aiSignal.action === "Verkaufen" ? "?? SHORT" : "? WARTEN"}
+                      {aiSignal.action === "Kaufen" ? "📈 LONG" : aiSignal.action === "Verkaufen" ? "📉 SHORT" : "⏳ WARTEN"}
                     </span>
                   </div>
                   
