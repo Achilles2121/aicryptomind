@@ -48,10 +48,30 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     
+    <!-- 🚀 PERFORMANCE: Preconnect to critical APIs -->
+    <link rel="preconnect" href="https://api.binance.com" />
+    <link rel="preconnect" href="https://api.coingecko.com" />
+    <link rel="preconnect" href="https://query1.finance.yahoo.com" />
+    <link rel="dns-prefetch" href="https://www.google-analytics.com" />
+    
     <!-- Fonts - Preload for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    
+    <!-- 🚀 CRITICAL CSS: Above-the-fold styles for faster LCP -->
+    <style>
+      :root{--bg-primary:#0f172a;--bg-secondary:#1e293b;--text-primary:#f1f5f9;--accent:#f59e0b}
+      *{margin:0;padding:0;box-sizing:border-box}
+      html{scroll-behavior:smooth}
+      body{background:var(--bg-primary);color:var(--text-primary);font-family:Inter,system-ui,-apple-system,sans-serif;line-height:1.5;min-height:100vh}
+      #root{min-height:100vh}
+      .loading-skeleton{background:linear-gradient(90deg,var(--bg-secondary) 25%,#334155 50%,var(--bg-secondary) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
+      @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+      .initial-loader{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg-primary);z-index:9999}
+      .initial-loader-spinner{width:48px;height:48px;border:3px solid var(--bg-secondary);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+      @keyframes spin{to{transform:rotate(360deg)}}
+    </style>
     
     <!-- Theme Color -->
     <meta name="theme-color" content="#0f172a" />
@@ -126,7 +146,31 @@
     </script>
   </head>
   <body>
+    <!-- 🚀 INITIAL LOADER: Shows immediately while JS loads -->
+    <div id="initial-loader" class="initial-loader" aria-label="Loading Vision AI Mind">
+      <div style="text-align:center">
+        <div class="initial-loader-spinner"></div>
+        <p id="loader-text" style="margin-top:16px;color:#94a3b8;font-size:14px">Loading...</p>
+      </div>
+    </div>
     <div id="root"></div>
+    <script>
+      // Detect language and set loader text
+      (function() {
+        var lang = navigator.language || navigator.userLanguage || 'en';
+        var isDE = lang.toLowerCase().startsWith('de');
+        var text = isDE ? 'Vision AI Mind lädt...' : 'Loading Vision AI Mind...';
+        var el = document.getElementById('loader-text');
+        if (el) el.textContent = text;
+      })();
+      // Remove loader after React mounts
+      window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+          var loader = document.getElementById('initial-loader');
+          if (loader) loader.style.display = 'none';
+        }, 100);
+      });
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

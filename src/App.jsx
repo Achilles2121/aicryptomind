@@ -28,7 +28,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { auth, login as fbLogin, signup as fbSignup, logout as fbLogout, saveUserTier } from "./firebase";
+import { auth, login as fbLogin, signup as fbSignup, logout as fbLogout, saveUserTier, signInWithGoogle, startUserTrial } from "./firebase";
 import { useUserTier } from "./context/UserTierContext";
 import LockedCard from "./components/LockedCard";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
@@ -40,6 +40,7 @@ import WelcomeModal from "./components/WelcomeModal";
 import Footer from "./components/Footer";
 import SocialSentimentCard from "./components/SocialSentimentCard";
 import { useEliteTrial } from "./hooks/useEliteTrial";
+import AuthModal from "./components/AuthModal";
 import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
 const EtfHoldingsCard = lazy(() => import("./components/etf/EtfHoldingsCard"));
 const EtfProviderQualityCard = lazy(() => import("./components/etf/EtfProviderQualityCard"));
@@ -913,9 +914,16 @@ function App() {
     effectiveTier: ctxTier,
     loading: tierLoading,
     refreshUserTier,
+    trialData: firebaseTrialData, // Trial data from Firebase
   } = useUserTier();
-  const { isTrialActive, trialExpiresAt, remainingMs, startedAt: localTrialStart } = useEliteTrial();
+  
+  // Trial system - now Firebase-based, not localStorage
+  const { isTrialActive, trialExpiresAt, remainingMs, startedAt: localTrialStart, trialUsed } = useEliteTrial(firebaseTrialData);
   const effectiveTier = isTrialActive && ctxTier !== "elite" ? "elite" : ctxTier;
+  
+  // Auth Modal state
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  
   const marketOptions = useMemo(() => MARKET_OPTIONS, []);
   const [selectedAssetId, setSelectedAssetId] = useState(DEFAULT_MARKET_ID);
   const selectedMarket = useMemo(() => MARKETS[selectedAssetId] || MARKETS[DEFAULT_MARKET_ID], [selectedAssetId]);
@@ -1015,6 +1023,19 @@ function App() {
   const t = useCallback((key) => TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS.de[key] ?? key, [lang]);
   const [blink, setBlink] = useState(true);
   const trialActive = Boolean(isTrialActive);
+  
+  // Check if trial was used locally (for non-logged-in users)
+  const [localTrialUsed, setLocalTrialUsed] = useState(() => {
+    try {
+      return localStorage.getItem("elite-trial-used") === "true";
+    } catch {
+      return false;
+    }
+  });
+  
+  // Combined trial used check (local or Firebase)
+  const isTrialBlocked = localTrialUsed || trialUsed || trialExpired;
+  
   const hasProAccess = useMemo(() => TIER_ORDER.indexOf(effectiveTier) >= TIER_ORDER.indexOf("pro"), [effectiveTier]);
   const trialBadgeText = useMemo(() => {
     if (!trialActive) return null;
@@ -1841,33 +1862,92 @@ function App() {
   const handleSignin = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     setAuthError("");
+    
+    // Email validation
+    const email = authForm.email?.trim() || "";
+    const password = authForm.password || "";
+    
+    if (!email) {
+      setAuthError(lang === "de" ? "Bitte E-Mail eingeben" : "Please enter email");
+      return;
+    }
+    
+    if (!password) {
+      setAuthError(lang === "de" ? "Bitte Passwort eingeben" : "Please enter password");
+      return;
+    }
+    
     if (!auth) {
       setAuthError("Firebase nicht konfiguriert");
       return;
     }
+    
     try {
-      await fbLogin(authForm.email, authForm.password);
+      await fbLogin(email, password);
     } catch (err) {
-      setAuthError(err?.message || "Login fehlgeschlagen");
+      // Translate Firebase error messages
+      let errorMsg = err?.message || "Login fehlgeschlagen";
+      if (errorMsg.includes("user-not-found")) {
+        errorMsg = lang === "de" ? "Benutzer nicht gefunden" : "User not found";
+      } else if (errorMsg.includes("wrong-password") || errorMsg.includes("invalid-credential")) {
+        errorMsg = lang === "de" ? "Falsches Passwort" : "Wrong password";
+      } else if (errorMsg.includes("invalid-email")) {
+        errorMsg = lang === "de" ? "Ungültige E-Mail-Adresse" : "Invalid email address";
+      } else if (errorMsg.includes("too-many-requests")) {
+        errorMsg = lang === "de" ? "Zu viele Versuche. Bitte später erneut versuchen." : "Too many attempts. Please try again later.";
+      }
+      setAuthError(errorMsg);
     }
   };
 
   const handleSignup = async () => {
     setAuthError("");
+    
+    // Email validation
+    const email = authForm.email?.trim() || "";
+    const password = authForm.password || "";
+    
+    if (!email) {
+      setAuthError(lang === "de" ? "Bitte E-Mail eingeben" : "Please enter email");
+      return;
+    }
+    
+    // Basic email format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setAuthError(lang === "de" ? "Ungültiges E-Mail-Format" : "Invalid email format");
+      return;
+    }
+    
+    if (!password || password.length < 6) {
+      setAuthError(lang === "de" ? "Passwort muss mindestens 6 Zeichen haben" : "Password must be at least 6 characters");
+      return;
+    }
+    
     if (!auth) {
       setAuthError("Firebase nicht konfiguriert");
       return;
     }
+    
     try {
-      await fbSignup(authForm.email, authForm.password);
+      await fbSignup(email, password);
       const signupMsg =
         lang === "de"
-          ? "Signup erfolgreich. Starte deine Testversion im Header."
-          : "Signup complete. Start your trial from the header.";
+          ? "✅ Signup erfolgreich! Du bist jetzt eingeloggt."
+          : "✅ Signup complete! You are now logged in.";
       setSaveTierMessage(signupMsg);
-      setTimeout(() => setSaveTierMessage(""), 2000);
+      setTimeout(() => setSaveTierMessage(""), 3000);
     } catch (err) {
-      setAuthError(err?.message || "Signup fehlgeschlagen");
+      // Translate Firebase error messages
+      let errorMsg = err?.message || "Signup fehlgeschlagen";
+      if (errorMsg.includes("email-already-in-use")) {
+        errorMsg = lang === "de" ? "Diese E-Mail ist bereits registriert" : "This email is already registered";
+      } else if (errorMsg.includes("weak-password")) {
+        errorMsg = lang === "de" ? "Passwort zu schwach" : "Password too weak";
+      } else if (errorMsg.includes("invalid-email")) {
+        errorMsg = lang === "de" ? "Ungültige E-Mail-Adresse" : "Invalid email address";
+      }
+      setAuthError(errorMsg);
     }
   };
 
@@ -1894,9 +1974,90 @@ function App() {
   };
 
   const handleStartTrial = async () => {
-    addToast(lang === "de" ? "Elite-Test laeuft automatisch fuer 7 Tage." : "Elite trial runs automatically for 7 days.", "info", {
-      allowInfoWarn: true,
-    });
+    // First check local storage - if trial was used on this device, block it
+    if (localTrialUsed) {
+      addToast(
+        lang === "de" 
+          ? "Der Trial wurde bereits auf diesem Gerät verwendet. Upgrade auf Elite für vollen Zugang." 
+          : "Trial was already used on this device. Upgrade to Elite for full access.",
+        "warn",
+        { allowInfoWarn: true }
+      );
+      return;
+    }
+    
+    // User must be logged in to start trial
+    if (!auth?.currentUser) {
+      setShowAuthModal(true);
+      addToast(
+        lang === "de" 
+          ? "Bitte melde dich an, um den 7-Tage Elite-Trial zu starten." 
+          : "Please sign in to start your 7-day Elite trial.", 
+        "info",
+        { allowInfoWarn: true }
+      );
+      return;
+    }
+    
+    // Check if trial was already used (Firebase check)
+    if (trialUsed) {
+      // Mark locally too to prevent future attempts
+      localStorage.setItem("elite-trial-used", "true");
+      setLocalTrialUsed(true);
+      addToast(
+        lang === "de" 
+          ? "Du hast den Trial bereits verwendet. Upgrade auf Elite für vollen Zugang." 
+          : "You already used your trial. Upgrade to Elite for full access.",
+        "warn",
+        { allowInfoWarn: true }
+      );
+      return;
+    }
+    
+    try {
+      const result = await startUserTrial(auth.currentUser.uid);
+      if (result.ok) {
+        // Mark trial as used locally to prevent reactivation
+        localStorage.setItem("elite-trial-used", "true");
+        setLocalTrialUsed(true);
+        await refreshUserTier();
+        addToast(
+          lang === "de" 
+            ? "🎉 Elite-Trial gestartet! 7 Tage voller Zugang." 
+            : "🎉 Elite trial started! 7 days of full access.",
+          "info",
+          { allowInfoWarn: true }
+        );
+      } else if (result.reason === "TRIAL_ALREADY_USED") {
+        // Mark locally too
+        localStorage.setItem("elite-trial-used", "true");
+        setLocalTrialUsed(true);
+        addToast(
+          lang === "de" 
+            ? "Du hast den Trial bereits verwendet." 
+            : "You already used your trial.",
+          "warn",
+          { allowInfoWarn: true }
+        );
+      }
+    } catch (err) {
+      console.error("Start trial failed:", err);
+      addToast(
+        lang === "de" ? "Trial konnte nicht gestartet werden." : "Could not start trial.",
+        "error"
+      );
+    }
+  };
+
+  // Open Auth Modal handler
+  const openAuthModal = () => setShowAuthModal(true);
+  const closeAuthModal = () => setShowAuthModal(false);
+  
+  // Google Sign-In handler
+  const handleGoogleSignIn = async () => {
+    await signInWithGoogle();
+    await refreshUserTier();
+    closeAuthModal();
   };
 
   const persistTier = async (tier) => {
@@ -2625,15 +2786,31 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
   if (tierLoading) {
     return <FullScreenLoader message="Session wird geladen..." />;
   }
-  const showTrialBanner = false;
+  const showTrialBanner = isTrialActive && authUser;
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
       {/* Welcome Modal for new users */}
       <WelcomeModal />
       
-      {showTrialBanner && trialActive ? (
-        <div className="bg-emerald-500/10 border-b border-emerald-500/40 text-emerald-100 text-sm px-4 py-2 text-center">
-          7-Tage-Testversion aktiv. Laeuft ab am {trialEnd || "-"}
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={closeAuthModal}
+        onLogin={async (email, password) => {
+          await fbLogin(email, password);
+          await refreshUserTier();
+        }}
+        onSignup={async (email, password) => {
+          await fbSignup(email, password);
+          await refreshUserTier();
+        }}
+        onGoogleSignIn={handleGoogleSignIn}
+        lang={lang}
+      />
+      
+      {showTrialBanner ? (
+        <div className="bg-gradient-to-r from-amber-500/20 via-amber-600/10 to-amber-500/20 border-b border-amber-500/40 text-amber-100 text-sm px-4 py-2 text-center">
+          <span className="font-semibold">🎉 Elite Trial aktiv!</span> {trialRemainingDays} Tage verbleiben (bis {trialEnd || "-"})
         </div>
       ) : null}
       {toasts.length > 0 ? (
@@ -2723,67 +2900,66 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
                 ) : null}
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => persistTier("basic")} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                  {t("tierBasic")}
-                </button>
-                <button onClick={() => persistTier("pro")} className="rounded bg-emerald-600/80 px-2 py-1 text-[11px] text-emerald-950 hover:bg-emerald-500">
-                  {t("tierPro")}
-                </button>
-                <button onClick={() => persistTier("elite")} className="rounded bg-cyan-500/80 px-2 py-1 text-[11px] text-cyan-950 hover:bg-cyan-400">
-                  {t("tierElite")}
-                </button>
+                {authUser ? (
+                  <>
+                    <button onClick={() => persistTier("basic")} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                      {t("tierBasic")}
+                    </button>
+                    <button onClick={() => persistTier("pro")} className="rounded bg-emerald-600/80 px-2 py-1 text-[11px] text-emerald-950 hover:bg-emerald-500">
+                      {t("tierPro")}
+                    </button>
+                    <button onClick={() => persistTier("elite")} className="rounded bg-cyan-500/80 px-2 py-1 text-[11px] text-cyan-950 hover:bg-cyan-400">
+                      {t("tierElite")}
+                    </button>
+                  </>
+                ) : null}
               </div>
               <div className="flex flex-col gap-1">
-                <button onClick={() => openStripe(STRIPE_LINKS.customer_portal)} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                  {t("billing")}
-                </button>
-                <form onSubmit={handleSignin} className="flex flex-col gap-1">
-                  <div className="flex gap-1">
-                    <button type="submit" className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                      {t("signin")}
-                    </button>
-                    <button type="button" onClick={handleSignup} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
-                      {t("signup")}
+                {authUser ? (
+                  <>
+                    <button onClick={() => openStripe(STRIPE_LINKS.customer_portal)} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
+                      {t("billing")}
                     </button>
                     <button type="button" onClick={handleLogout} className="rounded bg-slate-800 px-2 py-1 text-[11px] hover:bg-slate-700">
                       {t("logout")}
                     </button>
-                  </div>
-                  <div className="flex gap-1">
-                    <input
-                      type="email"
-                      ref={desktopEmailRef}
-                      value={authForm.email}
-                      onChange={(e) => setAuthForm((p) => ({ ...p, email: e.target.value }))}
-                      placeholder={t("loginEmail")}
-                      className="w-36 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
-                    />
-                    <input
-                      type="password"
-                      value={authForm.password}
-                      onChange={(e) => setAuthForm((p) => ({ ...p, password: e.target.value }))}
-                      placeholder={t("loginPassword")}
-                      className="w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
-                    />
-                  </div>
-                  {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
-                  {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
-                  <button
-                    type="button"
-                    onClick={handleStartTrial}
-                    disabled
-                    className={`rounded px-2 py-1 text-[11px] font-semibold text-amber-950 transition-colors ${
-                      "bg-amber-500/40 cursor-not-allowed"
-                    }`}
-                  >
-                    {trialActive ? t("trialActive") : t("startTrial")}
-                  </button>
-                  {trialExpired && trialStart ? (
-                    <span className="text-[11px] text-amber-300">
-                      {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
-                    </span>
-                  ) : null}
-                </form>
+                    {!isTrialActive && !isTrialBlocked ? (
+                      <button
+                        type="button"
+                        onClick={handleStartTrial}
+                        className="rounded bg-gradient-to-r from-amber-500 to-amber-600 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:from-amber-400 hover:to-amber-500 transition-colors"
+                      >
+                        {t("startTrial")}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={openAuthModal}
+                      className="rounded bg-gradient-to-r from-amber-500 to-amber-600 px-3 py-1.5 text-[11px] font-semibold text-amber-950 hover:from-amber-400 hover:to-amber-500 transition-colors"
+                    >
+                      {lang === "de" ? "🔐 Anmelden" : "🔐 Sign In"}
+                    </button>
+                    {!isTrialBlocked && (
+                      <button
+                        type="button"
+                        onClick={handleStartTrial}
+                        className="rounded bg-gradient-to-r from-cyan-500 to-cyan-600 px-3 py-1.5 text-[11px] font-semibold text-cyan-950 hover:from-cyan-400 hover:to-cyan-500 transition-colors"
+                      >
+                        {lang === "de" ? "🎁 7 Tage gratis" : "🎁 7 Days Free"}
+                      </button>
+                    )}
+                  </>
+                )}
+                {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
+                {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
+                {trialExpired && trialStart ? (
+                  <span className="text-[11px] text-amber-300">
+                    {lang === "de" ? "Trial abgelaufen" : "Trial expired"}
+                  </span>
+                ) : null}
               </div>
             </div>
             <button
@@ -4408,72 +4584,74 @@ const etfColors = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea5
             }
           >
           <div className="space-y-3 text-sm text-slate-200">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1">
-                <button onClick={() => persistTier("basic")} className="rounded bg-slate-800 px-3 py-1 text-[11px] hover:bg-slate-700">
-                  {t("tierBasic")}
-                </button>
-                <button onClick={() => persistTier("pro")} className="rounded bg-emerald-600/80 px-3 py-1 text-[11px] text-emerald-950 hover:bg-emerald-500">
-                  {t("tierPro")}
-                </button>
-                <button onClick={() => persistTier("elite")} className="rounded bg-cyan-500/80 px-3 py-1 text-[11px] text-cyan-950 hover:bg-cyan-400">
-                  {t("tierElite")}
-                </button>
-              </div>
-              <button
-                onClick={() => openStripe(STRIPE_LINKS.customer_portal)}
-                className="rounded bg-slate-800 px-3 py-1 text-[11px] hover:bg-slate-700"
-              >
-                {t("billing")}
-              </button>
-            </div>
-            <form onSubmit={handleSignin} className="space-y-2">
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  ref={mobileEmailRef}
-                  value={authForm.email}
-                  onChange={(e) => setAuthForm((p) => ({ ...p, email: e.target.value }))}
-                  placeholder={t("loginEmail")}
-                  className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-                />
-                <input
-                  type="password"
-                  value={authForm.password}
-                  onChange={(e) => setAuthForm((p) => ({ ...p, password: e.target.value }))}
-                  placeholder={t("loginPassword")}
-                  className="w-32 rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="submit" className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
-                  {t("signin")}
-                </button>
-                <button type="button" onClick={handleSignup} className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
-                  {t("signup")}
-                </button>
-                <button type="button" onClick={handleLogout} className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
-                  {t("logout")}
-                </button>
+            {authUser ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => persistTier("basic")} className="rounded bg-slate-800 px-3 py-1 text-[11px] hover:bg-slate-700">
+                      {t("tierBasic")}
+                    </button>
+                    <button onClick={() => persistTier("pro")} className="rounded bg-emerald-600/80 px-3 py-1 text-[11px] text-emerald-950 hover:bg-emerald-500">
+                      {t("tierPro")}
+                    </button>
+                    <button onClick={() => persistTier("elite")} className="rounded bg-cyan-500/80 px-3 py-1 text-[11px] text-cyan-950 hover:bg-cyan-400">
+                      {t("tierElite")}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => openStripe(STRIPE_LINKS.customer_portal)}
+                    className="rounded bg-slate-800 px-3 py-1 text-[11px] hover:bg-slate-700"
+                  >
+                    {t("billing")}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={handleLogout} className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">
+                    {t("logout")}
+                  </button>
+                  {!isTrialActive && !isTrialBlocked ? (
+                    <button
+                      type="button"
+                      onClick={handleStartTrial}
+                      className="rounded bg-gradient-to-r from-amber-500 to-amber-600 px-3 py-2 text-xs font-semibold text-amber-950 hover:from-amber-400 hover:to-amber-500 transition-colors"
+                    >
+                      {t("startTrial")}
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-sm text-slate-400 text-center">
+                  {lang === "de" 
+                    ? "Melde dich an, um alle Features zu nutzen und den Elite-Trial zu starten."
+                    : "Sign in to access all features and start your Elite trial."}
+                </p>
                 <button
                   type="button"
-                  onClick={handleStartTrial}
-                  disabled
-                  className={`rounded px-3 py-2 text-xs font-semibold text-amber-950 transition-colors ${
-                    "bg-amber-500/40 cursor-not-allowed"
-                  }`}
+                  onClick={openAuthModal}
+                  className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-3 text-sm font-semibold text-amber-950 hover:from-amber-400 hover:to-amber-500 transition-colors"
                 >
-                  {trialActive ? t("trialActive") : t("startTrial")}
+                  {lang === "de" ? "🔐 Anmelden / Registrieren" : "🔐 Sign In / Sign Up"}
                 </button>
+                {!isTrialBlocked && (
+                  <button
+                    type="button"
+                    onClick={handleStartTrial}
+                    className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-600 px-4 py-3 text-sm font-semibold text-cyan-950 hover:from-cyan-400 hover:to-cyan-500 transition-colors"
+                  >
+                    {lang === "de" ? "🎁 7 Tage Elite gratis testen" : "🎁 Try 7 Days Elite Free"}
+                  </button>
+                )}
               </div>
-              {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
-              {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
-              {trialExpired && trialStart ? (
-                <span className="text-[11px] text-amber-300">
-                  {lang === "de" ? "Testversion abgelaufen." : "Trial expired."}
-                </span>
-              ) : null}
-            </form>
+            )}
+            {authError ? <span className="text-[11px] text-amber-300">{authError}</span> : null}
+            {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
+            {trialExpired && trialStart ? (
+              <span className="text-[11px] text-amber-300">
+                {lang === "de" ? "Trial abgelaufen. Upgrade für vollen Zugang." : "Trial expired. Upgrade for full access."}
+              </span>
+            ) : null}
           </div>
           </Card>
         </div>

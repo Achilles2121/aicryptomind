@@ -98,8 +98,16 @@ export const useAuthStatus = () => {
     const trialRemainingMs = trialEndsAt ? Math.max(0, trialEndsAt - now) : 0;
     const trialRemainingDays = trialEndsAt ? Math.max(0, Math.ceil(trialRemainingMs / (24 * 60 * 60 * 1000))) : 0;
     const effectiveTier = isTrialActive ? "elite" : state.tier;
-    return { trialEndsAt, isTrialActive, trialExpired, trialRemainingMs, trialRemainingDays, effectiveTier };
-  }, [state.trialEndsAt, state.trialStart, state.tier]);
+    
+    // Trial data object for useEliteTrial hook
+    const trialData = {
+      trialStart: state.trialStart ? new Date(state.trialStart).toISOString() : null,
+      trialEndsAt: trialEndsAt ? new Date(trialEndsAt).toISOString() : null,
+      trialUsed: state.trialUsed || Boolean(state.trialStart),
+    };
+    
+    return { trialEndsAt, isTrialActive, trialExpired, trialRemainingMs, trialRemainingDays, effectiveTier, trialData };
+  }, [state.trialEndsAt, state.trialStart, state.tier, state.trialUsed]);
 
   return useMemo(
     () => ({
@@ -114,6 +122,7 @@ export const useAuthStatus = () => {
       trialRemainingMs: derived.trialRemainingMs,
       trialRemainingDays: derived.trialRemainingDays,
       effectiveTier: derived.effectiveTier,
+      trialData: derived.trialData, // For useEliteTrial hook
       refreshUserTier,
     }),
     [state, derived, refreshUserTier]

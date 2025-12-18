@@ -4,6 +4,9 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
 } from "firebase/auth";
 import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
 
@@ -37,6 +40,15 @@ export const initializeFirebase = () => {
 const app = initializeFirebase();
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
+
+// Google Auth Provider
+const googleProvider = app ? new GoogleAuthProvider() : null;
+if (googleProvider) {
+  googleProvider.setCustomParameters({ prompt: 'select_account' });
+}
+
+// Re-export onAuthStateChanged for convenience
+export { onAuthStateChanged };
 
 let userTierCache = "basic";
 
@@ -119,6 +131,61 @@ export const startUserTrial = async (uid, windowMs = TRIAL_WINDOW_MS) => {
 export const login = async (email, password) => {
   if (!auth) throw new Error("Firebase nicht initialisiert");
   return signInWithEmailAndPassword(auth, email, password);
+};
+
+// Google Sign-In
+export const signInWithGoogle = async () => {
+  if (!auth || !googleProvider) throw new Error("Firebase nicht initialisiert");
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
+    
+    // Check if user exists in Firestore, if not create basic account
+    const ref = doc(db, "userTiers", user.uid);
+    const snap = await getDoc(ref);
+    
+    if (!snap.exists()) {
+      // New user via Google - create basic account (no auto-trial)
+      await setDoc(ref, {
+        tier: "basic",
+        trialStart: null,
+        trialEndsAt: null,
+        trialUsed: false,
+        provider: "google",
+        email: user.email,
+        createdAt: Date.now(),
+      });
+      setCachedUserTier("basic");
+    } else {
+      const data = snap.data();
+      setCachedUserTier(data?.tier || "basic");
+    }
+    
+    return result;
+  } catch (err) {
+    console.error("Google sign-in failed", err);
+    throw err;
+  }
+};
+
+// Get current user's trial data
+export const getUserTrialData = async (uid) => {
+  if (!uid || !db) return null;
+  try {
+    const ref = doc(db, "userTiers", uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    
+    const data = snap.data();
+    return {
+      trialStart: data?.trialStart ? new Date(data.trialStart).toISOString() : null,
+      trialEndsAt: data?.trialEndsAt ? new Date(data.trialEndsAt).toISOString() : null,
+      trialUsed: Boolean(data?.trialUsed),
+    };
+  } catch (err) {
+    console.error("getUserTrialData failed", err);
+    return null;
+  }
 };
 
 export const logout = async () => {
