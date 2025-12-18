@@ -241,63 +241,29 @@ export function useBacktest(asset: string) {
 
 /**
  * Hook for running strategy optimization
+ * Note: Grid Search requires Pro plan - returns friendly message on Hobby
  */
-export function useOptimize(asset: string) {
-  const [result, setResult] = useState<OptimizationResult | null>(null);
+export function useOptimize(_asset: string) {
+  const [result] = useState<OptimizationResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const runOptimization = useCallback(async (
-    period: string = '6m',
-    quickMode: boolean = true
+    _period: string = '6m',
+    _quickMode: boolean = true
   ) => {
     setIsRunning(true);
     setError(null);
 
-    // Check cache first
-    const cacheKey = getCacheKey(asset, period, 'optimize');
-    const cached = getFromCache<OptimizationResult>(cacheKey);
-    if (cached) {
-      setResult(cached);
+    // Grid Search Optimizer requires Pro plan
+    // Show friendly message instead of calling disabled API
+    setTimeout(() => {
+      setError('Grid Search Optimizer requires Pro plan. Backtest data shows current strategy performance.');
       setIsRunning(false);
-      return cached;
-    }
+    }, 500);
 
-    try {
-      const { startDate, endDate } = getDateRange(period);
-      
-      const response = await fetch('/api/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asset,
-          startDate,
-          endDate,
-          quickMode,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Optimization failed: ${response.status}`);
-      }
-
-      const data: OptimizationResult = await response.json();
-      setResult(data);
-
-      // Cache result
-      setCache(cacheKey, data);
-
-      return data;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setError(message);
-      console.error('Optimization error:', err);
-      return null;
-    } finally {
-      setIsRunning(false);
-    }
-  }, [asset]);
+    return null;
+  }, []);
 
   return { result, isRunning, error, runOptimization };
 }
