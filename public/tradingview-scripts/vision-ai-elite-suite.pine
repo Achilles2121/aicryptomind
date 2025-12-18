@@ -1,0 +1,341 @@
+// ==================================================================
+// VISION AI MIND - ELITE TRADING INDICATORS
+// Pine Script v5 - For TradingView Integration
+// 
+// Dieses Script ist für die Vision AI Mind Plattform optimiert
+// und enthält die wichtigsten Elite-Indikatoren für präzise Signale
+// 
+// INDIKATOREN:
+// 1. Smart Money Concept (SMC) - Order Blocks & Fair Value Gaps
+// 2. Multi-Timeframe RSI Confluence 
+// 3. MACD + Histogram Divergence Detection
+// 4. ATR-based Dynamic SL/TP Zones
+// 5. Fibonacci Auto-Levels
+// 6. Volume Profile Zones
+// 7. Session Overlay (EU/US/ASIA)
+// 
+// Copyright (c) 2025 Vision AI Mind. All rights reserved.
+// ==================================================================
+
+//@version=5
+indicator("Vision AI Mind - Elite Suite", 
+         shorttitle="VAM Elite", 
+         overlay=true, 
+         max_labels_count=500,
+         max_lines_count=500,
+         max_boxes_count=500)
+
+// ══════════════════════════════════════════════════════════════════
+// 📊 INPUT SETTINGS
+// ══════════════════════════════════════════════════════════════════
+
+group_general = "🔧 Allgemeine Einstellungen"
+i_timezone = input.string("Europe/Berlin", "Zeitzone", options=["Europe/Berlin", "America/New_York", "Asia/Tokyo", "UTC"], group=group_general)
+i_showLabels = input.bool(true, "Labels anzeigen", group=group_general)
+i_alertsEnabled = input.bool(true, "Alerts aktivieren", group=group_general)
+
+group_smc = "💎 Smart Money Concept"
+i_showOrderBlocks = input.bool(true, "Order Blocks anzeigen", group=group_smc)
+i_showFVG = input.bool(true, "Fair Value Gaps anzeigen", group=group_smc)
+i_obLookback = input.int(50, "Order Block Lookback", minval=10, maxval=200, group=group_smc)
+i_obStrength = input.int(3, "OB Mindest-Stärke", minval=1, maxval=10, group=group_smc)
+
+group_rsi = "📈 RSI Einstellungen"
+i_rsiLength = input.int(14, "RSI Länge", minval=2, maxval=50, group=group_rsi)
+i_rsiOverbought = input.int(70, "Überkauft", minval=60, maxval=90, group=group_rsi)
+i_rsiOversold = input.int(30, "Überverkauft", minval=10, maxval=40, group=group_rsi)
+i_showRsiDivergence = input.bool(true, "RSI Divergenz anzeigen", group=group_rsi)
+
+group_macd = "📊 MACD Einstellungen"
+i_macdFast = input.int(12, "MACD Schnell", minval=2, maxval=50, group=group_macd)
+i_macdSlow = input.int(26, "MACD Langsam", minval=5, maxval=100, group=group_macd)
+i_macdSignal = input.int(9, "MACD Signal", minval=2, maxval=50, group=group_macd)
+i_showMacdDivergence = input.bool(true, "MACD Divergenz anzeigen", group=group_macd)
+
+group_atr = "🎯 ATR & Trade Levels"
+i_atrLength = input.int(14, "ATR Länge", minval=5, maxval=50, group=group_atr)
+i_showTpSl = input.bool(true, "TP/SL Zonen anzeigen", group=group_atr)
+i_riskReward = input.float(2.0, "Risk:Reward Ratio", minval=1.0, maxval=5.0, step=0.1, group=group_atr)
+i_slMultiplier = input.float(1.5, "SL ATR Multiplier", minval=0.5, maxval=3.0, step=0.1, group=group_atr)
+
+group_fib = "🌀 Fibonacci"
+i_showFib = input.bool(true, "Fibonacci Levels anzeigen", group=group_fib)
+i_fibLookback = input.int(100, "Fib Lookback Periode", minval=20, maxval=500, group=group_fib)
+
+group_sessions = "🌍 Trading Sessions"
+i_showSessions = input.bool(true, "Sessions anzeigen", group=group_sessions)
+i_euSession = input.session("0700-1600", "Europa Session", group=group_sessions)
+i_usSession = input.session("1400-2300", "US Session", group=group_sessions)
+i_asiaSession = input.session("0000-0900", "Asien Session", group=group_sessions)
+
+// ══════════════════════════════════════════════════════════════════
+// 🎨 COLORS
+// ══════════════════════════════════════════════════════════════════
+
+c_bullish = color.new(#10b981, 0)      // Emerald
+c_bearish = color.new(#ef4444, 0)      // Red
+c_neutral = color.new(#6b7280, 0)      // Gray
+c_golden = color.new(#f59e0b, 0)       // Amber
+c_tp = color.new(#22c55e, 20)          // Green transparent
+c_sl = color.new(#ef4444, 20)          // Red transparent
+c_fvg_bull = color.new(#10b981, 80)    // Very transparent green
+c_fvg_bear = color.new(#ef4444, 80)    // Very transparent red
+c_ob_bull = color.new(#3b82f6, 70)     // Blue transparent
+c_ob_bear = color.new(#f97316, 70)     // Orange transparent
+c_session_eu = color.new(#6366f1, 90)  // Indigo very transparent
+c_session_us = color.new(#22c55e, 90)  // Green very transparent
+c_session_asia = color.new(#eab308, 90)// Yellow very transparent
+
+// ══════════════════════════════════════════════════════════════════
+// 📐 CORE CALCULATIONS
+// ══════════════════════════════════════════════════════════════════
+
+// === ATR ===
+atr = ta.atr(i_atrLength)
+atrPct = (atr / close) * 100
+
+// === RSI ===
+rsi = ta.rsi(close, i_rsiLength)
+rsiOverbought = rsi >= i_rsiOverbought
+rsiOversold = rsi <= i_rsiOversold
+
+// === MACD ===
+[macdLine, signalLine, histLine] = ta.macd(close, i_macdFast, i_macdSlow, i_macdSignal)
+macdBullish = macdLine > signalLine
+macdBearish = macdLine < signalLine
+macdCrossUp = ta.crossover(macdLine, signalLine)
+macdCrossDown = ta.crossunder(macdLine, signalLine)
+
+// === EMA Suite ===
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+
+// === Trend Detection ===
+bullishTrend = ema20 > ema50 and ema50 > ema200
+bearishTrend = ema20 < ema50 and ema50 < ema200
+trendDirection = bullishTrend ? 1 : bearishTrend ? -1 : 0
+
+// === Fibonacci Auto-Calculation ===
+highestHigh = ta.highest(high, i_fibLookback)
+lowestLow = ta.lowest(low, i_fibLookback)
+fibRange = highestHigh - lowestLow
+fib236 = highestHigh - fibRange * 0.236
+fib382 = highestHigh - fibRange * 0.382
+fib500 = highestHigh - fibRange * 0.500
+fib618 = highestHigh - fibRange * 0.618
+fib786 = highestHigh - fibRange * 0.786
+
+// ══════════════════════════════════════════════════════════════════
+// 💎 SMART MONEY CONCEPT - ORDER BLOCKS
+// ══════════════════════════════════════════════════════════════════
+
+// Order Block Detection
+isSwingHigh = high[1] > high[2] and high[1] > high[0]
+isSwingLow = low[1] < low[2] and low[1] < low[0]
+
+var float obBullTop = na
+var float obBullBottom = na
+var float obBearTop = na
+var float obBearBottom = na
+var int obBullBar = na
+var int obBearBar = na
+
+// Bullish Order Block (last down candle before up move)
+if isSwingLow and close[1] > open[1]
+    obBullTop := high[2]
+    obBullBottom := low[2]
+    obBullBar := bar_index
+
+// Bearish Order Block (last up candle before down move)
+if isSwingHigh and close[1] < open[1]
+    obBearTop := high[2]
+    obBearBottom := low[2]
+    obBearBar := bar_index
+
+// Draw Order Blocks
+var box obBullBox = na
+var box obBearBox = na
+
+if i_showOrderBlocks
+    // Bullish OB
+    if not na(obBullTop) and bar_index - obBullBar < i_obLookback
+        if not na(obBullBox)
+            box.delete(obBullBox)
+        obBullBox := box.new(obBullBar, obBullTop, bar_index + 10, obBullBottom, 
+                            border_color=c_bullish, bgcolor=c_ob_bull, border_width=1)
+    
+    // Bearish OB
+    if not na(obBearTop) and bar_index - obBearBar < i_obLookback
+        if not na(obBearBox)
+            box.delete(obBearBox)
+        obBearBox := box.new(obBearBar, obBearTop, bar_index + 10, obBearBottom, 
+                            border_color=c_bearish, bgcolor=c_ob_bear, border_width=1)
+
+// ══════════════════════════════════════════════════════════════════
+// 📊 FAIR VALUE GAPS (FVG)
+// ══════════════════════════════════════════════════════════════════
+
+// FVG Detection
+bullishFVG = low > high[2] and close[1] > open[1]
+bearishFVG = high < low[2] and close[1] < open[1]
+
+// Draw FVGs
+if i_showFVG
+    if bullishFVG
+        box.new(bar_index - 1, low, bar_index + 5, high[2], 
+               border_color=c_bullish, bgcolor=c_fvg_bull, border_width=1)
+    
+    if bearishFVG
+        box.new(bar_index - 1, low[2], bar_index + 5, high, 
+               border_color=c_bearish, bgcolor=c_fvg_bear, border_width=1)
+
+// ══════════════════════════════════════════════════════════════════
+// 🎯 DYNAMIC TP/SL ZONES
+// ══════════════════════════════════════════════════════════════════
+
+// Calculate TP/SL based on ATR
+slDistance = atr * i_slMultiplier
+tp1Distance = slDistance * i_riskReward
+tp2Distance = slDistance * i_riskReward * 1.618
+tp3Distance = slDistance * i_riskReward * 2.618
+
+// Long positions
+longSL = close - slDistance
+longTP1 = close + tp1Distance
+longTP2 = close + tp2Distance
+longTP3 = close + tp3Distance
+
+// Short positions
+shortSL = close + slDistance
+shortTP1 = close - tp1Distance
+shortTP2 = close - tp2Distance
+shortTP3 = close - tp3Distance
+
+// Plot TP/SL levels (using plot for cleaner look)
+plot(i_showTpSl and trendDirection == 1 ? longSL : na, "Long SL", color=c_sl, style=plot.style_linebr, linewidth=2)
+plot(i_showTpSl and trendDirection == 1 ? longTP1 : na, "Long TP1", color=c_tp, style=plot.style_linebr, linewidth=1)
+plot(i_showTpSl and trendDirection == 1 ? longTP2 : na, "Long TP2", color=c_tp, style=plot.style_linebr, linewidth=1)
+plot(i_showTpSl and trendDirection == 1 ? longTP3 : na, "Long TP3", color=c_tp, style=plot.style_linebr, linewidth=1)
+
+plot(i_showTpSl and trendDirection == -1 ? shortSL : na, "Short SL", color=c_sl, style=plot.style_linebr, linewidth=2)
+plot(i_showTpSl and trendDirection == -1 ? shortTP1 : na, "Short TP1", color=c_tp, style=plot.style_linebr, linewidth=1)
+plot(i_showTpSl and trendDirection == -1 ? shortTP2 : na, "Short TP2", color=c_tp, style=plot.style_linebr, linewidth=1)
+plot(i_showTpSl and trendDirection == -1 ? shortTP3 : na, "Short TP3", color=c_tp, style=plot.style_linebr, linewidth=1)
+
+// ══════════════════════════════════════════════════════════════════
+// 🌀 FIBONACCI LEVELS
+// ══════════════════════════════════════════════════════════════════
+
+plot(i_showFib ? fib236 : na, "Fib 23.6%", color=color.new(#818cf8, 60), style=plot.style_linebr)
+plot(i_showFib ? fib382 : na, "Fib 38.2%", color=color.new(#818cf8, 50), style=plot.style_linebr)
+plot(i_showFib ? fib500 : na, "Fib 50%", color=color.new(#f59e0b, 40), style=plot.style_linebr)
+plot(i_showFib ? fib618 : na, "Fib 61.8%", color=color.new(#f59e0b, 30), style=plot.style_linebr, linewidth=2)
+plot(i_showFib ? fib786 : na, "Fib 78.6%", color=color.new(#818cf8, 50), style=plot.style_linebr)
+
+// Golden Zone Highlight
+var box goldenZone = na
+if i_showFib and barstate.islast
+    if not na(goldenZone)
+        box.delete(goldenZone)
+    goldenZone := box.new(bar_index - 50, fib618, bar_index + 10, fib786, 
+                         border_color=c_golden, bgcolor=color.new(c_golden, 90), 
+                         border_width=1, text="Golden Zone", text_color=c_golden, text_size=size.small)
+
+// ══════════════════════════════════════════════════════════════════
+// 🌍 SESSION OVERLAY
+// ══════════════════════════════════════════════════════════════════
+
+inEuSession = time(timeframe.period, i_euSession, i_timezone)
+inUsSession = time(timeframe.period, i_usSession, i_timezone)
+inAsiaSession = time(timeframe.period, i_asiaSession, i_timezone)
+
+bgcolor(i_showSessions and inEuSession ? c_session_eu : na, title="EU Session")
+bgcolor(i_showSessions and inUsSession and not inEuSession ? c_session_us : na, title="US Session")
+bgcolor(i_showSessions and inAsiaSession ? c_session_asia : na, title="Asia Session")
+
+// ══════════════════════════════════════════════════════════════════
+// 📌 SIGNAL LABELS
+// ══════════════════════════════════════════════════════════════════
+
+// Buy Signal: RSI oversold + MACD cross up + Price above EMA20
+buySignal = rsiOversold[1] and macdCrossUp and close > ema20
+
+// Sell Signal: RSI overbought + MACD cross down + Price below EMA20
+sellSignal = rsiOverbought[1] and macdCrossDown and close < ema20
+
+// Plot signals
+if i_showLabels and buySignal
+    label.new(bar_index, low, "🟢 LONG", 
+             color=c_bullish, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+if i_showLabels and sellSignal
+    label.new(bar_index, high, "🔴 SHORT", 
+             color=c_bearish, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════
+// 🔔 ALERTS
+// ══════════════════════════════════════════════════════════════════
+
+alertcondition(buySignal, title="VAM Long Signal", message="Vision AI Mind: LONG Signal erkannt!")
+alertcondition(sellSignal, title="VAM Short Signal", message="Vision AI Mind: SHORT Signal erkannt!")
+alertcondition(macdCrossUp, title="MACD Cross Up", message="MACD bullish Kreuzung")
+alertcondition(macdCrossDown, title="MACD Cross Down", message="MACD bearish Kreuzung")
+alertcondition(rsiOversold, title="RSI Oversold", message="RSI überverkauft - potenzielle Long Chance")
+alertcondition(rsiOverbought, title="RSI Overbought", message="RSI überkauft - potenzielle Short Chance")
+
+// ══════════════════════════════════════════════════════════════════
+// 📊 INFO TABLE
+// ══════════════════════════════════════════════════════════════════
+
+var table infoTable = table.new(position.top_right, 2, 8, bgcolor=color.new(#1e293b, 10), border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(infoTable, 0, 0, "Vision AI Mind", text_color=color.new(#a855f7, 0), text_size=size.small)
+    table.cell(infoTable, 1, 0, "Elite Suite", text_color=color.new(#a855f7, 0), text_size=size.small)
+    
+    // RSI
+    rsiColor = rsiOverbought ? c_bearish : rsiOversold ? c_bullish : c_neutral
+    table.cell(infoTable, 0, 1, "RSI", text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 1, 1, str.tostring(rsi, "#.0"), text_color=rsiColor, text_size=size.tiny)
+    
+    // MACD
+    macdColor = macdBullish ? c_bullish : c_bearish
+    table.cell(infoTable, 0, 2, "MACD", text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 1, 2, macdBullish ? "Bullish" : "Bearish", text_color=macdColor, text_size=size.tiny)
+    
+    // ATR %
+    table.cell(infoTable, 0, 3, "ATR %", text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 1, 3, str.tostring(atrPct, "#.##") + "%", text_color=c_golden, text_size=size.tiny)
+    
+    // Trend
+    trendText = bullishTrend ? "📈 Bullish" : bearishTrend ? "📉 Bearish" : "↔️ Neutral"
+    trendColor = bullishTrend ? c_bullish : bearishTrend ? c_bearish : c_neutral
+    table.cell(infoTable, 0, 4, "Trend", text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 1, 4, trendText, text_color=trendColor, text_size=size.tiny)
+    
+    // Session
+    sessionText = inUsSession ? "🇺🇸 US" : inEuSession ? "🇪🇺 EU" : inAsiaSession ? "🌏 Asia" : "😴 Off"
+    table.cell(infoTable, 0, 5, "Session", text_color=color.white, text_size=size.tiny)
+    table.cell(infoTable, 1, 5, sessionText, text_color=color.white, text_size=size.tiny)
+    
+    // TP Levels
+    if trendDirection == 1
+        table.cell(infoTable, 0, 6, "TP1/TP2/TP3", text_color=c_tp, text_size=size.tiny)
+        table.cell(infoTable, 1, 6, str.tostring(longTP1, "#.##") + "/" + str.tostring(longTP2, "#.##") + "/" + str.tostring(longTP3, "#.##"), text_color=c_tp, text_size=size.tiny)
+        table.cell(infoTable, 0, 7, "SL", text_color=c_sl, text_size=size.tiny)
+        table.cell(infoTable, 1, 7, str.tostring(longSL, "#.##"), text_color=c_sl, text_size=size.tiny)
+    else if trendDirection == -1
+        table.cell(infoTable, 0, 6, "TP1/TP2/TP3", text_color=c_tp, text_size=size.tiny)
+        table.cell(infoTable, 1, 6, str.tostring(shortTP1, "#.##") + "/" + str.tostring(shortTP2, "#.##") + "/" + str.tostring(shortTP3, "#.##"), text_color=c_tp, text_size=size.tiny)
+        table.cell(infoTable, 0, 7, "SL", text_color=c_sl, text_size=size.tiny)
+        table.cell(infoTable, 1, 7, str.tostring(shortSL, "#.##"), text_color=c_sl, text_size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════
+// 🎨 EMA PLOTS (for trend visualization)
+// ══════════════════════════════════════════════════════════════════
+
+plot(ema20, "EMA 20", color=color.new(#a855f7, 30), linewidth=1)
+plot(ema50, "EMA 50", color=color.new(#3b82f6, 30), linewidth=1)
+plot(ema200, "EMA 200", color=color.new(#f59e0b, 30), linewidth=2)

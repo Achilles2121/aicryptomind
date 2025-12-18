@@ -1,16 +1,21 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
 import React, { memo, useMemo } from "react";
 import PropTypes from "prop-types";
-import { TrendingUp, TrendingDown, Target, Shield, Activity, BarChart3 } from "lucide-react";
+import { TrendingUp, TrendingDown, Target, Shield, Activity, BarChart3, Clock, ArrowUpRight } from "lucide-react";
 import TradingViewChart from "./TradingViewChart";
 import TradingViewTechnicalAnalysis from "./TradingViewTechnicalAnalysis";
 import { getTVSymbol, getTVConfig, ASSET_CLASS_COLORS } from "../config/tradingview-map";
 import { getTradingViewInterval } from "../lib/tradingViewSymbols";
+import { getMarketSession } from "../lib/multiTpSlEngine";
 
 /**
  * Complete TradingView Integration Panel
  * Harmonisches Design passend zum Vision AI Mind Dashboard
- * Includes: Live Chart, Technical Analysis, Fib Levels, TP/SL Signals
+ * Includes: Live Chart, Technical Analysis, Fib Levels, Multi-TP/SL Signals
+ * 
+ * NEU: Mehrere Take Profits (TP1, TP2, TP3) mit Fibonacci-Extensions
+ * NEU: Zeitzonenabhängige Session-Anzeige
+ * NEU: Prozentuale Abweichungen für TP/SL
  * 
  * Verwendet das zentrale tradingview-map.ts für korrekte Symbol-Auflösung
  */
@@ -23,6 +28,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
   technicalHeight = 300,
   theme = "dark",
   className = "",
+  timezone = "Europe/Berlin",
   // Trading data from parent (our algorithms)
   currentPrice = null,
   fibLevels = null,
@@ -31,7 +37,13 @@ const TradingViewPanel = memo(function TradingViewPanel({
   riskReward = null,
   trendDirection = null,
   signalStrength = null,
+  // NEW: Enhanced trade data
+  trailingStop = null,
+  volatilityCategory = null,
+  atrPct = null,
 }) {
+  // Get current market session
+  const session = useMemo(() => getMarketSession(timezone), [timezone]);
   // Get TradingView symbol und Config aus dem zentralen Mapping
   const tvConfig = useMemo(() => getTVConfig(assetId), [assetId]);
   const tvSymbol = useMemo(() => getTVSymbol(assetId), [assetId]);
@@ -128,55 +140,129 @@ const TradingViewPanel = memo(function TradingViewPanel({
           ═══════════════════════════════════════════════════════════════════════ */}
       {(fibLevels || tpLevels.length > 0 || (typeof slLevel === 'number' && slLevel !== 0)) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {/* Fibonacci Levels */}
+          {/* Fibonacci Levels with Golden Zone Highlight */}
           {fibLevels && (
             <div className="rounded-xl bg-gradient-to-br from-slate-900/80 via-slate-800/50 to-slate-900/80 border border-slate-700/50 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <BarChart3 className="w-4 h-4 text-violet-400" />
-                <span className="text-violet-400 font-semibold text-sm">Fibonacci Levels</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-violet-400" />
+                  <span className="text-violet-400 font-semibold text-sm">Fibonacci Levels</span>
+                </div>
+                {/* Session Badge */}
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/60 border border-slate-700/50">
+                  <Clock className="w-3 h-3 text-slate-400" />
+                  <span className="text-xs text-slate-300">{session?.label || 'Off'}</span>
+                </div>
               </div>
-              <div className="space-y-2">
-                {Object.entries(fibLevels).map(([level, price]) => (
-                  <div key={level} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-400">{level}</span>
-                    <span className="text-white font-mono">{formatPrice(price)}</span>
-                  </div>
-                ))}
+              <div className="space-y-1.5">
+                {Object.entries(fibLevels).map(([level, price]) => {
+                  const isGoldenZone = level === '61.8%' || level === '50%';
+                  return (
+                    <div 
+                      key={level} 
+                      className={`flex items-center justify-between text-sm px-2 py-1 rounded ${
+                        isGoldenZone ? 'bg-amber-500/10 border border-amber-500/20' : ''
+                      }`}
+                    >
+                      <span className={isGoldenZone ? 'text-amber-400 font-medium' : 'text-slate-400'}>{level}</span>
+                      <span className="text-white font-mono">{formatPrice(price)}</span>
+                      {isGoldenZone && <span className="text-amber-500 text-xs ml-1">★</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* TP/SL Levels */}
+          {/* Enhanced Multi-TP/SL Levels */}
           {(tpLevels.length > 0 || (typeof slLevel === 'number' && slLevel !== 0)) && (
             <div className="rounded-xl bg-gradient-to-br from-slate-900/80 via-slate-800/50 to-slate-900/80 border border-slate-700/50 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Target className="w-4 h-4 text-emerald-400" />
-                <span className="text-emerald-400 font-semibold text-sm">Trade Levels</span>
-                {typeof riskReward === 'number' && riskReward !== 0 && (
-                  <span className="ml-auto text-xs text-slate-400">
-                    R:R {riskReward.toFixed(2)}
-                  </span>
-                )}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-emerald-400" />
+                  <span className="text-emerald-400 font-semibold text-sm">Trade Levels</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Volatility Badge */}
+                  {volatilityCategory && (
+                    <span className={`px-2 py-0.5 text-xs rounded ${
+                      volatilityCategory === 'low' ? 'bg-blue-500/20 text-blue-400' :
+                      volatilityCategory === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                      volatilityCategory === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-red-500/20 text-red-400'
+                    }`}>
+                      Vol: {volatilityCategory}
+                    </span>
+                  )}
+                  {/* R:R Badge */}
+                  {typeof riskReward === 'number' && riskReward !== 0 && (
+                    <span className="px-2 py-0.5 text-xs rounded bg-slate-700/50 text-slate-300">
+                      R:R {riskReward.toFixed(1)}
+                    </span>
+                  )}
+                </div>
               </div>
+              
               <div className="space-y-2">
-                {/* Take Profit Levels */}
-                {tpLevels.map((tp, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-emerald-400">TP{idx + 1}</span>
+                {/* Take Profit Levels with % and allocation */}
+                {tpLevels.map((tp, idx) => {
+                  const tpPrice = tp.price || tp;
+                  const tpPct = tp.pctFromEntry || (currentPrice ? ((tpPrice - currentPrice) / currentPrice * 100) : null);
+                  const allocation = tp.allocationPct || tp.allocation || (idx === 0 ? 40 : idx === 1 ? 35 : idx === 2 ? 20 : 5);
+                  
+                  return (
+                    <div key={idx} className="flex items-center justify-between text-sm bg-emerald-500/5 rounded px-2 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400 font-medium">TP{idx + 1}</span>
+                        <span className="text-emerald-600 text-xs">({allocation}%)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-mono">{formatPrice(tpPrice)}</span>
+                        {tpPct !== null && (
+                          <span className="text-emerald-500 text-xs font-medium">
+                            +{Math.abs(tpPct).toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-white font-mono">{formatPrice(tp.price || tp)}</span>
+                  );
+                })}
+                
+                {/* Trailing Stop Info */}
+                {trailingStop && (
+                  <div className="flex items-center justify-between text-sm bg-amber-500/5 rounded px-2 py-1.5 border border-amber-500/20">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-amber-400 text-xs">Trailing SL</span>
+                    </div>
+                    <span className="text-amber-300 text-xs">{trailingStop.description || 'Nach TP1 aktiv'}</span>
                   </div>
-                ))}
-                {/* Stop Loss */}
+                )}
+                
+                {/* Stop Loss with % */}
                 {typeof slLevel === 'number' && slLevel !== 0 && (
-                  <div className="flex items-center justify-between text-sm pt-2 border-t border-slate-700/50">
+                  <div className="flex items-center justify-between text-sm bg-red-500/10 rounded px-2 py-1.5 mt-2 border-t border-slate-700/50 pt-2">
                     <div className="flex items-center gap-2">
                       <Shield className="w-3.5 h-3.5 text-red-400" />
-                      <span className="text-red-400">Stop Loss</span>
+                      <span className="text-red-400 font-medium">Stop Loss</span>
                     </div>
-                    <span className="text-white font-mono">{formatPrice(slLevel)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-mono">{formatPrice(slLevel)}</span>
+                      {currentPrice && (
+                        <span className="text-red-500 text-xs font-medium">
+                          {((slLevel - currentPrice) / currentPrice * 100).toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* ATR Info */}
+                {typeof atrPct === 'number' && (
+                  <div className="flex items-center justify-between text-xs text-slate-500 mt-2 pt-2 border-t border-slate-800">
+                    <span>ATR%: {atrPct.toFixed(2)}%</span>
+                    <span>Session: {session?.session || 'OFF'}</span>
                   </div>
                 )}
               </div>
@@ -275,6 +361,7 @@ TradingViewPanel.propTypes = {
   technicalHeight: PropTypes.number,
   theme: PropTypes.string,
   className: PropTypes.string,
+  timezone: PropTypes.string,
   // Trading data
   currentPrice: PropTypes.number,
   fibLevels: PropTypes.object,
@@ -283,6 +370,10 @@ TradingViewPanel.propTypes = {
   riskReward: PropTypes.number,
   trendDirection: PropTypes.oneOf(["bullish", "bearish", null]),
   signalStrength: PropTypes.number,
+  // Enhanced trade data
+  trailingStop: PropTypes.object,
+  volatilityCategory: PropTypes.oneOf(["low", "medium", "high", "extreme", null]),
+  atrPct: PropTypes.number,
 };
 
 export default TradingViewPanel;
