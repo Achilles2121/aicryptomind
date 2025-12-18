@@ -131,22 +131,89 @@ const SHOW_CRYPTO_EDU_CHAT = true;
 const DATA_SOURCE_LIST = Object.values(dataSources || {});
 const LOG_THROTTLE_WINDOW = 20000;
 
-const Paywall = ({ minTier = "basic", userTier = "basic", isTrialActive = false, trialEndText = "", lockText = "Pro erforderlich", children }) => {
+// Tier configuration for styling
+const TIER_CONFIG = {
+  basic: { color: "text-slate-400", bgColor: "bg-slate-500/10", borderColor: "border-slate-500/30", label: "Basic" },
+  pro: { color: "text-amber-400", bgColor: "bg-amber-500/10", borderColor: "border-amber-500/30", label: "Pro" },
+  elite: { color: "text-violet-400", bgColor: "bg-violet-500/10", borderColor: "border-violet-500/30", label: "Elite" },
+};
+
+/**
+ * Paywall Component - Redesigned for clean tier-based access
+ * Three modes:
+ * - overlay: Blurred content with lock (default)
+ * - hidden: Completely hide the content
+ * - locked: Show a locked placeholder card
+ */
+const Paywall = ({ 
+  minTier = "basic", 
+  userTier = "basic", 
+  isTrialActive = false, 
+  trialEndText = "", 
+  lockText = "", 
+  mode = "overlay", // "overlay" | "hidden" | "locked"
+  cardTitle = "",
+  onUpgrade,
+  children 
+}) => {
   const unlockedByTier = TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(minTier);
   const unlockedByTrial = isTrialActive && TIER_ORDER.indexOf("pro") >= TIER_ORDER.indexOf(minTier);
   const locked = !(unlockedByTier || unlockedByTrial);
+  
   if (!locked) return children;
+  
+  const tierConfig = TIER_CONFIG[minTier] || TIER_CONFIG.pro;
+  const defaultLockText = `${tierConfig.label} erforderlich`;
+  
+  // Mode: hidden - completely hide content
+  if (mode === "hidden") {
+    return null;
+  }
+  
+  // Mode: locked - show placeholder card
+  if (mode === "locked") {
+    return (
+      <LockedCard 
+        title={cardTitle || "Gesperrte Funktion"} 
+        requiredTier={minTier}
+        description={lockText || `Diese Funktion erfordert ${tierConfig.label}-Zugang.`}
+        showUpgradeButton={!!onUpgrade}
+        onUpgrade={onUpgrade}
+      />
+    );
+  }
+  
+  // Mode: overlay (default) - blurred content with lock
   return (
     <div className="relative">
-      <div className="pointer-events-none absolute inset-0 rounded-xl bg-slate-950/70 backdrop-blur-[1px]" />
-      <div className="pointer-events-none absolute inset-0 rounded-xl border border-amber-500/30" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-slate-950/60" />
-      <div className="relative">{children}</div>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="rounded-lg border border-amber-400/60 bg-slate-900/95 px-4 py-3 text-center text-sm text-amber-200 shadow-lg space-y-1">
-          <div>{lockText}</div>
-          {trialEndText ? <div className="text-xs text-amber-300">{trialEndText}</div> : null}
+      {/* Blurred/dimmed content */}
+      <div className="pointer-events-none select-none">
+        <div className="absolute inset-0 rounded-xl bg-slate-950/85 backdrop-blur-[3px] z-10" />
+        <div className={`absolute inset-0 rounded-xl border-2 border-dashed ${tierConfig.borderColor} z-10`} />
+        <div className="relative opacity-20">{children}</div>
+      </div>
+      
+      {/* Lock overlay - centered */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center z-20 space-y-3 p-4">
+        <div className={`p-3 rounded-full ${tierConfig.bgColor} border ${tierConfig.borderColor} shadow-lg`}>
+          <Shield className={`w-6 h-6 ${tierConfig.color}`} />
         </div>
+        <div className={`px-4 py-2 rounded-lg ${tierConfig.bgColor} border ${tierConfig.borderColor} shadow-md text-center`}>
+          <span className={`text-sm font-semibold ${tierConfig.color}`}>
+            {lockText || defaultLockText}
+          </span>
+        </div>
+        {trialEndText && (
+          <span className="text-xs text-amber-400 text-center">{trialEndText}</span>
+        )}
+        {onUpgrade && (
+          <button 
+            onClick={onUpgrade}
+            className={`mt-1 px-4 py-1.5 rounded-lg text-sm font-medium ${tierConfig.bgColor} ${tierConfig.color} border ${tierConfig.borderColor} hover:scale-105 transition-transform`}
+          >
+            Upgrade
+          </button>
+        )}
       </div>
     </div>
   );
@@ -158,6 +225,9 @@ Paywall.propTypes = {
   isTrialActive: PropTypes.bool,
   trialEndText: PropTypes.string,
   lockText: PropTypes.string,
+  mode: PropTypes.oneOf(["overlay", "hidden", "locked"]),
+  cardTitle: PropTypes.string,
+  onUpgrade: PropTypes.func,
   children: PropTypes.node.isRequired,
 };
 
