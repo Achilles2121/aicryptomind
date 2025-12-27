@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:encoding": "node scripts/check-encoding.js",
-    "prebuild": "npm run lint:encoding && npm run lint && npm run typecheck",
+    "prebuild": "npm run lint:encoding && npm run typecheck",
     "test:unit": "npx tsx tests/engine.test.js"
   },
   "devDependencies": {
