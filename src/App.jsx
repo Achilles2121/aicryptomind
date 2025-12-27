@@ -108,13 +108,16 @@ const _API_SOURCES_OLD = [
   },
 ];
 
-const API_SOURCES = [
-  { name: "DeFiLlama", desc: "DeFi-Yields, TVL, Chains - fuer Yield Tracker.", limit: "Unlimited free" },
-  { name: "Santiment", desc: "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: "100 Calls/Monat free" },
-  { name: "HuggingFace", desc: "AI-Predictions (Inference fuer Price-Forecast).", limit: "Free Inference" },
-  { name: "Alpha Vantage", desc: "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
-  { name: "FMP", desc: "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
-];
+const getApiSources = () => {
+  const isEn = activeLocale.startsWith("en");
+  return [
+    { name: "DeFiLlama", desc: isEn ? "DeFi Yields, TVL, Chains - for Yield Tracker." : "DeFi-Yields, TVL, Chains - fuer Yield Tracker.", limit: "Unlimited free" },
+    { name: "Santiment", desc: isEn ? "On-Chain + Sentiment (Whale Alerts, Social Volume)." : "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: isEn ? "100 Calls/month free" : "100 Calls/Monat free" },
+    { name: "HuggingFace", desc: isEn ? "AI Predictions (Inference for Price Forecast)." : "AI-Predictions (Inference fuer Price-Forecast).", limit: "Free Inference" },
+    { name: "Alpha Vantage", desc: isEn ? "Vol-Forecast, Tech Indicators (ATR, Correlations)." : "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
+    { name: "FMP", desc: isEn ? "Cross-Asset Data (Stocks/Crypto Corr)." : "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
+  ];
+};
 
 const SHOW_CRYPTO_EDU_CHAT = true;
 const DATA_SOURCE_LIST = Object.values(dataSources || {});
@@ -131,8 +134,14 @@ const getFormatter = (locale, opts) => {
 };
 
 let activeLocale = "de-DE";
+const params = new URLSearchParams(window.location.search);
+const langParam = params.get("lang");
+if (langParam === "en" || (!langParam && navigator.language.startsWith("en"))) {
+  activeLocale = "en-US";
+}
+
 const setActiveLocale = (locale) => {
-  activeLocale = locale || "en-US";
+  activeLocale = locale || "de-DE";
 };
 
 const formatUSD = (value, locale) => {
@@ -3081,7 +3090,7 @@ function App() {
                   sourceHealth={sourceHealth}
                   apiHealth={apiHealth}
                   dataSourceList={DATA_SOURCE_LIST}
-                  apiSources={API_SOURCES}
+                  apiSources={getApiSources()}
                   apiStatuses={apiStatuses}
                   loadApiPlaybook={loadApiPlaybook}
                   priceValue={priceState.value}
@@ -3574,7 +3583,7 @@ function App() {
                   sourceHealth={sourceHealth}
                   apiHealth={apiHealth}
                   dataSourceList={DATA_SOURCE_LIST}
-                  apiSources={API_SOURCES}
+                  apiSources={getApiSources()}
                   apiStatuses={apiStatuses}
                   loadApiPlaybook={loadApiPlaybook}
                   priceValue={priceState.value}
