@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Strategy Optimizer API (Grid Search)
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Finds optimal strategy parameters through grid search
  * across 1,296+ parameter combinations.
@@ -481,3 +481,4 @@ export default async function handler(
     });
   }
 }
+

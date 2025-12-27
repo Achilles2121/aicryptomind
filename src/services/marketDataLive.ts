@@ -121,7 +121,8 @@ const fetchProxyHtf = async (
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  _onToast?: ToastCb
+  _onToast?: ToastCb,
+  signal?: AbortSignal
 ) => {
   const krakenPair = findProviderSymbol(market, "kraken");
   const url = krakenPair
@@ -132,6 +133,7 @@ const fetchProxyHtf = async (
       serviceName: "MARKET_HTF_PRIMARY",
       timeoutMs: 10000,
       retries: 1,
+      signal,
       onHealthUpdate,
       onLog,
       uiLevel: "status",
@@ -151,6 +153,9 @@ const fetchProxyHtf = async (
     }
     return mapOhlcSeries(rows);
   } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw err;
+    }
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     onHealthUpdate?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     return [];
@@ -162,7 +167,8 @@ const fetchProxyHtfFallback = async (
   interval: number,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  _onToast?: ToastCb
+  _onToast?: ToastCb,
+  signal?: AbortSignal
 ) => {
   const url = apiUrl(`/api/ohlc?asset=${encodeURIComponent(market.id)}&interval=${interval}&limit=240`);
   try {
@@ -170,6 +176,7 @@ const fetchProxyHtfFallback = async (
       serviceName: "MARKET_HTF_FALLBACK",
       timeoutMs: 10000,
       retries: 1,
+      signal,
       onHealthUpdate,
       onLog,
       uiLevel: "status",
@@ -190,6 +197,9 @@ const fetchProxyHtfFallback = async (
     onHealthUpdate?.("MARKET_HTF_FALLBACK", "ok");
     return mapOhlcSeries(rows);
   } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw err;
+    }
     onLog?.("MARKET_HTF_FALLBACK", "warn", err?.message || "fallback HTF failed");
     onHealthUpdate?.("MARKET_HTF_FALLBACK", "warn", err?.message || "fallback HTF failed");
     return [];
@@ -200,7 +210,8 @@ export const fetchHtfOhlc = async (
   assetId?: string,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  onToast?: ToastCb
+  onToast?: ToastCb,
+  signal?: AbortSignal
 ) => {
   const market = getMarket(assetId);
   const tier = getCachedUserTier();
@@ -210,20 +221,20 @@ export const fetchHtfOhlc = async (
   }
   try {
     const [h4Primary, d1Primary] = await Promise.all([
-      fetchProxyHtf(market, 240, onHealthUpdate, onLog, onToast),
-      fetchProxyHtf(market, 1440, onHealthUpdate, onLog, onToast),
+      fetchProxyHtf(market, 240, onHealthUpdate, onLog, onToast, signal),
+      fetchProxyHtf(market, 1440, onHealthUpdate, onLog, onToast, signal),
     ]);
 
     const h4 =
       h4Primary?.length
         ? h4Primary
-        : await fetchProxyHtfFallback(market, 240, onHealthUpdate, onLog, onToast).then((rows) =>
+        : await fetchProxyHtfFallback(market, 240, onHealthUpdate, onLog, onToast, signal).then((rows) =>
             rows.length ? rows : fetchOpenProviderOhlc(market, 240, 240, onHealthUpdate, onLog)
           );
     const d1 =
       d1Primary?.length
         ? d1Primary
-        : await fetchProxyHtfFallback(market, 1440, onHealthUpdate, onLog, onToast).then((rows) =>
+        : await fetchProxyHtfFallback(market, 1440, onHealthUpdate, onLog, onToast, signal).then((rows) =>
             rows.length ? rows : fetchOpenProviderOhlc(market, 1440, 240, onHealthUpdate, onLog)
           );
 
@@ -233,6 +244,9 @@ export const fetchHtfOhlc = async (
     onHealthUpdate?.("MARKET_HTF_FALLBACK", hasDataFallback, hasDataFallback === "ok" ? "" : "HTF fallback used");
     return { h4, d1 };
   } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw err;
+    }
     onLog?.("MARKET_HTF_PRIMARY", "warn", err?.message || "primary HTF failed");
     onHealthUpdate?.("MARKET_HTF_PRIMARY", "error", err?.message || "primary HTF failed");
     return { h4: [], d1: [] };

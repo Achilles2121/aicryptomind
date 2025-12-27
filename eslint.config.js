@@ -21,6 +21,7 @@ export default [
         document: "readonly",
         console: "readonly",
         localStorage: "readonly",
+        AbortSignal: "readonly", // Added to fix linter errors
         AbortController: "readonly",
         fetch: "readonly",
         setTimeout: "readonly",

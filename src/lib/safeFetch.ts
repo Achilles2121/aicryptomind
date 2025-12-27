@@ -69,6 +69,7 @@ export type SafeFetchOptions = RequestInit & {
   onToast?: ToastFn;
   serviceName?: string;
   uiLevel?: "silent" | "status" | "toast";
+  abortKey?: string;
 };
 
 export class AppError extends Error {
@@ -211,6 +212,8 @@ const ensureSourceEnabled = (
   throw disabledError;
 };
 
+const activeAbortControllers = new Map<string, AbortController>();
+
 export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOptions = {}): Promise<T> {
   const {
     retries = 0,
@@ -221,10 +224,37 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
     onToast,
     serviceName,
     uiLevel = "status",
+    abortKey,
+    signal: externalSignal,
     ...rest
   } = init;
 
   let lastErr: Error | null = null;
+  let abortedByUser = false;
+  const requestController = new AbortController();
+  const onRequestAbort = () => {
+    abortedByUser = true;
+  };
+  requestController.signal.addEventListener("abort", onRequestAbort);
+
+  if (abortKey) {
+    const prev = activeAbortControllers.get(abortKey);
+    if (prev) prev.abort();
+    activeAbortControllers.set(abortKey, requestController);
+  }
+
+  const abortFromExternal = () => {
+    abortedByUser = true;
+    requestController.abort();
+  };
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      abortFromExternal();
+    } else {
+      externalSignal.addEventListener("abort", abortFromExternal);
+    }
+  }
+
   const sourceKey = resolveSourceKey(serviceName, input);
   ensureSourceEnabled(sourceKey, serviceName, onHealthUpdate);
   const missingKeys = hasMissingKeys(sourceKey);
@@ -238,12 +268,16 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
   const perfNow = typeof performance !== "undefined" && performance?.now ? () => performance.now() : () => Date.now();
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (requestController.signal.aborted) break;
     const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    requestController.signal.addEventListener("abort", onAbort);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const start = shouldLogPerf ? perfNow() : 0;
     try {
       const res = await fetch(input, { ...rest, signal: controller.signal });
       clearTimeout(timer);
+      requestController.signal.removeEventListener("abort", onAbort);
       const data = (await parseResponse(res)) as T;
       if (shouldLogPerf) {
         const duration = perfNow() - start;
@@ -257,9 +291,15 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
         }
       }
       notifySuccess(sourceKey, serviceName, onHealthUpdate);
+      if (abortKey && activeAbortControllers.get(abortKey) === requestController) {
+        activeAbortControllers.delete(abortKey);
+      }
+      requestController.signal.removeEventListener("abort", onRequestAbort);
+      if (externalSignal) externalSignal.removeEventListener("abort", abortFromExternal);
       return data;
     } catch (err: any) {
       clearTimeout(timer);
+      requestController.signal.removeEventListener("abort", onAbort);
       if (shouldLogPerf) {
         const duration = perfNow() - start;
         if (duration > 1000) {
@@ -272,6 +312,9 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
         }
       }
       lastErr = err instanceof Error ? err : new Error(String(err));
+      if (abortedByUser) {
+        break;
+      }
       const shouldRetry = await handleFailure(lastErr as AppError & { code?: string }, {
         attempt,
         retries,
@@ -285,6 +328,16 @@ export async function safeFetch<T>(input: RequestInfo | URL, init: SafeFetchOpti
       });
       if (!shouldRetry) break;
     }
+  }
+  if (abortKey && activeAbortControllers.get(abortKey) === requestController) {
+    activeAbortControllers.delete(abortKey);
+  }
+  requestController.signal.removeEventListener("abort", onRequestAbort);
+  if (externalSignal) externalSignal.removeEventListener("abort", abortFromExternal);
+  if (abortedByUser && !lastErr) {
+    const abortErr = new AppError("AbortError");
+    abortErr.name = "AbortError";
+    throw abortErr;
   }
   throw lastErr || new Error("fetch failed");
 }

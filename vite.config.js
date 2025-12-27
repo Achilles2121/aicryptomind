@@ -23,12 +23,12 @@ export default defineConfig({
     },
     // Proxy nur aktiv wenn dev:api läuft (Port 5176)
     // Für lokale Tests ohne API: auskommentieren oder vercel dev nutzen
-    // proxy: {
-    //   "/api": {
-    //     target: "http://localhost:5176",
-    //     changeOrigin: true,
-    //   },
-    // },
+    proxy: {
+      "/api": {
+        target: "http://localhost:5176",
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     ssr: false,

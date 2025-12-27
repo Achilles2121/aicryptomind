@@ -1,6 +1,6 @@
 /**
  * Backtest Runner - React Hook
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * Client-side hook for running backtests with caching
  * and historical result comparison.

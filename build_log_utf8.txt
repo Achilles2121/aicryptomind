@@ -1,0 +1,40 @@
+﻿
+> vision-ai-mind@0.0.0 prebuild
+> npm run lint:encoding && npm run lint && npm run typecheck
+
+
+> vision-ai-mind@0.0.0 lint:encoding
+> node scripts/check-encoding.js
+
+node.exe : Encoding 
+issues detected:
+In C:\Users\VISION_AI\
+AppData\Roaming\npm\np
+m.ps1:24 Zeichen:5
++     & "node$exe"  "$
+basedir/node_modules/n
+pm/bin/npm-cli.js" 
+$args
++     ~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (Encoding i   
+ ssues detected::S    
+tring) [], Remote    
+Exception
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+- C:\Users\VISION_AI\D
+esktop\Elite Trader\ap
+i\volatility.ts: 
+├óÔÇáÔÇÖ
+- C:\Users\VISION_AI\D
+esktop\Elite Trader\ap
+i\_disabled\cron\weekl
+y-optimization.ts: 
+├óÔÇáÔÇÖ

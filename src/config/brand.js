@@ -1,5 +1,5 @@
-// Brand Configuration - Elite Trader SaaS Platform
-export const APP_BRAND = "Elite Trader";
+// Brand Configuration - Vision AI Mind SaaS Platform
+export const APP_BRAND = "Vision AI Mind";
 export const APP_TAGLINE = "AI-Powered Trading Intelligence";
 export const APP_DESCRIPTION = "Professional trading dashboard with real-time data, AI signals, and advanced risk management.";
 

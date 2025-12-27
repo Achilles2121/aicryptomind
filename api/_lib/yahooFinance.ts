@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Yahoo Finance Unified Data Service
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Provides OHLC data and current prices for:
  * - Crypto: BTC, ETH, SOL, etc.
@@ -382,3 +382,4 @@ export function getAssetCategory(asset: string): "crypto" | "forex" | "index" | 
   
   return "unknown";
 }
+

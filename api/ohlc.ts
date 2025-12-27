@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Unified OHLC API Endpoint
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Supports ALL assets via Yahoo Finance with fallbacks:
  * - Crypto: BTC, ETH, SOL, etc. (Binance/Kraken fallback)
@@ -498,3 +498,4 @@ export default async function handler(req: Req, res: Res) {
     });
   }
 }
+

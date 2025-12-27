@@ -1,5 +1,5 @@
 /**
- * Vision AI Mind - Elite Trader Signal Logic V4
+ * Vision AI Mind - VisionAIMnd Signal Logic V4
  * 
  * Advanced signal generation with:
  * - Market Structure Shift (MSS) Detection
@@ -13,7 +13,7 @@
  * - 20% Smart Money (liquidity sweeps, institutional footprints)
  * - 20% Technical Indicators (RSI, MACD, trend)
  * 
- * (c) Vision AI Mind - Elite Trader
+ * (c) Vision AI Mind - VisionAIMnd
  */
 
 // ============================================
@@ -992,5 +992,5 @@ export function buildBeginnerSignal(
 
 export default buildSignalsV4;
 
-// Vision AI Mind – Elite Trader
+// Vision AI Mind – VisionAIMnd
 // (c) Vision AI – All rights reserved.

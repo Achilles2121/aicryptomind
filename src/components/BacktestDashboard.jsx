@@ -1,6 +1,6 @@
 /**
  * Backtest Dashboard Component
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * Interactive backtest UI with:
  * - Period selector (1m, 3m, 6m, 1y, 2y)

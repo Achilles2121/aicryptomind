@@ -1,19 +1,19 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Coins, 
-  TrendingUp, 
-  Menu, 
+import {
+  LayoutDashboard,
+  Coins,
+  TrendingUp,
+  Menu,
   X,
-  Brain
+  Brain,
 } from 'lucide-react';
 import { APP_BRAND } from '../config/brand';
 
 const navItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/coins', label: 'Coins', icon: Coins },
+  { path: '/market', label: 'Market', icon: Coins },
+  { path: '/trading/BTCUSD', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/signals', label: 'Signals', icon: TrendingUp },
 ];
 
@@ -26,7 +26,7 @@ export default function Navigation() {
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 text-white font-bold text-xl">
+          <Link to="/market" className="flex items-center gap-2 text-white font-bold text-xl">
             <Brain className="w-8 h-8 text-cyan-400" />
             <span className="hidden sm:inline">{APP_BRAND}</span>
           </Link>
@@ -34,7 +34,10 @@ export default function Navigation() {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
             {navItems.map(({ path, label, icon: Icon }) => {
-              const isActive = location.pathname === path;
+              const isActive =
+                location.pathname === path ||
+                (path.startsWith('/trading') && location.pathname.startsWith('/trading')) ||
+                (path === '/market' && location.pathname.startsWith('/market'));
               return (
                 <Link
                   key={path}
@@ -65,7 +68,10 @@ export default function Navigation() {
         {mobileOpen && (
           <div className="md:hidden py-4 border-t border-slate-800">
             {navItems.map(({ path, label, icon: Icon }) => {
-              const isActive = location.pathname === path;
+              const isActive =
+                location.pathname === path ||
+                (path.startsWith('/trading') && location.pathname.startsWith('/trading')) ||
+                (path === '/market' && location.pathname.startsWith('/market'));
               return (
                 <Link
                   key={path}

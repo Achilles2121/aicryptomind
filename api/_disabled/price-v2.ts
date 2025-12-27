@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Unified Price API Endpoint
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Supports all assets via Yahoo Finance with fallbacks:
  * - Crypto: BTC, ETH, SOL, etc. (CoinGecko fallback)
@@ -327,3 +327,4 @@ export default async function handler(req: Req, res: Res) {
     });
   }
 }
+

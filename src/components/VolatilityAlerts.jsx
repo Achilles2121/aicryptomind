@@ -1,6 +1,6 @@
 /**
  * Volatility Alerts Component
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * Real-time volatility warnings and alerts
  * Integrates with the toast notification system

@@ -1,6 +1,6 @@
 /**
  * Volatility Gauge Component
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * Visual gauge showing volatility score (0-100)
  * with color coding and recommendations

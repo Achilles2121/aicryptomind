@@ -1,0 +1,6 @@
+﻿
+> vision-ai-mind@0.0.0 typecheck
+> tsc --noEmit
+
+src/stores/usePriceStore.ts(397,55): error TS18049: 'entry.binanceSymbol' is possibly 'null' or 'undefined'.
+src/stores/usePriceStore.ts(410,27): error TS18049: 'entry.binanceSymbol' is possibly 'null' or 'undefined'.

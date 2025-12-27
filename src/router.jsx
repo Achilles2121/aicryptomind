@@ -1,60 +1,82 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
 import React, { Suspense, lazy } from 'react';
-import { createBrowserRouter, RouterProvider, Outlet } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Outlet, Navigate } from 'react-router-dom';
 import FullScreenLoader from './components/FullScreenLoader';
-import Navigation from './components/Navigation';
+import AppNavbar from './components/AppNavbar';
+import ErrorBoundary from './components/ErrorBoundary';
+import { DEFAULT_MARKET_ID } from './config/markets';
 
 // Lazy load pages for code splitting
+const MarketTable = lazy(() => import('./features/coins/MarketTable'));
+const PortfolioPage = lazy(() => import('./features/portfolio/PortfolioPage'));
 const CoinList = lazy(() => import('./features/coins/CoinList'));
 const AssetDetail = lazy(() => import('./features/asset/AssetDetail'));
 const SignalsDashboard = lazy(() => import('./features/signals/SignalsDashboard'));
+const TradingDashboard = lazy(() => import('./App'));
 
 // Layout wrapper with navigation for sub-pages (not dashboard)
-function SubPageLayout() {
+function AppLayout() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      <Navigation />
-      <main>
-        <Suspense fallback={<FullScreenLoader />}>
-          <Outlet />
-        </Suspense>
+      <AppNavbar />
+      <main className="pb-16 md:pb-0">
+        <ErrorBoundary>
+          <Suspense fallback={<FullScreenLoader />}>
+            <Outlet />
+          </Suspense>
+        </ErrorBoundary>
       </main>
     </div>
   );
 }
 
-// Router configuration - Dashboard is at root without navigation overlay
-// Sub-pages have their own navigation
+function DashboardRoute() {
+  return (
+    <Suspense fallback={<FullScreenLoader />}>
+      <TradingDashboard />
+    </Suspense>
+  );
+}
+
+// Router configuration - Dashboard is at /trading/:assetId, sub-pages share navigation
 export const router = createBrowserRouter([
   {
-    path: '/coins',
-    element: <SubPageLayout />,
+    path: '/',
+    element: <AppLayout />,
     children: [
       {
         index: true,
+        element: <MarketTable />,
+      },
+      {
+        path: 'portfolio',
+        element: <PortfolioPage />,
+      },
+      {
+        path: 'trading/:assetId',
+        element: <DashboardRoute />,
+      },
+      {
+        path: 'coins',
         element: <CoinList />,
       },
-    ],
-  },
-  {
-    path: '/asset/:symbol',
-    element: <SubPageLayout />,
-    children: [
       {
-        index: true,
+        path: 'asset/:symbol',
         element: <AssetDetail />,
       },
-    ],
-  },
-  {
-    path: '/signals',
-    element: <SubPageLayout />,
-    children: [
       {
-        index: true,
+        path: 'signals',
         element: <SignalsDashboard />,
       },
     ],
+  },
+  {
+    path: '/trading',
+    element: <Navigate to={`/trading/${DEFAULT_MARKET_ID}`} replace />,
+  },
+  {
+    path: '/market',
+    element: <Navigate to="/" replace />,
   },
 ]);
 

@@ -1,0 +1,76 @@
+﻿
+> vision-ai-mind@0.0.0 test:unit
+> node tests/engine.test.js
+
+node.exe : node:intern
+al/modules/esm/resolve
+:274
+In C:\Users\VISION_AI\
+AppData\Roaming\npm\np
+m.ps1:24 Zeichen:5
++     & "node$exe"  "$
+basedir/node_modules/n
+pm/bin/npm-cli.js" 
+$args
++     ~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (node:inter   
+ nal/modules/esm/r    
+esolve:274:String    
+) [], RemoteExcep    
+tion
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+    throw new 
+ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_
+FOUND]: Cannot find 
+module 'C:\Users\VISIO
+N_AI\Desktop\Elite Tra
+der\api\etf\correlatio
+ns.ts' imported from C
+:\Users\VISION_AI\Desk
+top\Elite Trader\tests
+\engine.test.js
+    at 
+finalizeResolution (no
+de:internal/modules/es
+m/resolve:274:11)
+    at moduleResolve (
+node:internal/modules/
+esm/resolve:864:10)
+    at defaultResolve 
+(node:internal/modules
+/esm/resolve:990:11)
+    at 
+#cachedDefaultResolve 
+(node:internal/modules
+/esm/loader:737:20)
+    at 
+ModuleLoader.resolve (
+node:internal/modules/
+esm/loader:714:38)
+    at ModuleLoader.ge
+tModuleJobForImport (n
+ode:internal/modules/e
+sm/loader:293:38)
+    at #link (node:int
+ernal/modules/esm/modu
+le_job:208:49) {
+  code: 'ERR_MODULE_NO
+T_FOUND',
+  url: 'file:///C:/Use
+rs/VISION_AI/Desktop/E
+lite%20Trader/api/etf/
+correlations.ts'
+}
+
+Node.js v24.11.1

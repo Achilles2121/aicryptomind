@@ -24,13 +24,19 @@ const relayHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: Health
   }
 };
 
-export async function fetchEtfFlowSeriesLive(symbols: string[], onHealthUpdate?: HealthFn, onToast?: ToastFn): Promise<LiveFlowSeries[]> {
+export async function fetchEtfFlowSeriesLive(
+  symbols: string[],
+  onHealthUpdate?: HealthFn,
+  onToast?: ToastFn,
+  signal?: AbortSignal
+): Promise<LiveFlowSeries[]> {
   const params = new URLSearchParams();
   if (symbols?.length) params.set("symbols", symbols.join(","));
   const response = await safeFetch<ProxyResponse>(`/api/etf/flows?${params.toString()}`, {
     serviceName: "ETF_PROXY_FLOWS",
     timeoutMs: 12000,
     retries: 0,
+    signal,
     onHealthUpdate,
   });
   relayHealth(response?.health, onHealthUpdate);

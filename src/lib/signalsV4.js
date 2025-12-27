@@ -1,6 +1,6 @@
 /**
  * Signals V4 - Volatility-Enhanced Signal Generator
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * Enhanced signal generation with:
  * - Real-time volatility analysis
@@ -17,6 +17,7 @@
 
 import { computeDailyRiskGate, clampConfidence } from "./riskEngine.js";
 import { buildFundamentalSnapshot, computeFundamentalScore } from "./fundamentals";
+import { computeFibRetracements } from "./multiTpSlEngine.js";
 import {
   evaluateTrendSetup,
   evaluateBreakoutSetup,
@@ -50,6 +51,58 @@ const VOLATILITY_CONFIDENCE_MULTIPLIERS = {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+
+const getFib618Context = (indicatorSeries = [], priceRef = null) => {
+  if (!indicatorSeries.length) {
+    return { level: null, distancePct: null, near: false };
+  }
+  const highs = indicatorSeries.map((c) => c.high).filter(Number.isFinite);
+  const lows = indicatorSeries.map((c) => c.low).filter(Number.isFinite);
+  if (!highs.length || !lows.length) {
+    return { level: null, distancePct: null, near: false };
+  }
+  const maxHigh = Math.max(...highs);
+  const minLow = Math.min(...lows);
+  const fibLevels = computeFibRetracements(maxHigh, minLow, "up");
+  const fib618 = fibLevels.find((lvl) => lvl.ratio === 0.618)?.price ?? null;
+  const distancePct =
+    Number.isFinite(fib618) && Number.isFinite(priceRef) && priceRef
+      ? Math.abs(priceRef - fib618) / priceRef
+      : null;
+  const near = distancePct !== null && distancePct <= 0.012;
+  return { level: fib618, distancePct, near };
+};
+
+export const calculateVisionSignal = ({
+  indicatorSeries = [],
+  indicators = {},
+  displayPrice,
+  fearGreedValue,
+}) => {
+  const rsi = indicators?.rsi;
+  const last = indicatorSeries[indicatorSeries.length - 1];
+  const priceRef = Number.isFinite(displayPrice) ? displayPrice : last?.close;
+  const fibContext = getFib618Context(indicatorSeries, priceRef);
+  const fearGreedScore = Number.isFinite(Number(fearGreedValue)) ? Number(fearGreedValue) : null;
+
+  if (Number.isFinite(rsi) && rsi < 35 && fibContext.near) {
+    return {
+      label: "ULTRA BUY",
+      reason: "RSI < 35 and price near Fib 0.618",
+      meta: { rsi, fibLevel: fibContext.level, fibDistancePct: fibContext.distancePct },
+    };
+  }
+
+  if (Number.isFinite(rsi) && rsi > 70 && fearGreedScore !== null && fearGreedScore > 80) {
+    return {
+      label: "STRONG SELL",
+      reason: "Fear & Greed > 80 and RSI > 70",
+      meta: { rsi, fearGreedScore },
+    };
+  }
+
+  return null;
+};
 
 const deriveSetupWinrate = (backtestStats, setup) => {
   if (!backtestStats) return 0.55;
@@ -568,6 +621,7 @@ export const buildAISignalV4 = ({
   displayPrice, 
   takeProfitPrice, 
   stopLossPrice,
+  sentimentScore = null,
   volatilityData = null,
 }) => {
   if (!indicatorSeries.length || !displayPrice) {
@@ -590,6 +644,18 @@ export const buildAISignalV4 = ({
   const upper = last?.bollUpper;
   const lower = last?.bollLower;
   const atrPct = Number.isFinite(last?.atrPct) ? last.atrPct : null;
+  const priceRef = Number.isFinite(displayPrice) ? displayPrice : close;
+  const fibContext = getFib618Context(indicatorSeries, priceRef);
+  const fibDistancePct = fibContext.distancePct;
+  const nearFib618 = fibContext.near;
+  const normalizedSentiment = Number.isFinite(sentimentScore) ? Math.max(0, Math.min(100, sentimentScore)) : null;
+  const sentimentWeight = normalizedSentiment !== null ? clampConfidence(normalizedSentiment / 100) : 0.5;
+  const rsiWeight = Number.isFinite(rsi) ? clampConfidence(1 - rsi / 100) : 0.5;
+  const fibWeight = fibDistancePct !== null ? clampConfidence(1 - fibDistancePct / 0.02) : 0.5;
+  const compositeScore = (sentimentWeight + rsiWeight + fibWeight) / 3;
+  const scoreNotes = [];
+  if (normalizedSentiment !== null) scoreNotes.push(`Sentiment ${Math.round(normalizedSentiment)}`);
+  if (fibDistancePct !== null) scoreNotes.push(`FibDelta ${(fibDistancePct * 100).toFixed(2)}%`);
   
   // Volatility analysis
   let volClassification = 'MED';
@@ -627,7 +693,15 @@ export const buildAISignalV4 = ({
   let tp = takeProfitPrice;
   let sl = stopLossPrice;
   
-  if (rsi !== null && rsi < 30 && macdDiff !== null && macdDiff > 0) {
+  if (nearFib618 && rsi !== null && rsi < 30) {
+    action = "High Probability Buy";
+    reason = "RSI < 30 nahe 0.618 Fib";
+    confidence = 0.78;
+    
+    const stops = calculateAdaptiveTPSL(close, "long", volatilityData, atrPct);
+    tp = tp || stops.tp || (close ? close * 1.06 : null);
+    sl = sl || stops.sl || (close ? close * 0.975 : null);
+  } else if (rsi !== null && rsi < 30 && macdDiff !== null && macdDiff > 0) {
     action = "Kaufen";
     reason = "RSI < 30 und MACD bullisch";
     confidence = 0.68;
@@ -660,6 +734,12 @@ export const buildAISignalV4 = ({
     sl = sl || close;
   }
   
+  // Blend in composite score (sentiment + rsi + fib distance)
+  confidence = clampConfidence((confidence + compositeScore) / 2, 0.95);
+  if (scoreNotes.length) {
+    reason = `${reason} | ${scoreNotes.join(" | ")}`;
+  }
+
   // Apply volatility adjustment to confidence
   confidence *= volMultiplier;
   

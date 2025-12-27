@@ -25,13 +25,19 @@ const relayHealth = (entries: ProxyHealth[] | undefined, onHealthUpdate?: Health
   }
 };
 
-export async function fetchEtfHoldingsLive(symbols: string[], onHealthUpdate?: HealthFn, onToast?: ToastFn): Promise<LiveHolding[]> {
+export async function fetchEtfHoldingsLive(
+  symbols: string[],
+  onHealthUpdate?: HealthFn,
+  onToast?: ToastFn,
+  signal?: AbortSignal
+): Promise<LiveHolding[]> {
   const params = new URLSearchParams();
   if (symbols?.length) params.set("symbols", symbols.join(","));
   const response = await safeFetch<ProxyResponse>(`/api/etf/holdings?${params.toString()}`, {
     serviceName: "ETF_PROXY_HOLDINGS",
     timeoutMs: 12000,
     retries: 0,
+    signal,
     onHealthUpdate,
   });
   relayHealth(response?.health, onHealthUpdate);

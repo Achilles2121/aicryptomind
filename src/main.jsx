@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import AppRouter from "./router";
 import "./index.css";
 import { UserTierProvider } from "./context/UserTierContext";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -12,7 +12,7 @@ root.render(
   <ErrorBoundary>
     <React.StrictMode>
       <UserTierProvider>
-        <App />
+        <AppRouter />
       </UserTierProvider>
     </React.StrictMode>
   </ErrorBoundary>

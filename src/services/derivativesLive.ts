@@ -37,7 +37,8 @@ export const fetchDerivativesLive = async (
   symbolId: string = DEFAULT_SYMBOL,
   onHealthUpdate?: HealthCb,
   onLog?: LogCb,
-  _onToast?: ToastCb
+  _onToast?: ToastCb,
+  signal?: AbortSignal
 ) => {
   const tier = getCachedUserTier();
   if (tier !== "pro" && tier !== "elite") {
@@ -62,6 +63,7 @@ export const fetchDerivativesLive = async (
       serviceName: "DERIVATIVES_PRIMARY",
       timeoutMs: 12000,
       retries: 1,
+      signal,
       onHealthUpdate,
       onLog,
       uiLevel: "status",
@@ -89,6 +91,9 @@ export const fetchDerivativesLive = async (
       updatedAt: Date.now(),
     };
   } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw err;
+    }
     const fallback = await fetchFromOpenProviders(symbolId, onHealthUpdate, onLog);
     if (fallback) {
       onHealthUpdate?.("DERIVATIVES_PRIMARY", "ok");

@@ -18,10 +18,13 @@ const TradingViewChart = memo(function TradingViewChart({
   showToolbar = true,
   showVolume = true,
   studies = [],
+  overrides = {},
+  studiesOverrides = {},
   containerClassName = "",
 }) {
   const containerRef = useRef(null);
   const scriptLoadedRef = useRef(false);
+  const lastSymbolRef = useRef("");
   
   // Symbol-Mapping: UI-Name -> TradingView-Ticker
   const tvSymbol = useMemo(() => {
@@ -31,17 +34,50 @@ const TradingViewChart = memo(function TradingViewChart({
     return getTVSymbol(symbol);
   }, [symbol]);
 
-  // Stabilisiere studies array
-  const studiesKey = useMemo(() => JSON.stringify(studies), [studies]);
+  const widgetConfig = useMemo(
+    () => ({
+      autosize: true,
+      symbol: tvSymbol,
+      interval: String(interval),
+      timezone: "Europe/Berlin",
+      theme: theme,
+      style: "1",
+      locale: "de_DE",
+      allow_symbol_change: true,
+      hide_top_toolbar: !showToolbar,
+      hide_legend: false,
+      hide_side_toolbar: false,
+      save_image: false,
+      withdateranges: true,
+      hide_volume: !showVolume,
+      calendar: false,
+      details: false,
+      hotlist: false,
+      studies: studies,
+      overrides: overrides,
+      studies_overrides: studiesOverrides,
+      support_host: "https://www.tradingview.com",
+    }),
+    [tvSymbol, interval, theme, showToolbar, showVolume, studies, overrides, studiesOverrides]
+  );
+  const widgetConfigRef = useRef(widgetConfig);
+
+  useEffect(() => {
+    widgetConfigRef.current = widgetConfig;
+  }, [widgetConfig]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Verhindere mehrfaches Laden
-    if (scriptLoadedRef.current && container.querySelector(".tradingview-widget-container")) {
+    if (lastSymbolRef.current === tvSymbol && container.querySelector(".tradingview-widget-container")) {
       return;
     }
+
+    lastSymbolRef.current = tvSymbol;
+
+    // Verhindere mehrfaches Laden
+    // Rebuild nur wenn Config sich geaendert hat (configKeyRef)
 
     // Komplett leeren
     container.innerHTML = "";
@@ -67,29 +103,7 @@ const TradingViewChart = memo(function TradingViewChart({
     script.async = true;
 
     // Widget-Konfiguration
-    const widgetConfig = {
-      autosize: true,
-      symbol: tvSymbol,
-      interval: String(interval),
-      timezone: "Europe/Berlin",
-      theme: theme,
-      style: "1",
-      locale: "de_DE",
-      allow_symbol_change: true,
-      hide_top_toolbar: !showToolbar,
-      hide_legend: false,
-      hide_side_toolbar: false,
-      save_image: false,
-      withdateranges: true,
-      hide_volume: !showVolume,
-      calendar: false,
-      details: false,
-      hotlist: false,
-      studies: studies,
-      support_host: "https://www.tradingview.com",
-    };
-    
-    script.innerHTML = JSON.stringify(widgetConfig);
+    script.innerHTML = JSON.stringify(widgetConfigRef.current);
     
     script.onload = () => {
       scriptLoadedRef.current = true;
@@ -112,7 +126,7 @@ const TradingViewChart = memo(function TradingViewChart({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tvSymbol, interval, theme, showToolbar, showVolume, studiesKey]);
+  }, [tvSymbol]);
 
   return (
     <div 
@@ -131,7 +145,7 @@ const TradingViewChart = memo(function TradingViewChart({
       />
     </div>
   );
-});
+}, (prevProps, nextProps) => prevProps.symbol === nextProps.symbol);
 
 TradingViewChart.propTypes = {
   symbol: PropTypes.string,
@@ -141,6 +155,8 @@ TradingViewChart.propTypes = {
   showToolbar: PropTypes.bool,
   showVolume: PropTypes.bool,
   studies: PropTypes.arrayOf(PropTypes.string),
+  overrides: PropTypes.object,
+  studiesOverrides: PropTypes.object,
   containerClassName: PropTypes.string,
 };
 

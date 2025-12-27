@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Volatility API Endpoint
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Multi-Asset Volatility Analysis with:
  * - ATR (Average True Range) calculation
@@ -9,7 +9,7 @@
  * - GARCH(1,1) Forecast (4h/24h)
  * - Composite Volatility Score (0-100)
  * 
- * Designed to improve win-rate from 55% → 67%
+ * Designed to improve win-rate from 55% -> 67%
  */
 
 // ============================================
@@ -20,12 +20,19 @@ type Req = {
   query?: Record<string, string | string[]>;
   headers?: Record<string, string>;
   method?: string;
+  on?: (event: string, handler: () => void) => void;
+  off?: (event: string, handler: () => void) => void;
+  removeListener?: (event: string, handler: () => void) => void;
 };
 
 type Res = {
   status: (code: number) => Res;
   json: (body: unknown) => void;
   setHeader?: (name: string, value: string) => void;
+  writableEnded?: boolean;
+  on?: (event: string, handler: () => void) => void;
+  off?: (event: string, handler: () => void) => void;
+  removeListener?: (event: string, handler: () => void) => void;
 };
 
 interface OHLC {
@@ -91,6 +98,10 @@ const VOLATILITY_THRESHOLDS: Record<string, { low: number; med: number; high: nu
   commodity: { low: 25, med: 60, high: 80 },
 };
 
+const COINGECKO_API = "https://api.coingecko.com/api/v3";
+const COINGECKO_CACHE_TTL = 60 * 1000;
+const REQUEST_DEBOUNCE_MS = 250;
+
 // ============================================
 // YAHOO FINANCE SYMBOL MAPPING
 // ============================================
@@ -109,6 +120,45 @@ const YAHOO_SYMBOLS: Record<string, string> = {
   // Commodities
   GOLD: "GC=F", XAUUSD: "GC=F", SILVER: "SI=F", XAGUSD: "SI=F",
   OIL: "CL=F", USOIL: "CL=F", NATGAS: "NG=F",
+};
+
+const COINGECKO_IDS: Record<string, string> = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  SOL: "solana",
+  XRP: "ripple",
+  DOGE: "dogecoin",
+  ADA: "cardano",
+  DOT: "polkadot",
+  AVAX: "avalanche-2",
+  MATIC: "matic-network",
+  LINK: "chainlink",
+  UNI: "uniswap",
+  LTC: "litecoin",
+};
+
+type CoinGeckoCache = {
+  data: OHLC[] | null;
+  ts: number;
+  key: string;
+};
+
+let coinGeckoCache: CoinGeckoCache = { data: null, ts: 0, key: "" };
+const inflightRequests = new Map<string, { startedAt: number; controller: AbortController; promise: Promise<OHLC[]> }>();
+
+const getYahooSymbol = (symbol: string): string => {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (YAHOO_SYMBOLS[normalized]) return YAHOO_SYMBOLS[normalized];
+  if (normalized.endsWith("USD") && normalized.length > 3) {
+    return `${normalized.slice(0, -3)}-USD`;
+  }
+  return `${normalized}-USD`;
+};
+
+const getCoinGeckoId = (symbol: string): string | null => {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const stripped = normalized.replace(/USDT?$/, "");
+  return COINGECKO_IDS[normalized] || COINGECKO_IDS[stripped] || null;
 };
 
 // ============================================
@@ -307,9 +357,36 @@ function getRecommendation(
 // FETCH OHLC DATA
 // ============================================
 
-async function fetchOHLCData(symbol: string, interval: string, lookback: number): Promise<OHLC[]> {
+async function fetchCoinGeckoOHLC(symbol: string, lookback: number, signal?: AbortSignal): Promise<OHLC[]> {
+  const id = getCoinGeckoId(symbol);
+  if (!id) return [];
+  const days = lookback >= 365 ? "365" : lookback >= 180 ? "180" : lookback >= 90 ? "90" : lookback >= 30 ? "30" : lookback >= 14 ? "14" : lookback >= 7 ? "7" : "1";
+  const cacheKey = `${id}:${days}`;
+  if (coinGeckoCache.data && coinGeckoCache.key === cacheKey && Date.now() - coinGeckoCache.ts < COINGECKO_CACHE_TTL) {
+    return coinGeckoCache.data;
+  }
+  const url = `${COINGECKO_API}/coins/${id}/ohlc?vs_currency=usd&days=${days}`;
+
+  try {
+    const response = await fetch(url, { signal });
+    if (!response.ok) {
+      return [];
+    }
+    const data = await response.json() as Array<[number, number, number, number, number]>;
+    if (!Array.isArray(data)) return [];
+    const candles = data.map(([t, o, h, l, c]) => ({ t, o, h, l, c, v: 0 }));
+    const sliced = candles.slice(-lookback);
+    coinGeckoCache = { data: sliced, ts: Date.now(), key: cacheKey };
+    return sliced;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") return [];
+    return [];
+  }
+}
+
+async function fetchOHLCData(symbol: string, interval: string, lookback: number, signal?: AbortSignal): Promise<OHLC[]> {
   const normalizedSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const yahooSymbol = YAHOO_SYMBOLS[normalizedSymbol] || `${normalizedSymbol}-USD`;
+  const yahooSymbol = getYahooSymbol(normalizedSymbol);
 
   // Map interval to Yahoo Finance format
   const intervalMap: Record<string, string> = {
@@ -331,73 +408,107 @@ async function fetchOHLCData(symbol: string, interval: string, lookback: number)
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${yahooInterval}&range=${range}`;
 
   try {
+    const key = `${normalizedSymbol}:${yahooInterval}:${lookback}`;
+    const now = Date.now();
+    const inflight = inflightRequests.get(key);
+    if (inflight && now - inflight.startedAt < REQUEST_DEBOUNCE_MS) {
+      return inflight.promise;
+    }
+    if (inflight) {
+      inflight.controller.abort();
+      inflightRequests.delete(key);
+    }
+
     const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        signal.addEventListener("abort", onAbort);
+      }
+    }
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(url, {
+    const requestPromise = fetch(url, {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      throw new Error(`Yahoo Finance API failed: ${response.status}`);
-    }
-
-    const data = await response.json() as {
-      chart?: {
-        result?: Array<{
-          timestamp?: number[];
-          indicators?: {
-            quote?: Array<{
-              open?: number[];
-              high?: number[];
-              low?: number[];
-              close?: number[];
-              volume?: number[];
+    })
+      .then(async (response) => {
+        clearTimeout(timeout);
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        if (response.status === 404) {
+          return [] as OHLC[];
+        }
+        if (!response.ok) {
+          throw new Error(`Yahoo Finance API failed: ${response.status}`);
+        }
+        const data = await response.json() as {
+          chart?: {
+            result?: Array<{
+              timestamp?: number[];
+              indicators?: {
+                quote?: Array<{
+                  open?: number[];
+                  high?: number[];
+                  low?: number[];
+                  close?: number[];
+                  volume?: number[];
+                }>;
+              };
             }>;
+            error?: { description?: string };
           };
-        }>;
-        error?: { description?: string };
-      };
-    };
+        };
+        if (data.chart?.error) {
+          throw new Error(data.chart.error.description || 'Yahoo API error');
+        }
+        const result = data.chart?.result?.[0];
+        if (!result?.timestamp || !result.indicators?.quote?.[0]) {
+          throw new Error('No data returned');
+        }
+        const timestamps = result.timestamp;
+        const quote = result.indicators.quote[0];
+        const candles: OHLC[] = [];
+        for (let i = 0; i < timestamps.length && candles.length < lookback; i++) {
+          const o = quote.open?.[i];
+          const h = quote.high?.[i];
+          const l = quote.low?.[i];
+          const c = quote.close?.[i];
+          const v = quote.volume?.[i];
+          if (o != null && h != null && l != null && c != null) {
+            candles.push({
+              t: timestamps[i] * 1000,
+              o, h, l, c,
+              v: v || 0,
+            });
+          }
+        }
+        return candles.slice(-lookback);
+      })
+      .finally(() => {
+        clearTimeout(timeout);
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        inflightRequests.delete(key);
+      });
 
-    if (data.chart?.error) {
-      throw new Error(data.chart.error.description || 'Yahoo API error');
-    }
+    inflightRequests.set(key, { startedAt: now, controller, promise: requestPromise });
 
-    const result = data.chart?.result?.[0];
-    if (!result?.timestamp || !result.indicators?.quote?.[0]) {
-      throw new Error('No data returned');
-    }
-
-    const timestamps = result.timestamp;
-    const quote = result.indicators.quote[0];
-
-    const candles: OHLC[] = [];
-    for (let i = 0; i < timestamps.length && candles.length < lookback; i++) {
-      const o = quote.open?.[i];
-      const h = quote.high?.[i];
-      const l = quote.low?.[i];
-      const c = quote.close?.[i];
-      const v = quote.volume?.[i];
-
-      if (o != null && h != null && l != null && c != null) {
-        candles.push({
-          t: timestamps[i] * 1000,
-          o, h, l, c,
-          v: v || 0,
-        });
-      }
-    }
-
-    return candles.slice(-lookback);
+    const yahooCandles = await requestPromise;
+    if (yahooCandles.length > 0) return yahooCandles;
+    const fallbackCandles = await fetchCoinGeckoOHLC(normalizedSymbol, lookback, signal);
+    return fallbackCandles;
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") return [];
     console.error(`[Volatility API] Yahoo fetch failed for ${symbol}:`, error);
-    return [];
+    const fallbackCandles = await fetchCoinGeckoOHLC(normalizedSymbol, lookback, signal);
+    return fallbackCandles;
   }
 }
 
@@ -458,6 +569,32 @@ async function fetchSentimentData(symbol: string): Promise<{
 // ============================================
 
 export default async function handler(req: Req, res: Res): Promise<void> {
+  const cleanupListeners: Array<() => void> = [];
+  const attachListener = (target: Req | Res, event: string, handler: () => void) => {
+    if (target?.on) {
+      target.on(event, handler);
+      cleanupListeners.push(() => {
+        if (target.off) {
+          target.off(event, handler);
+        } else if (target.removeListener) {
+          target.removeListener(event, handler);
+        }
+      });
+    }
+  };
+  const requestController = new AbortController();
+  const onClose = () => {
+    requestController.abort();
+  };
+  attachListener(req, "aborted", onClose);
+  attachListener(req, "close", onClose);
+  attachListener(res, "close", onClose);
+
+  const sendJson = (status: number, body: unknown) => {
+    if (res.writableEnded) return;
+    res.status(status).json(body);
+  };
+
   // CORS headers
   if (res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -467,7 +604,9 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).json({ ok: true });
+    sendJson(200, { ok: true });
+    cleanupListeners.forEach((cleanup) => cleanup());
+    return;
   }
 
   const rawSymbol = (req.query?.symbol as string) || 'BTC';
@@ -479,10 +618,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
 
   try {
     // Fetch OHLC data
-    const candles = await fetchOHLCData(symbol, interval, lookback);
+    const candles = await fetchOHLCData(symbol, interval, lookback, requestController.signal);
 
     if (candles.length < 20) {
-      return res.status(200).json({
+      sendJson(200, {
         symbol,
         timestamp: Date.now(),
         volatilityScore: 50,
@@ -500,6 +639,8 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         assetType,
         error: 'Insufficient data for volatility calculation',
       });
+      cleanupListeners.forEach((cleanup) => cleanup());
+      return;
     }
 
     // Calculate all volatility metrics
@@ -559,12 +700,21 @@ export default async function handler(req: Req, res: Res): Promise<void> {
       sentiment: sentiment.fearGreed !== null ? sentiment : undefined,
     };
 
-    return res.status(200).json(response);
+    sendJson(200, response);
+    cleanupListeners.forEach((cleanup) => cleanup());
+    return;
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      cleanupListeners.forEach((cleanup) => cleanup());
+      return;
+    }
     console.error('[Volatility API] Error:', error);
-    return res.status(500).json({
+    sendJson(500, {
       error: 'Volatility calculation failed',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
+    cleanupListeners.forEach((cleanup) => cleanup());
+    return;
   }
 }
+

@@ -1,6 +1,6 @@
-/**
+﻿/**
  * ETF Correlations API
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Returns correlation data between ETFs and BTC price
  * Uses simulated data since real correlation requires historical price data
@@ -79,3 +79,4 @@ export default async function handler(req, res) {
     });
   }
 }
+

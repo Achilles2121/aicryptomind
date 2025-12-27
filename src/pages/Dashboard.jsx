@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { PriceChart } from "../features/charts/PriceChart";
 import { OhlcChart } from "../features/charts/OhlcChart";
 import { IndicatorChart } from "../features/charts/IndicatorChart";
@@ -11,7 +11,9 @@ import { RiskPanel } from "../features/risk/RiskPanel";
 import { PlanSelector } from "../features/settings/PlanSelector";
 import { Section } from "../components/Section";
 import { Badge } from "../components/Badge";
+import FearGreedGauge from "../components/FearGreedGauge";
 import { SubscriptionContext } from "../context/SubscriptionContext";
+import { APP_BRAND } from "../config/brand";
 
 const symbols = [
   { id: "BTCUSDT", label: "BTC" },
@@ -22,12 +24,40 @@ const symbols = [
 export function Dashboard() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const subscription = useContext(SubscriptionContext);
+  const [fearGreed, setFearGreed] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadFearGreed = async () => {
+      try {
+        const response = await fetch("https://api.alternative.me/fng/?limit=1&format=json");
+        const payload = await response.json();
+        const item = payload?.data?.[0];
+        if (!item || !active) return;
+        setFearGreed({
+          value: Number(item.value),
+          classification: item.value_classification || "Neutral",
+          updatedAt: Number(item.timestamp) * 1000,
+          source: "alternative.me",
+        });
+      } catch {
+        if (active) setFearGreed(null);
+      }
+    };
+    loadFearGreed();
+    const timer = setInterval(loadFearGreed, 60_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
 
   return (
     <div className="space-y-8">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Elite Trader</h1>
+          <h1 className="text-2xl font-bold text-white">{APP_BRAND}</h1>
           <p className="text-sm text-slate-400">
             Serverless, real-time market desk with indicator overlays and ETF intelligence.
           </p>
@@ -35,6 +65,13 @@ export function Dashboard() {
             <Badge tone="green">Stable</Badge>
             <Badge tone="blue">Realtime</Badge>
             <Badge tone="amber">Serverless</Badge>
+          </div>
+          <div className="mt-4">
+            <FearGreedGauge
+              value={fearGreed?.value}
+              classification={fearGreed?.classification}
+              className="w-[260px]"
+            />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">

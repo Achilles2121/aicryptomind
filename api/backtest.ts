@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Backtesting Simulator API
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Simulates trading strategy against historical data
  * with walk-forward validation and comprehensive metrics.
@@ -760,3 +760,4 @@ export default async function handler(
     });
   }
 }
+

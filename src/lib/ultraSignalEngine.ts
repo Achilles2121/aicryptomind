@@ -8,9 +8,9 @@
  * 
  * Philosophie: 
  * - Andere Plattformen: Viele Signale, moderate Win-Rate
- * - Elite Trader: WENIGE Signale, EXTREME Win-Rate
+ * - VisionAIMnd: WENIGE Signale, EXTREME Win-Rate
  * 
- * (c) Vision AI Mind - Elite Trader
+ * (c) Vision AI Mind - VisionAIMnd
  */
 
 import buildSignalsV4, { 
@@ -412,7 +412,7 @@ export interface UltraStats {
 }
 
 /**
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * UNSERE PHILOSOPHIE:
  * "Wir handeln nur wenn ALLES stimmt"

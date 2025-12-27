@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Real-Time Sentiment API
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - Vision AI Mind
  * 
  * Combines multiple data sources for real-time market sentiment:
  * - Binance Futures Long/Short Ratio (5-minute updates)
@@ -332,3 +332,4 @@ export default async function handler(req: Req, res: Res) {
     });
   }
 }
+

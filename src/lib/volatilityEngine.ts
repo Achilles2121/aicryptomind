@@ -1,6 +1,6 @@
 /**
  * Volatility Engine - Client-Side
- * Vision AI Mind - Elite Trader
+ * Vision AI Mind - VisionAIMnd
  * 
  * Client-side volatility analysis with:
  * - API caching (1 minute TTL)
