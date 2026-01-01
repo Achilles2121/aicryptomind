@@ -20,7 +20,6 @@ export const cryptoDataService = {
         } catch (err) {
             if (err?.name === "AbortError") throw err;
             console.error("on-chain fallback", err);
-            // eslint-disable-next-line no-unused-expressions
             onHealthUpdate?.("glassnode", "degraded", err.message);
             return { active: 125000, supplyWhales: 0.6, supplyRetail: 0.4, updatedAt: Date.now() };
         }
@@ -41,7 +40,6 @@ export const cryptoDataService = {
         } catch (err) {
             if (err?.name === "AbortError") throw err;
             console.error("sentiment fallback", err);
-            // eslint-disable-next-line no-unused-expressions
             onHealthUpdate?.("santiment", "degraded", err.message);
             return { score: 68, label: "Social Score", updatedAt: Date.now() };
         }
@@ -67,7 +65,6 @@ export const cryptoDataService = {
         } catch (err) {
             if (err?.name === "AbortError") throw err;
             console.error("correlation fallback", err);
-            // eslint-disable-next-line no-unused-expressions
             onHealthUpdate?.("coingecko", "degraded", err.message);
             return [];
         }

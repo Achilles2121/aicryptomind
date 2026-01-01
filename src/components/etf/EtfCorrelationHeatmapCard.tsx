@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { Activity } from "lucide-react";
+import { safeFixed } from "../../lib/safeFixed";
 
 export interface CorrelationPoint {
   pair: string;
@@ -25,7 +26,7 @@ const colorFor = (val: number | null) => {
   return "bg-slate-700 text-slate-100";
 };
 
-const formatVal = (v: number | null) => (v === null || v === undefined ? "N/A" : v.toFixed(2));
+const formatVal = (v: number | null) => (v === null || v === undefined ? "N/A" : safeFixed(v, 2));
 
 let lastCorrelationData: CorrelationPoint[] = [];
 let lastUpdated: string | null = null;

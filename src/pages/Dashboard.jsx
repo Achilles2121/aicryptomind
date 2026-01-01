@@ -14,15 +14,30 @@ import { Badge } from "../components/Badge";
 import FearGreedGauge from "../components/FearGreedGauge";
 import { SubscriptionContext } from "../context/SubscriptionContext";
 import { APP_BRAND } from "../config/brand";
+import { DASHBOARD_ASSETS, ASSET_CLASS_LABELS } from "../config/assets";
 
-const symbols = [
-  { id: "BTCUSDT", label: "BTC" },
-  { id: "ETHUSDT", label: "ETH" },
-  { id: "SOLUSDT", label: "SOL" },
-];
+// Group assets by class for organized display
+const assetGroups = {
+  crypto: DASHBOARD_ASSETS.filter(a => a.assetClass === "crypto"),
+  commodity: DASHBOARD_ASSETS.filter(a => a.assetClass === "commodity"),
+  forex: DASHBOARD_ASSETS.filter(a => a.assetClass === "forex"),
+};
+
+// Color mappings for asset classes
+const TAB_COLORS = {
+  crypto: "bg-emerald-600 text-white",
+  commodity: "bg-amber-600 text-white",
+  forex: "bg-blue-600 text-white",
+};
+const BUTTON_COLORS = {
+  crypto: "bg-emerald-500 text-white",
+  commodity: "bg-amber-500 text-white",
+  forex: "bg-blue-500 text-white",
+};
 
 export function Dashboard() {
-  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [symbol, setSymbol] = useState("BTCUSD");
+  const [activeClass, setActiveClass] = useState("crypto");
   const subscription = useContext(SubscriptionContext);
   const [fearGreed, setFearGreed] = useState(null);
 
@@ -74,20 +89,43 @@ export function Dashboard() {
             />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {symbols.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setSymbol(item.id)}
-              className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                symbol === item.id ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-200"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-          <Badge tone="amber">{subscription.plan.toUpperCase()}</Badge>
+        <div className="flex flex-col items-start gap-3">
+          {/* Asset Class Tabs */}
+          <div className="flex gap-2">
+            {Object.keys(assetGroups).map((cls) => {
+              const isActive = activeClass === cls;
+              const tabClass = isActive ? TAB_COLORS[cls] : "bg-slate-700 text-slate-300 hover:bg-slate-600";
+              return (
+                <button
+                  key={cls}
+                  type="button"
+                  onClick={() => setActiveClass(cls)}
+                  className={`rounded-md px-3 py-1 text-xs font-medium uppercase tracking-wide transition-colors ${tabClass}`}
+                >
+                  {ASSET_CLASS_LABELS[cls] || cls}
+                </button>
+              );
+            })}
+            <Badge tone="amber">{subscription.plan.toUpperCase()}</Badge>
+          </div>
+          
+          {/* Asset Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {assetGroups[activeClass]?.map((item) => {
+              const isSelected = symbol === item.id;
+              const btnClass = isSelected ? BUTTON_COLORS[activeClass] : "bg-slate-800 text-slate-200 hover:bg-slate-700";
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSymbol(item.id)}
+                  className={`rounded-full px-3 py-1 text-sm font-semibold transition-colors ${btnClass}`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </header>
 

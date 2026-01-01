@@ -5,7 +5,7 @@ import { getTVSymbol } from "../config/tradingview-map";
 
 /**
  * TradingView Advanced Chart Widget
- * Supports: Crypto, Forex, Indices, Commodities
+ * Supports: Crypto
  * 
  * REALTIME Candlestick Chart mit korrektem Symbol-Mapping
  * Korrekte TradingView Widget DOM-Struktur
@@ -34,6 +34,30 @@ const TradingViewChart = memo(function TradingViewChart({
     return getTVSymbol(symbol);
   }, [symbol]);
 
+  // Ensure overrides are safe JSON-serializable objects
+  const safeOverrides = useMemo(() => {
+    if (!overrides || typeof overrides !== "object") return {};
+    try {
+      // Test JSON serialization
+      JSON.stringify(overrides);
+      return overrides;
+    } catch {
+      console.warn("[TradingViewChart] Invalid overrides object, using empty");
+      return {};
+    }
+  }, [overrides]);
+
+  const safeStudiesOverrides = useMemo(() => {
+    if (!studiesOverrides || typeof studiesOverrides !== "object") return {};
+    try {
+      JSON.stringify(studiesOverrides);
+      return studiesOverrides;
+    } catch {
+      console.warn("[TradingViewChart] Invalid studiesOverrides object, using empty");
+      return {};
+    }
+  }, [studiesOverrides]);
+
   const widgetConfig = useMemo(
     () => ({
       autosize: true,
@@ -53,12 +77,12 @@ const TradingViewChart = memo(function TradingViewChart({
       calendar: false,
       details: false,
       hotlist: false,
-      studies: studies,
-      overrides: overrides,
-      studies_overrides: studiesOverrides,
+      studies: Array.isArray(studies) ? studies : [],
+      overrides: safeOverrides,
+      studies_overrides: safeStudiesOverrides,
       support_host: "https://www.tradingview.com",
     }),
-    [tvSymbol, interval, theme, showToolbar, showVolume, studies, overrides, studiesOverrides]
+    [tvSymbol, interval, theme, showToolbar, showVolume, studies, safeOverrides, safeStudiesOverrides]
   );
   const widgetConfigRef = useRef(widgetConfig);
 
@@ -125,7 +149,6 @@ const TradingViewChart = memo(function TradingViewChart({
         container.innerHTML = "";
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tvSymbol]);
 
   return (

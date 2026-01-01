@@ -32,6 +32,7 @@ import {
   calculateEquityCurve 
 } from '../lib/backtestRunner';
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
+import { safeFixed } from "../lib/safeFixed";
 
 // ============ Sub-Components ============
 
@@ -122,7 +123,7 @@ function EquityCurve({ trades }) {
               borderRadius: '8px',
               fontSize: '11px'
             }}
-            formatter={(value) => [`${value.toFixed(1)}%`, 'Equity']}
+            formatter={(value) => [`${safeFixed(value, 1)}%`, 'Equity']}
           />
           <ReferenceLine y={100} stroke="#64748b" strokeDasharray="3 3" />
           <Area
@@ -165,20 +166,20 @@ function ComparisonCard({ comparison, lang }) {
           <div className="text-slate-400 mb-0.5">
             {lang === 'de' ? 'Mit Filter' : 'With Filter'}
           </div>
-          <div className="font-bold text-emerald-400">{comparison.withVolFilter.toFixed(1)}%</div>
+          <div className="font-bold text-emerald-400">{safeFixed(comparison.withVolFilter, 1)}%</div>
         </div>
         <div>
           <div className="text-slate-400 mb-0.5">
             {lang === 'de' ? 'Ohne Filter' : 'Without Filter'}
           </div>
-          <div className="font-bold text-slate-300">{comparison.withoutVolFilter.toFixed(1)}%</div>
+          <div className="font-bold text-slate-300">{safeFixed(comparison.withoutVolFilter, 1)}%</div>
         </div>
         <div>
           <div className="text-slate-400 mb-0.5">
             {lang === 'de' ? 'Verbesserung' : 'Improvement'}
           </div>
           <div className={`font-bold ${isPositive ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {isPositive ? '+' : ''}{improvement.toFixed(1)}%
+            {isPositive ? '+' : ''}{safeFixed(improvement, 1)}%
           </div>
         </div>
       </div>
@@ -237,7 +238,7 @@ function TradeLog({ trades, lang }) {
                     <td className={`px-2 py-1.5 text-right font-medium ${
                       trade.pnlPercent >= 0 ? 'text-emerald-400' : 'text-red-400'
                     }`}>
-                      {trade.pnlPercent >= 0 ? '+' : ''}{trade.pnlPercent.toFixed(2)}%
+                      {trade.pnlPercent >= 0 ? '+' : ''}{safeFixed(trade.pnlPercent, 2)}%
                     </td>
                     <td className="px-2 py-1.5 text-slate-500">
                       {trade.exitReason === 'TP_HIT' ? '🎯' : trade.exitReason === 'SL_HIT' ? '🛑' : '↩️'}
@@ -414,7 +415,7 @@ export default function BacktestDashboard({ asset, lang = 'de' }) {
                 {lang === 'de' ? 'Gesamtrendite' : 'Total Return'}
               </div>
               <div className={`text-lg font-bold ${getColorClass('return', result.totalReturn)}`}>
-                {result.totalReturn >= 0 ? '+' : ''}{result.totalReturn.toFixed(1)}%
+                {result.totalReturn >= 0 ? '+' : ''}{safeFixed(result.totalReturn, 1)}%
               </div>
             </div>
             <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
@@ -422,7 +423,7 @@ export default function BacktestDashboard({ asset, lang = 'de' }) {
                 {lang === 'de' ? 'Ø Gewinn' : 'Avg Win'}
               </div>
               <div className="text-lg font-bold text-emerald-400">
-                +{result.avgWin.toFixed(2)}%
+                +{safeFixed(result.avgWin, 2)}%
               </div>
             </div>
             <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
@@ -430,7 +431,7 @@ export default function BacktestDashboard({ asset, lang = 'de' }) {
                 {lang === 'de' ? 'Ø Verlust' : 'Avg Loss'}
               </div>
               <div className="text-lg font-bold text-red-400">
-                -{result.avgLoss.toFixed(2)}%
+                -{safeFixed(result.avgLoss, 2)}%
               </div>
             </div>
           </div>
@@ -485,7 +486,7 @@ export default function BacktestDashboard({ asset, lang = 'de' }) {
                         {lang === 'de' ? 'Beste Win-Rate:' : 'Best Win-Rate:'}
                       </span>
                       <span className="font-bold text-emerald-400">
-                        {optimizeResult.bestStrategy.winRate.toFixed(1)}%
+                        {safeFixed(optimizeResult.bestStrategy.winRate, 1)}%
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -494,7 +495,7 @@ export default function BacktestDashboard({ asset, lang = 'de' }) {
                       </span>
                       <span className={`font-bold ${optimizeResult.improvement?.winRateDelta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {optimizeResult.improvement?.winRateDelta >= 0 ? '+' : ''}
-                        {optimizeResult.improvement?.winRateDelta.toFixed(1)}%
+                        {safeFixed(optimizeResult.improvement?.winRateDelta, 1)}%
                       </span>
                     </div>
                     <div className="text-[10px] text-slate-500 mt-2">

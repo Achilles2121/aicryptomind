@@ -21,6 +21,7 @@ import TradingViewChart from "./TradingViewChart";
 import TradingViewTechnicalAnalysis from "./TradingViewTechnicalAnalysis";
 import { getTVSymbol, getTVConfig, ASSET_CLASS_COLORS } from "../config/tradingview-map";
 import { getTradingViewInterval } from "../lib/tradingViewSymbols";
+import { safeFixed } from "../lib/safeFixed";
 
 /**
  * Vision AI Mind - Complete Chart Panel
@@ -88,7 +89,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
   // Asset class styling
   const assetClassLabel = useMemo(() => {
     const effectiveClass = tvConfig?.assetClass || assetClass;
-    const labels = { crypto: "Krypto", forex: "Forex", fx: "Forex", index: "Index", commodity: "Rohstoff" };
+    const labels = { crypto: "Crypto" };
     return labels[effectiveClass] || "Asset";
   }, [tvConfig, assetClass]);
 
@@ -107,9 +108,9 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
   const formatPrice = (price) => {
     if (!price || !Number.isFinite(price)) return "—";
     if (price >= 10000) return price.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (price >= 100) return price.toFixed(2);
-    if (price >= 1) return price.toFixed(4);
-    return price.toFixed(6);
+    if (price >= 100) return safeFixed(price, 2);
+    if (price >= 1) return safeFixed(price, 4);
+    return safeFixed(price, 6);
   };
 
   // Signal color
@@ -197,7 +198,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400 text-xs">Konfidenz:</span>
                   <span className={`font-mono text-sm font-bold ${signal.confidence >= 0.65 ? "text-emerald-400" : signal.confidence >= 0.55 ? "text-yellow-400" : "text-red-400"}`}>
-                    {(signal.confidence * 100).toFixed(0)}%
+                    {safeFixed(signal.confidence * 100, 0)}%
                   </span>
                 </div>
               )}
@@ -235,7 +236,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
             <span className="text-emerald-400 font-semibold text-sm">Take Profit / Stop Loss</span>
             {typeof riskReward === 'number' && riskReward !== 0 && (
               <span className="ml-auto text-xs bg-slate-700/50 px-2 py-0.5 rounded text-slate-300">
-                R:R {riskReward.toFixed(2)}
+                R:R {safeFixed(riskReward, 2)}
               </span>
             )}
           </div>
@@ -256,7 +257,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
                     <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="text-emerald-400">TP{idx + 1}</span>
                     {tp.probability && (
-                      <span className="text-xs text-slate-500">({(tp.probability * 100).toFixed(0)}%)</span>
+                      <span className="text-xs text-slate-500">({safeFixed(tp.probability * 100, 0)}%)</span>
                     )}
                   </div>
                   <span className="text-white font-mono">{formatPrice(tp.price || tp)}</span>
@@ -346,7 +347,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-400">RSI</span>
                 <span className={`font-mono ${indicators.rsi < 30 ? "text-emerald-400" : indicators.rsi > 70 ? "text-red-400" : "text-white"}`}>
-                  {indicators.rsi?.toFixed(1)}
+                  {indicators.rsi !== undefined && indicators.rsi !== null ? safeFixed(indicators.rsi, 1) : null}
                 </span>
               </div>
             )}
@@ -356,7 +357,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-400">MACD</span>
                 <span className={`font-mono ${indicators.macd > (indicators.signal || 0) ? "text-emerald-400" : "text-red-400"}`}>
-                  {indicators.macd?.toFixed(2)}
+                  {indicators.macd !== undefined && indicators.macd !== null ? safeFixed(indicators.macd, 2) : null}
                 </span>
               </div>
             )}
@@ -365,7 +366,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
             {indicators.atrPct !== undefined && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-400">ATR%</span>
-                <span className="text-white font-mono">{indicators.atrPct?.toFixed(2)}%</span>
+                <span className="text-white font-mono">{indicators.atrPct !== undefined && indicators.atrPct !== null ? safeFixed(indicators.atrPct, 2) : "-"}%</span>
               </div>
             )}
             
@@ -442,19 +443,19 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-400">Netto</span>
                   <span className={`font-mono ${etfFlows.net >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                    {etfFlows.net >= 0 ? "+" : ""}${(etfFlows.net / 1e6).toFixed(1)}M
+                    {etfFlows.net >= 0 ? "+" : ""}${safeFixed(etfFlows.net / 1e6, 1)}M
                   </span>
                 </div>
                 {etfFlows.inflows && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-emerald-400/70">Zuflüsse</span>
-                    <span className="text-white font-mono text-xs">${(etfFlows.inflows / 1e6).toFixed(1)}M</span>
+                    <span className="text-white font-mono text-xs">${safeFixed(etfFlows.inflows / 1e6, 1)}M</span>
                   </div>
                 )}
                 {etfFlows.outflows && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-red-400/70">Abflüsse</span>
-                    <span className="text-white font-mono text-xs">${(etfFlows.outflows / 1e6).toFixed(1)}M</span>
+                    <span className="text-white font-mono text-xs">${safeFixed(etfFlows.outflows / 1e6, 1)}M</span>
                   </div>
                 )}
               </div>
@@ -470,7 +471,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
                   <span className="text-amber-400 font-semibold text-sm">Volumen-Spike erkannt!</span>
                   {volumeRatio > 1 && (
                     <span className="ml-2 text-xs text-amber-400/70">
-                      {volumeRatio.toFixed(1)}x über Durchschnitt
+                      {safeFixed(volumeRatio, 1)}x über Durchschnitt
                     </span>
                   )}
                 </div>
@@ -541,7 +542,7 @@ const VisionAIChartPanel = memo(function VisionAIChartPanel({
             <div className="flex items-center gap-1">
               <span className="text-slate-400 text-xs">24h:</span>
               <span className={`font-mono text-sm ${priceChange24h >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {priceChange24h >= 0 ? "+" : ""}{priceChange24h.toFixed(2)}%
+                {priceChange24h >= 0 ? "+" : ""}{safeFixed(priceChange24h, 2)}%
               </span>
             </div>
           )}

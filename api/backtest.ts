@@ -14,6 +14,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+const safeFixed = (val: number, digits = 2) => (Number(val) || 0).toFixed(digits);
 
 // ============ Types ============
 
@@ -134,6 +135,9 @@ function calculateSMA(data: number[], period: number): number | null {
   const slice = data.slice(-period);
   return slice.reduce((sum, val) => sum + val, 0) / period;
 }
+
+// Export SMA for potential external use
+export { calculateSMA };
 
 function calculateEMA(data: number[], period: number): number | null {
   if (data.length < period) return null;
@@ -608,15 +612,15 @@ function calculateMetrics(trades: Trade[]): Omit<BacktestResult, 'asset' | 'peri
     totalTrades: trades.length,
     winningTrades: winners.length,
     losingTrades: losers.length,
-    winRate: parseFloat(winRate.toFixed(1)),
-    profitFactor: parseFloat(Math.min(profitFactor, 99).toFixed(2)),
-    sharpeRatio: parseFloat(sharpeRatio.toFixed(2)),
-    maxDrawdown: parseFloat(maxDD.toFixed(1)),
-    totalReturn: parseFloat(totalPnl.toFixed(1)),
-    avgWin: winners.length > 0 ? parseFloat((grossProfit / winners.length).toFixed(2)) : 0,
-    avgLoss: losers.length > 0 ? parseFloat((grossLoss / losers.length).toFixed(2)) : 0,
-    largestWin: winners.length > 0 ? parseFloat(Math.max(...winners.map(t => t.pnlPercent)).toFixed(2)) : 0,
-    largestLoss: losers.length > 0 ? parseFloat(Math.min(...losers.map(t => t.pnlPercent)).toFixed(2)) : 0,
+    winRate: parseFloat(safeFixed(winRate, 1)),
+    profitFactor: parseFloat(safeFixed(Math.min(profitFactor, 99), 2)),
+    sharpeRatio: parseFloat(safeFixed(sharpeRatio, 2)),
+    maxDrawdown: parseFloat(safeFixed(maxDD, 1)),
+    totalReturn: parseFloat(safeFixed(totalPnl, 1)),
+    avgWin: winners.length > 0 ? parseFloat(safeFixed(grossProfit / winners.length, 2)) : 0,
+    avgLoss: losers.length > 0 ? parseFloat(safeFixed(grossLoss / losers.length, 2)) : 0,
+    largestWin: winners.length > 0 ? parseFloat(safeFixed(Math.max(...winners.map(t => t.pnlPercent)), 2)) : 0,
+    largestLoss: losers.length > 0 ? parseFloat(safeFixed(Math.min(...losers.map(t => t.pnlPercent)), 2)) : 0,
     avgHoldingPeriod,
   };
 }
@@ -637,7 +641,7 @@ function calculateMonthlyReturns(trades: Trade[]): { month: string; return: numb
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, data]) => ({
       month,
-      return: parseFloat(data.return.toFixed(2)),
+      return: parseFloat(safeFixed(data.return, 2)),
       trades: data.trades,
     }));
 }
@@ -744,7 +748,7 @@ export default async function handler(
       comparison: {
         withVolFilter: metricsWithFilter.winRate,
         withoutVolFilter: metricsWithoutFilter.winRate,
-        improvement: parseFloat((metricsWithFilter.winRate - metricsWithoutFilter.winRate).toFixed(1)),
+        improvement: parseFloat(safeFixed(metricsWithFilter.winRate - metricsWithoutFilter.winRate, 1)),
       },
       timestamp: Date.now(),
     };

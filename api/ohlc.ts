@@ -2,12 +2,10 @@
  * Unified OHLC API Endpoint
  * Vision AI Mind - Vision AI Mind
  * 
- * Supports ALL assets via Yahoo Finance with fallbacks:
- * - Crypto: BTC, ETH, SOL, etc. (Binance/Kraken fallback)
- * - Forex: EUR/USD, GBP/USD, etc.
- * - Indices: S&P 500, DAX, NASDAQ, etc.
- * - Commodities: Gold, Silver, Oil, etc.
+ * Supports crypto assets only via Yahoo Finance with Binance/Kraken fallbacks.
  */
+
+import supportedCoins from "../src/config/supportedCoins.js";
 
 // ============================================
 // TYPES
@@ -42,54 +40,60 @@ type Candle = {
 };
 
 // ============================================
-// YAHOO FINANCE SYMBOL MAPPING (COMPREHENSIVE)
+// MULTI-ASSET SYMBOL MAPPING (Crypto + Gold + Forex)
 // ============================================
 
-const YAHOO_SYMBOLS: Record<string, string> = {
-  // Crypto
-  BTC: "BTC-USD", BTCUSD: "BTC-USD", BTCUSDT: "BTC-USD",
-  ETH: "ETH-USD", ETHUSD: "ETH-USD", ETHUSDT: "ETH-USD",
-  SOL: "SOL-USD", SOLUSD: "SOL-USD", SOLUSDT: "SOL-USD",
-  XRP: "XRP-USD", XRPUSD: "XRP-USD",
-  DOGE: "DOGE-USD", DOGEUSD: "DOGE-USD",
-  ADA: "ADA-USD", ADAUSD: "ADA-USD",
-  DOT: "DOT-USD", DOTUSD: "DOT-USD",
-  AVAX: "AVAX-USD", AVAXUSD: "AVAX-USD",
-  MATIC: "MATIC-USD", MATICUSD: "MATIC-USD",
-  LINK: "LINK-USD", LINKUSD: "LINK-USD",
-  UNI: "UNI-USD", UNIUSD: "UNI-USD",
-  LTC: "LTC-USD", LTCUSD: "LTC-USD",
-  
+// Crypto symbols from supportedCoins
+const YAHOO_CRYPTO_SYMBOLS: Record<string, string> = supportedCoins.reduce((acc, coin) => {
+  const symbol = coin.symbol.toUpperCase();
+  const ticker = `${symbol}-USD`;
+  acc[symbol] = ticker;
+  acc[`${symbol}USD`] = ticker;
+  acc[`${symbol}USDT`] = ticker;
+  return acc;
+}, {} as Record<string, string>);
+
+// Gold, Silver, Forex Yahoo symbols
+const YAHOO_GOLD_FOREX_SYMBOLS: Record<string, string> = {
+  // Gold
+  "XAUUSD": "GC=F",
+  "GOLD": "GC=F",
+  "GOLD-XAUUSD": "GC=F",
+  // Silver
+  "XAGUSD": "SI=F",
+  "SILVER": "SI=F",
+  "SILVER-XAGUSD": "SI=F",
   // Forex
-  EURUSD: "EURUSD=X",
-  GBPUSD: "GBPUSD=X",
-  USDJPY: "JPY=X",
-  USDCHF: "CHF=X",
-  AUDUSD: "AUDUSD=X",
-  USDCAD: "CAD=X",
-  NZDUSD: "NZDUSD=X",
-  EURGBP: "EURGBP=X",
-  EURJPY: "EURJPY=X",
-  GBPJPY: "GBPJPY=X",
-  
-  // Indices
-  SPX: "^GSPC", SP500: "^GSPC", GSPC: "^GSPC",
-  DAX: "^GDAXI", GDAXI: "^GDAXI",
-  NASDAQ: "^IXIC", NDX: "^NDX", NDX100: "^NDX", IXIC: "^IXIC",
-  DJI: "^DJI", DJIA: "^DJI", DOW: "^DJI",
-  NIKKEI: "^N225", N225: "^N225",
-  FTSE: "^FTSE", FTSE100: "^FTSE",
-  CAC40: "^FCHI", FCHI: "^FCHI",
-  STOXX50: "^STOXX50E",
-  
-  // Commodities
-  GOLD: "GC=F", XAUUSD: "GC=F", GC: "GC=F",
-  SILVER: "SI=F", XAGUSD: "SI=F", SI: "SI=F",
-  OIL: "CL=F", CRUDEOIL: "CL=F", WTI: "CL=F", CL: "CL=F",
-  BRENT: "BZ=F", BZ: "BZ=F",
-  NATGAS: "NG=F", NG: "NG=F",
-  COPPER: "HG=F", HG: "HG=F",
-  PLATINUM: "PL=F", PL: "PL=F",
+  "EURUSD": "EURUSD=X",
+  "EUR/USD": "EURUSD=X",
+  "FOREX-EURUSD": "EURUSD=X",
+  "GBPUSD": "GBPUSD=X",
+  "GBP/USD": "GBPUSD=X",
+  "FOREX-GBPUSD": "GBPUSD=X",
+  "USDJPY": "USDJPY=X",
+  "USD/JPY": "USDJPY=X",
+  "FOREX-USDJPY": "USDJPY=X",
+};
+
+// Combined symbol mapping
+const YAHOO_SYMBOLS: Record<string, string> = {
+  ...YAHOO_CRYPTO_SYMBOLS,
+  ...YAHOO_GOLD_FOREX_SYMBOLS,
+};
+
+const COIN_BY_ID = new Map(supportedCoins.map((coin) => [coin.id, coin.symbol.toUpperCase()]));
+const SUPPORTED_SYMBOLS = new Set(supportedCoins.map((coin) => coin.symbol.toUpperCase()));
+
+const resolveSupportedSymbol = (asset: string): string | null => {
+  if (!asset) return null;
+  const idKey = asset.toLowerCase();
+  const byId = COIN_BY_ID.get(idKey);
+  if (byId) return byId;
+  const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!normalized) return null;
+  if (SUPPORTED_SYMBOLS.has(normalized)) return normalized;
+  const stripped = normalized.replace(/USDT?$/, "").replace(/USD$/, "");
+  return SUPPORTED_SYMBOLS.has(stripped) ? stripped : null;
 };
 
 const INTERVAL_MAP: Record<number, { yahoo: string; range: string; binance: string }> = {
@@ -101,13 +105,16 @@ const INTERVAL_MAP: Record<number, { yahoo: string; range: string; binance: stri
   1440: { yahoo: "1d", range: "6mo", binance: "1d" },
 };
 
-function getAssetCategory(asset: string): "crypto" | "forex" | "index" | "commodity" | "unknown" {
-  const norm = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI", "LTC"].some(c => norm.includes(c))) return "crypto";
-  if (["EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD"].some(c => norm.includes(c))) return "forex";
-  if (["SPX", "SP500", "DAX", "NASDAQ", "NDX", "DJI", "DOW", "NIKKEI", "FTSE", "CAC", "STOXX", "IXIC"].some(c => norm.includes(c))) return "index";
-  if (["GOLD", "XAU", "SILVER", "XAG", "OIL", "CL", "GC", "SI", "NG", "BRENT", "COPPER", "PLATINUM"].some(c => norm.includes(c))) return "commodity";
-  return "unknown";
+type AssetCategory = "crypto" | "commodity" | "forex";
+
+const GOLD_SYMBOLS = new Set(["XAUUSD", "GOLD", "GOLD-XAUUSD", "XAGUSD", "SILVER", "SILVER-XAGUSD"]);
+const FOREX_SYMBOLS = new Set(["EURUSD", "EUR/USD", "FOREX-EURUSD", "GBPUSD", "GBP/USD", "FOREX-GBPUSD", "USDJPY", "USD/JPY", "FOREX-USDJPY"]);
+
+function getAssetCategory(asset: string): AssetCategory {
+  const normalized = asset.toUpperCase().replace(/[^A-Z0-9/-]/g, "");
+  if (GOLD_SYMBOLS.has(normalized)) return "commodity";
+  if (FOREX_SYMBOLS.has(normalized)) return "forex";
+  return "crypto";
 }
 
 // ============================================
@@ -352,10 +359,19 @@ export default async function handler(req: Req, res: Res) {
   
   try {
     // Parse parameters
-    const assetParam = getQueryParam(req.query, "asset")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") || 
-                       getQueryParam(req.query, "symbol")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") ||
-                       getQueryParam(req.query, "pair")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") ||
-                       "BTCUSD";
+    const requestedAsset = getQueryParam(req.query, "asset") || 
+                       getQueryParam(req.query, "symbol") ||
+                       getQueryParam(req.query, "pair") ||
+                       "BTC";
+    const assetParam = resolveSupportedSymbol(requestedAsset);
+    if (!assetParam) {
+      return res.status(400).json({
+        ok: false,
+        status: "error",
+        error: `Unsupported asset: ${requestedAsset}`,
+        data: [],
+      });
+    }
     const intervalParam = getQueryParam(req.query, "interval") || getQueryParam(req.query, "tf") || "60";
     const limitParam = getQueryParam(req.query, "limit") || "100";
     

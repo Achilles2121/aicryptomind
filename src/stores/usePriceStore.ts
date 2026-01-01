@@ -40,6 +40,9 @@ export interface MarketDataAsset {
   change24h: number | null;
   priceSource?: string | null;
   binanceSymbol: string;
+  // Extended for Gold/Forex
+  assetClass?: 'crypto' | 'commodity' | 'forex';
+  tradingViewSymbol?: string;
 }
 
 export interface MarketDataCacheEntry {
@@ -47,14 +50,27 @@ export interface MarketDataCacheEntry {
   updatedAt: number;
 }
 
+export type AssetClass = 'crypto' | 'commodity' | 'forex';
+
 export interface PriceConnectArgs {
   assetId: string;
   binanceSymbol?: string | null;
   isCrypto: boolean;
+  // Extended for Gold/Forex
+  assetClass?: AssetClass;
+  tradingViewSymbol?: string | null;
   onHealthUpdate?: (source: string, status: HealthStatus, message?: string) => void;
   onLog?: (source: string, level: LogLevel, message: string) => void;
   onFallbackPoll?: () => void;
   resetOnConnect?: boolean;
+}
+
+// Single Source of Truth for price data
+export interface UnifiedPriceState {
+  lastPrice: number | null;
+  lastUpdatedAt: number | null;
+  source: 'websocket' | 'rest' | 'fallback';
+  provider: string | null;
 }
 
 export interface PriceStoreState {
@@ -75,6 +91,8 @@ export interface PriceStoreState {
   setIntegrityWarning: (assetId: string, warning: boolean, delta?: number | null) => void;
   getAssetState: (assetId: string) => PriceAssetState;
   selectPriceAsset: (assetId?: string | null) => PriceAssetState;
+  // Single Source of Truth - ensures all components use the same price
+  getUnifiedPrice: (assetId: string) => UnifiedPriceState;
 }
 
 const MAX_TRADES = 50;
@@ -160,7 +178,7 @@ const updateAssetState = (
   });
 };
 
-const hasOwn = <T extends object>(obj: T, key: keyof T): boolean => Object.prototype.hasOwnProperty.call(obj, key);
+const hasOwn = <T extends object>(obj: T, key: keyof T): boolean => Object.hasOwn(obj, key);
 
 export const usePriceStore = create<PriceStoreState>()(
   subscribeWithSelector((set, get) => ({
@@ -188,7 +206,13 @@ export const usePriceStore = create<PriceStoreState>()(
         const nextRestProvider = hasOwn(snapshot, "provider") ? snapshot.provider ?? null : prev.restProvider;
         const nextRestLatency = hasOwn(snapshot, "latencyMs") ? snapshot.latencyMs ?? null : prev.restLatencyMs;
         const hasUpdate = hasOwn(snapshot, "price") || hasOwn(snapshot, "change24h") || hasOwn(snapshot, "updatedAt");
-        const nextUpdatedAt = hasOwn(snapshot, "updatedAt") ? snapshot.updatedAt ?? null : hasUpdate ? Date.now() : prev.restUpdatedAt;
+        // Extract nested ternary for clarity
+        let nextUpdatedAt: number | null;
+        if (hasOwn(snapshot, "updatedAt")) {
+          nextUpdatedAt = snapshot.updatedAt ?? null;
+        } else {
+          nextUpdatedAt = hasUpdate ? Date.now() : prev.restUpdatedAt;
+        }
         if (
           prev.restPrice === nextRestPrice &&
           prev.restChange24h === nextRestChange &&
@@ -219,6 +243,48 @@ export const usePriceStore = create<PriceStoreState>()(
     selectPriceAsset: (assetId) => {
       const resolved = assetId ?? get().selectedAssetId;
       return resolved ? get().assets[resolved] ?? DEFAULT_ASSET_STATE : DEFAULT_ASSET_STATE;
+    },
+    // Single Source of Truth: Returns unified price prioritizing WebSocket > REST > Fallback
+    getUnifiedPrice: (assetId) => {
+      const asset = get().assets[assetId] ?? DEFAULT_ASSET_STATE;
+      
+      // Priority 1: Live WebSocket price (lowest latency)
+      if (asset.livePrice !== null && asset.wsStatus === 'live') {
+        return {
+          lastPrice: asset.livePrice,
+          lastUpdatedAt: asset.lastUpdatedAt,
+          source: 'websocket' as const,
+          provider: 'binance',
+        };
+      }
+      
+      // Priority 2: REST API price
+      if (asset.restPrice !== null) {
+        return {
+          lastPrice: asset.restPrice,
+          lastUpdatedAt: asset.restUpdatedAt,
+          source: 'rest' as const,
+          provider: asset.restProvider,
+        };
+      }
+      
+      // Priority 3: Any live price available (polling fallback)
+      if (asset.livePrice !== null) {
+        return {
+          lastPrice: asset.livePrice,
+          lastUpdatedAt: asset.lastUpdatedAt,
+          source: 'fallback' as const,
+          provider: 'binance',
+        };
+      }
+      
+      // No price available
+      return {
+        lastPrice: null,
+        lastUpdatedAt: null,
+        source: 'fallback' as const,
+        provider: null,
+      };
     },
     clearAsset: (assetId) => {
       updateAssetState(set, assetId, () => createDefaultAssetState());
@@ -288,13 +354,32 @@ export const usePriceStore = create<PriceStoreState>()(
       }
 
       if (!isCrypto || !binanceSymbol) {
+        // Gold/Forex: Use REST polling instead of WebSocket
         updateAssetState(set, assetId, (prev) => ({
           ...prev,
           livePrice: null,
           trades: [],
-          wsStatus: "unavailable",
+          wsStatus: "polling", // Mark as polling mode for Gold/Forex
           wsAttempts: 0,
         }));
+        
+        // Start REST polling for Gold/Forex assets
+        if (onFallbackPoll) {
+          onHealthUpdate?.("forex", "ok", "Using REST polling for Gold/Forex");
+          onLog?.("polling", "info", `Starting REST polling for ${assetId}`);
+          
+          // Immediate first poll
+          onFallbackPoll();
+          
+          // Set up interval polling (15s for Gold/Forex precision)
+          if (!fallbackTimer) {
+            fallbackTimer = setInterval(() => {
+              if (activeAssetRef === assetId) {
+                onFallbackPoll();
+              }
+            }, 15000); // 15s polling for Gold/Forex
+          }
+        }
         return;
       }
 
@@ -391,14 +476,21 @@ export const usePriceStore = create<PriceStoreState>()(
         }));
       });
 
+      // Type-safe filter: only crypto assets with valid binanceSymbol
       const streamEntries = entries.filter(
-        (entry): entry is PriceConnectArgs & { binanceSymbol: string } =>
-          Boolean(entry.isCrypto && entry.binanceSymbol)
+        (entry): entry is PriceConnectArgs & { binanceSymbol: string; isCrypto: true } => {
+          const symbol = entry.binanceSymbol;
+          return entry.isCrypto === true && 
+                 typeof symbol === 'string' && 
+                 symbol.length > 0 &&
+                 entry.assetClass !== 'commodity' && 
+                 entry.assetClass !== 'forex';
+        }
       );
       if (!streamEntries.length) return;
 
       const streams = streamEntries.map((entry) => `${entry.binanceSymbol.toLowerCase()}@trade`);
-      const nextKey = streams.slice().sort().join("/");
+      const nextKey = streams.slice().sort((a, b) => a.localeCompare(b)).join("/");
 
       if (multiWsRef && multiStreamKey === nextKey && multiWsRef.readyState <= WebSocket.OPEN) return;
 

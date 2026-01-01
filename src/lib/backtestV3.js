@@ -1,5 +1,7 @@
 // Event-based backtest without lookahead on entry decision.
 
+import { safeFixed } from "./safeFixed";
+
 /**
  * @typedef {Object} Candle
  * @property {number} time
@@ -279,7 +281,7 @@ export const runBacktestV3 = ({
     peak = Math.max(peak, equity);
     const dd = peak ? (peak - equity) / peak : 0;
     maxDrawdown = Math.max(maxDrawdown, dd);
-    equityCurve.push(Number(equity.toFixed(2)));
+    equityCurve.push(Number(safeFixed(equity, 2)));
   }
 
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : null;

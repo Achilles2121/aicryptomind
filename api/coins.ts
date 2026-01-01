@@ -1,6 +1,8 @@
 // Copyright (c) 2025 Vision AI Mind. All rights reserved.
 // Coins API - Top 100 Cryptocurrencies with Market Data
 
+import supportedCoins from "../src/config/supportedCoins.js";
+
 // Local types to avoid @vercel/node dependency
 type VercelRequest = {
   query?: Record<string, string | string[]>;
@@ -47,6 +49,8 @@ const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 60 * 1000; // 1 minute
 const MAX_CONCURRENT_FETCHES = 5;
 const IDS_CHUNK_SIZE = 50;
+const DEFAULT_IDS = supportedCoins.map((coin) => coin.id);
+const SUPPORTED_IDS = new Set(DEFAULT_IDS);
 
 type SourceKey = 'binance' | 'kraken' | 'coingecko';
 
@@ -159,22 +163,22 @@ const chunkArray = <T>(items: T[], size: number): T[][] => {
 };
 
 const normalizeData = (base: CoinData, overrides: Partial<CoinData>, source: SourceKey): CoinData => {
-  const currentPrice = Number.isFinite(overrides.current_price) ? overrides.current_price : base.current_price;
+  const currentPrice = Number.isFinite(overrides.current_price) ? overrides.current_price! : base.current_price;
   const changePct = Number.isFinite(overrides.price_change_percentage_24h)
-    ? overrides.price_change_percentage_24h
+    ? overrides.price_change_percentage_24h!
     : base.price_change_percentage_24h;
-  const totalVolume = Number.isFinite(overrides.total_volume) ? overrides.total_volume : base.total_volume;
+  const totalVolume = Number.isFinite(overrides.total_volume) ? overrides.total_volume! : base.total_volume;
   return {
     ...base,
-    current_price: currentPrice,
-    price_change_percentage_24h: changePct,
-    total_volume: totalVolume,
+    current_price: currentPrice ?? 0,
+    price_change_percentage_24h: changePct ?? 0,
+    total_volume: totalVolume ?? 0,
     price_source: source,
   };
 };
 
 const normalizeBinanceSymbol = (symbol: string) => {
-  const base = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const base = symbol.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   if (base === "BTC" || base === "BTCUSD") return "BTCUSDT";
   if (base === "ETH" || base === "ETHUSD") return "ETHUSDT";
   if (base === "SOL" || base === "SOLUSD") return "SOLUSDT";
@@ -183,7 +187,7 @@ const normalizeBinanceSymbol = (symbol: string) => {
 };
 
 const normalizeKrakenPair = (symbol: string) => {
-  const base = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const base = symbol.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
   const stripped = base.replace(/USDT?$/, "");
   if (stripped === "BTC") return "XBTUSD";
   if (stripped === "ETH") return "ETHUSD";
@@ -263,16 +267,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let cachedEntry: CacheEntry | undefined;
   try {
-    const page = getQueryParam(req.query, 'page') || '1';
-    const perPage = getQueryParam(req.query, 'per_page') || '100';
     const idsParam = getQueryParam(req.query, 'ids');
-    const ids = idsParam
+    const requestedIds = idsParam
       ? idsParam
           .split(',')
-          .map((entry) => entry.trim())
-          .filter(Boolean)
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => SUPPORTED_IDS.has(entry))
       : [];
-    const cacheKey = ids.length ? `ids:${ids.join(',')}` : `page:${page}:per:${perPage}`;
+    const ids = requestedIds.length ? requestedIds : DEFAULT_IDS;
+    const cacheKey = `ids:${ids.join(',')}`;
 
     cachedEntry = cache.get(cacheKey);
     if (cachedEntry && Date.now() - cachedEntry.timestamp < CACHE_TTL) {
@@ -295,43 +298,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let coins: CoinData[] = [];
     let hadBatchErrors = false;
 
-    if (ids.length) {
-      const chunks = chunkArray(ids, IDS_CHUNK_SIZE);
-      const results = await Promise.all(
-        chunks.map(async (chunk) => {
-          const params = new URLSearchParams(baseParams);
-          params.set('ids', chunk.join(','));
-          try {
-            return await fetchCoinGeckoMarkets(params);
-          } catch (batchError) {
-            hadBatchErrors = true;
-            console.warn('[coins] CoinGecko batch failed:', (batchError as Error).message);
-            return [];
-          }
-        })
-      );
-      coins = results.flat();
-    } else {
-      const params = new URLSearchParams(baseParams);
-      params.set('per_page', String(perPage));
-      params.set('page', String(page));
-      try {
-        coins = await fetchCoinGeckoMarkets(params);
-      } catch (fetchError) {
-        const status = (fetchError as Error & { status?: number }).status;
-        if (status === 429 && cachedEntry) {
-          return res.status(200).json({
-            success: true,
-            data: cachedEntry.data,
-            cached: true,
-            stale: true,
-            count: cachedEntry.data.length,
-            timestamp: new Date().toISOString(),
-          });
+    const chunks = chunkArray(ids, IDS_CHUNK_SIZE);
+    const results = await Promise.all(
+      chunks.map(async (chunk) => {
+        const params = new URLSearchParams(baseParams);
+        params.set('ids', chunk.join(','));
+        try {
+          return await fetchCoinGeckoMarkets(params);
+        } catch (batchError) {
+          hadBatchErrors = true;
+          console.warn('[coins] CoinGecko batch failed:', (batchError as Error).message);
+          return [];
         }
-        throw fetchError;
-      }
-    }
+      })
+    );
+    coins = results.flat();
 
     if (!coins.length && cachedEntry) {
       return res.status(200).json({
@@ -408,11 +389,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    return res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to fetch coins',
-      data: [],
-      count: 0,
+    // NEVER return 500 - always provide fallback data
+    const fallbackData = DEFAULT_IDS.slice(0, 10).map((id) => {
+      const coin = supportedCoins.find((c) => c.id === id);
+      return {
+        id,
+        symbol: coin?.symbol || id.toUpperCase(),
+        name: coin?.name || id,
+        image: '',
+        current_price: 0,
+        price_change_percentage_24h: 0,
+        market_cap: 0,
+        market_cap_rank: 0,
+        total_volume: 0,
+        circulating_supply: 0,
+        total_supply: null,
+        max_supply: null,
+        ath: 0,
+        ath_change_percentage: 0,
+        price_source: 'fallback',
+      } as CoinData;
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: fallbackData,
+      cached: false,
+      fallback: true,
+      error: error instanceof Error ? error.message : 'Using fallback data',
+      count: fallbackData.length,
       timestamp: new Date().toISOString(),
     });
   }

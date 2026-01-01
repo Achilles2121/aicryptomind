@@ -1,6 +1,8 @@
 /**
  * @param {Array<any>} candles
  */
+const safeFixed = (val, digits = 2) => (Number(val) || 0).toFixed(digits);
+
 export function assessRegime(candles = []) {
   if (!Array.isArray(candles) || candles.length === 0) {
     return { regimeScore: 0.5, regimeLabel: "neutral" };
@@ -15,7 +17,7 @@ export function assessRegime(candles = []) {
     returns.reduce((a, b) => a + (b - mean) * (b - mean), 0) / Math.max(returns.length, 1);
   const vol = Math.sqrt(Math.max(variance, 0)) * Math.sqrt(252);
   const normalized = Math.max(0, Math.min(1, vol / 1.5)); // scale
-  const regimeScore = Number(normalized.toFixed(2));
+  const regimeScore = Number(safeFixed(normalized, 2));
   const regimeLabel =
     regimeScore > 0.66 ? "high-vol" : regimeScore < 0.33 ? "low-vol" : "neutral";
   return { regimeScore, regimeLabel };

@@ -18,6 +18,7 @@
 import { computeDailyRiskGate, clampConfidence } from "./riskEngine.js";
 import { buildFundamentalSnapshot, computeFundamentalScore } from "./fundamentals";
 import { computeFibRetracements } from "./multiTpSlEngine.js";
+import { safeFixed } from "./safeFixed";
 import {
   evaluateTrendSetup,
   evaluateBreakoutSetup,
@@ -35,9 +36,6 @@ import {
 
 const VOLATILITY_THRESHOLDS = {
   crypto: { low: 30, med: 70, high: 85 },
-  index: { low: 20, med: 50, high: 75 },
-  forex: { low: 15, med: 40, high: 65 },
-  commodity: { low: 25, med: 60, high: 80 },
 };
 
 // Confidence adjustments based on volatility
@@ -284,21 +282,21 @@ export const buildSignalsV4 = ({
     volClassification = volatilityData.classification || classifyVolatility(volScore, assetType);
     volRecommendation = volatilityData.recommendation || 'CAUTION';
     
-    volReasons.push(`Vol-Score: ${volScore.toFixed(0)}/100 (${volClassification})`);
+    volReasons.push(`Vol-Score: ${safeFixed(volScore, 0)}/100 (${volClassification})`);
     
     if (volatilityData.metrics) {
       if (volatilityData.metrics.atrPercent > 3) {
-        volReasons.push(`ATR: ${volatilityData.metrics.atrPercent.toFixed(2)}% (erhöht)`);
+        volReasons.push(`ATR: ${safeFixed(volatilityData.metrics.atrPercent, 2)}% (erhöht)`);
       }
       if (volatilityData.metrics.garchForecast4h > 4) {
-        volReasons.push(`Prognose 4h: ${volatilityData.metrics.garchForecast4h.toFixed(1)}% Vol`);
+        volReasons.push(`Prognose 4h: ${safeFixed(volatilityData.metrics.garchForecast4h, 1)}% Vol`);
       }
     }
   } else if (last?.atrPct) {
     // Fallback: compute from ATR percentage
     volScore = computeBaseVolatilityScore(last.atrPct);
     volClassification = classifyVolatility(volScore, assetType);
-    volReasons.push(`ATR-basiert: ${last.atrPct.toFixed(2)}%`);
+    volReasons.push(`ATR-basiert: ${safeFixed(last.atrPct, 2)}%`);
   }
   
   // ========== EXTREME VOLATILITY CHECK ==========
@@ -529,7 +527,7 @@ export const buildSignalsV4 = ({
         volatilityReasons: [
           '⚠️ Signal durch Volatilität abgeschwächt',
           ...volReasons,
-          `Konfidenz: ${(bestConfidence * 100).toFixed(0)}% (unter 52% Schwelle)`,
+          `Konfidenz: ${safeFixed(bestConfidence * 100, 0)}% (unter 52% Schwelle)`,
         ],
       },
       volatilityAdjusted: true,
@@ -655,7 +653,7 @@ export const buildAISignalV4 = ({
   const compositeScore = (sentimentWeight + rsiWeight + fibWeight) / 3;
   const scoreNotes = [];
   if (normalizedSentiment !== null) scoreNotes.push(`Sentiment ${Math.round(normalizedSentiment)}`);
-  if (fibDistancePct !== null) scoreNotes.push(`FibDelta ${(fibDistancePct * 100).toFixed(2)}%`);
+  if (fibDistancePct !== null) scoreNotes.push(`FibDelta ${safeFixed(fibDistancePct * 100, 2)}%`);
   
   // Volatility analysis
   let volClassification = 'MED';
@@ -665,7 +663,7 @@ export const buildAISignalV4 = ({
   if (volatilityData) {
     volClassification = volatilityData.classification || 'MED';
     volMultiplier = getVolatilityMultiplier(volClassification);
-    volReasons.push(`Vol: ${volatilityData.volatilityScore?.toFixed(0) || '?'}/100`);
+    volReasons.push(`Vol: ${volatilityData.volatilityScore !== undefined && volatilityData.volatilityScore !== null ? safeFixed(volatilityData.volatilityScore, 0) : '?'}/100`);
   }
   
   // EXTREME volatility = force WAIT

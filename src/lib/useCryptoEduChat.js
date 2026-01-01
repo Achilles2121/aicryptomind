@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { safeFixed } from "./safeFixed";
 
 const CRYPTO_KEYWORDS = [
   "rsi", "macd", "ema", "sma", "bollinger", "vwap", "fibonacci", "support", "resistance",
@@ -89,7 +90,7 @@ function getFallbackAnswer(prompt, ctx = {}) {
   if (lower.includes("rsi")) {
     if (hasCtx && ctx.rsi !== undefined) {
       const status = ctx.rsi < 30 ? "überverkauft" : ctx.rsi > 70 ? "überkauft" : "neutral";
-      return `Vision AI: Der RSI für ${ctx.asset} liegt bei ${ctx.rsi?.toFixed(1)} (${status}). RSI misst Momentum: Unter 30 = überverkauft, über 70 = überkauft. ⚠️ Keine Anlageberatung.`;
+      return `Vision AI: Der RSI für ${ctx.asset} liegt bei ${safeFixed(ctx.rsi, 1)} (${status}). RSI misst Momentum: Unter 30 = überverkauft, über 70 = überkauft. ⚠️ Keine Anlageberatung.`;
     }
     return "Vision AI: RSI misst Momentum von 0-100. Unter 30 = überverkauft, über 70 = überkauft. Auf Vision AI Mind siehst du den Live-RSI im Chart. ⚠️ Keine Anlageberatung.";
   }
@@ -119,7 +120,7 @@ function getFallbackAnswer(prompt, ctx = {}) {
   }
   if (lower.includes("signal")) {
     if (hasCtx && ctx.signal) {
-      return `Vision AI: ${ctx.asset} zeigt "${ctx.signal}" mit ${((ctx.confidence || 0) * 100).toFixed(0)}% Konfidenz. Unsere Signale sind Education, keine Kaufempfehlung! ⚠️ Keine Anlageberatung.`;
+      return `Vision AI: ${ctx.asset} zeigt "${ctx.signal}" mit ${safeFixed((ctx.confidence || 0) * 100, 0)}% Konfidenz. Unsere Signale sind Education, keine Kaufempfehlung! ⚠️ Keine Anlageberatung.`;
     }
   }
   

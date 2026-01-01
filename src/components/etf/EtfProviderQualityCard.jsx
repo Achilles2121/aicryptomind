@@ -2,11 +2,12 @@ import React, { useSyncExternalStore } from "react";
 import PropTypes from "prop-types";
 import { Activity } from "lucide-react";
 import { getEtfProviderMetrics, subscribeEtfProviderMetrics } from "../../stores/etfProviderMetrics";
+import { safeFixed } from "../../lib/safeFixed";
 
 const statusColor = (status) => (status === "healthy" ? "text-emerald-300" : status === "degraded" ? "text-amber-300" : "text-red-300");
 
 const formatMs = (v) => (v ? `${Math.round(v)} ms` : "-");
-const formatPct = (v) => (v || v === 0 ? `${v.toFixed(0)}%` : "-");
+const formatPct = (v) => (v || v === 0 ? `${safeFixed(v, 0)}%` : "-");
 const formatTime = (ts) => (ts ? new Date(ts).toLocaleTimeString() : "-");
 
 const rows = [

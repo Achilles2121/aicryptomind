@@ -19,6 +19,7 @@ import buildSignalsV4, {
   type Direction,
   analyzeMarketStructure,
 } from "./signalsV4";
+import { safeFixed } from "./safeFixed";
 
 // ============================================
 // ULTRA SIGNAL KRITERIEN
@@ -389,7 +390,7 @@ export function getSimpleTradeAdvice(
   return {
     action,
     winChance: `${Math.round(ultra.winProbability * 100)}%`,
-    riskReward: ultra.rrRatio > 0 ? `1:${ultra.rrRatio.toFixed(1)}` : "N/A",
+    riskReward: ultra.rrRatio > 0 ? `1:${safeFixed(ultra.rrRatio, 1)}` : "N/A",
     message: ultra.message,
     emoji,
     shouldTrade: ultra.shouldTrade,

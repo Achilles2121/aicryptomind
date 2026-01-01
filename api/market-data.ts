@@ -1,17 +1,16 @@
 /**
- * /api/market-data.ts - Universal Market Data API
- * 
- * Unified endpoint for all asset types: Crypto, Indices, Forex, Commodities
- * Uses Binance for crypto (faster) and Yahoo Finance for everything else
- * 
- * @author Vision AI Mind
- * @version 2.0.0
- * 
+ * /api/market-data.ts - Crypto Market Data API
+ *
+ * Unified endpoint for supported crypto assets only.
+ * Uses Binance for primary data with Yahoo Finance as fallback for crypto tickers.
+ *
  * Usage:
  *   GET /api/market-data?symbol=BTC
- *   GET /api/market-data?symbol=DAX%2040
- *   GET /api/market-data?symbol=EUR%20/%20USD
+ *   GET /api/market-data?symbol=BTCUSDT
+ *   GET /api/market-data?symbol=bitcoin
  */
+
+import supportedCoins from "../src/config/supportedCoins.js";
 
 // Edge runtime - no @vercel/node types needed
 
@@ -19,7 +18,6 @@
 // TYPES
 // ============================================================================
 
-// Local types to avoid @vercel/node dependency
 type VercelRequest = {
   query?: Record<string, string | string[]>;
   headers?: Record<string, string>;
@@ -33,7 +31,7 @@ type VercelResponse = {
   end: () => void;
 };
 
-type AssetType = 'crypto' | 'index' | 'commodity' | 'forex';
+type AssetType = "crypto";
 
 interface AssetConfig {
   ticker: string;
@@ -48,7 +46,7 @@ interface AssetConfig {
 
 interface MarketDataResponse {
   ok: boolean;
-  status: 'ok' | 'error' | 'cached';
+  status: "ok" | "error" | "cached";
   data?: {
     symbol: string;
     ticker: string;
@@ -62,67 +60,60 @@ interface MarketDataResponse {
     timestamp: number;
     type: AssetType;
     displayName: string;
-    provider: 'binance' | 'yahoo';
+    provider: "binance" | "yahoo";
   };
   error?: string;
   cached?: boolean;
 }
 
 interface CacheEntry {
-  data: MarketDataResponse['data'];
+  data: MarketDataResponse["data"];
   timestamp: number;
   ttl: number;
 }
 
 // ============================================================================
-// SYMBOL MAP (inline to avoid import issues in Vercel)
+// SUPPORTED COIN MAPPING
 // ============================================================================
 
-const SYMBOL_MAP: Record<string, AssetConfig> = {
-  // CRYPTO
-  'BTC': { ticker: 'BTC-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'BTCUSDT', decimals: 2, currency: '$' },
-  'ETH': { ticker: 'ETH-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'ETHUSDT', decimals: 2, currency: '$' },
-  'SOL': { ticker: 'SOL-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'SOLUSDT', decimals: 2, currency: '$' },
-  'XRP': { ticker: 'XRP-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'XRPUSDT', decimals: 4, currency: '$' },
-  'ADA': { ticker: 'ADA-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'ADAUSDT', decimals: 4, currency: '$' },
-  'LTC': { ticker: 'LTC-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'LTCUSDT', decimals: 2, currency: '$' },
-  'DOGE': { ticker: 'DOGE-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'DOGEUSDT', decimals: 5, currency: '$' },
-  'BNB': { ticker: 'BNB-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'BNBUSDT', decimals: 2, currency: '$' },
-  'AVAX': { ticker: 'AVAX-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'AVAXUSDT', decimals: 2, currency: '$' },
-  'DOT': { ticker: 'DOT-USD', type: 'crypto', updateInterval: 1000, useBinance: true, binanceSymbol: 'DOTUSDT', decimals: 3, currency: '$' },
-  
-  // INDICES
-  'DAX 40': { ticker: '^GDAXI', type: 'index', updateInterval: 5000, displayName: 'DAX 40', decimals: 2, currency: '€' },
-  'DAX': { ticker: '^GDAXI', type: 'index', updateInterval: 5000, displayName: 'DAX 40', decimals: 2, currency: '€' },
-  'S&P 500': { ticker: '^GSPC', type: 'index', updateInterval: 5000, displayName: 'S&P 500', decimals: 2, currency: '$' },
-  'SPX': { ticker: '^GSPC', type: 'index', updateInterval: 5000, displayName: 'S&P 500', decimals: 2, currency: '$' },
-  'Nasdaq 100': { ticker: '^NDX', type: 'index', updateInterval: 5000, displayName: 'NASDAQ 100', decimals: 2, currency: '$' },
-  'NASDAQ': { ticker: '^IXIC', type: 'index', updateInterval: 5000, displayName: 'NASDAQ Composite', decimals: 2, currency: '$' },
-  'Dow Jones': { ticker: '^DJI', type: 'index', updateInterval: 5000, displayName: 'Dow Jones', decimals: 2, currency: '$' },
-  'DJI': { ticker: '^DJI', type: 'index', updateInterval: 5000, displayName: 'Dow Jones', decimals: 2, currency: '$' },
-  'FTSE 100': { ticker: '^FTSE', type: 'index', updateInterval: 5000, displayName: 'FTSE 100', decimals: 2, currency: '£' },
-  'Nikkei 225': { ticker: '^N225', type: 'index', updateInterval: 5000, displayName: 'Nikkei 225', decimals: 2, currency: '¥' },
-  
-  // COMMODITIES
-  'Gold': { ticker: 'GC=F', type: 'commodity', updateInterval: 3000, displayName: 'Gold (COMEX)', decimals: 2, currency: '$' },
-  'GOLD': { ticker: 'GC=F', type: 'commodity', updateInterval: 3000, displayName: 'Gold (COMEX)', decimals: 2, currency: '$' },
-  'XAUUSD': { ticker: 'GC=F', type: 'commodity', updateInterval: 3000, displayName: 'Gold/USD', decimals: 2, currency: '$' },
-  'Silver': { ticker: 'SI=F', type: 'commodity', updateInterval: 3000, displayName: 'Silver (COMEX)', decimals: 3, currency: '$' },
-  'Oil': { ticker: 'CL=F', type: 'commodity', updateInterval: 3000, displayName: 'Crude Oil (WTI)', decimals: 2, currency: '$' },
-  
-  // FOREX
-  'EUR / USD': { ticker: 'EURUSD=X', type: 'forex', updateInterval: 3000, displayName: 'EUR/USD', decimals: 5, currency: '' },
-  'EURUSD': { ticker: 'EURUSD=X', type: 'forex', updateInterval: 3000, displayName: 'EUR/USD', decimals: 5, currency: '' },
-  'GBP / USD': { ticker: 'GBPUSD=X', type: 'forex', updateInterval: 3000, displayName: 'GBP/USD', decimals: 5, currency: '' },
-  'GBPUSD': { ticker: 'GBPUSD=X', type: 'forex', updateInterval: 3000, displayName: 'GBP/USD', decimals: 5, currency: '' },
-  'USD / JPY': { ticker: 'JPY=X', type: 'forex', updateInterval: 3000, displayName: 'USD/JPY', decimals: 3, currency: '' },
-  'USDJPY': { ticker: 'JPY=X', type: 'forex', updateInterval: 3000, displayName: 'USD/JPY', decimals: 3, currency: '' },
-  'USD / CHF': { ticker: 'CHF=X', type: 'forex', updateInterval: 3000, displayName: 'USD/CHF', decimals: 5, currency: '' },
-  'USDCHF': { ticker: 'CHF=X', type: 'forex', updateInterval: 3000, displayName: 'USD/CHF', decimals: 5, currency: '' },
-  'AUD / USD': { ticker: 'AUDUSD=X', type: 'forex', updateInterval: 3000, displayName: 'AUD/USD', decimals: 5, currency: '' },
-  'AUDUSD': { ticker: 'AUDUSD=X', type: 'forex', updateInterval: 3000, displayName: 'AUD/USD', decimals: 5, currency: '' },
-  'USD / CAD': { ticker: 'CAD=X', type: 'forex', updateInterval: 3000, displayName: 'USD/CAD', decimals: 5, currency: '' },
-  'USDCAD': { ticker: 'CAD=X', type: 'forex', updateInterval: 3000, displayName: 'USD/CAD', decimals: 5, currency: '' },
+const normalizeSymbol = (value: string): string =>
+  String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+const COIN_BY_ID = new Map(
+  supportedCoins.map((coin) => [coin.id.toLowerCase(), coin.symbol.toUpperCase()])
+);
+
+const SYMBOL_MAP: Record<string, AssetConfig> = supportedCoins.reduce((acc, coin) => {
+  const symbol = normalizeSymbol(coin.symbol);
+  if (!symbol || acc[symbol]) return acc;
+  acc[symbol] = {
+    ticker: `${symbol}-USD`,
+    type: "crypto",
+    updateInterval: 1000,
+    useBinance: true,
+    binanceSymbol: `${symbol}USDT`,
+    displayName: coin.name || symbol,
+    decimals: 2,
+    currency: "$",
+  };
+  return acc;
+}, {} as Record<string, AssetConfig>);
+
+const SUPPORTED_SYMBOLS = new Set(Object.keys(SYMBOL_MAP));
+
+const resolveSupportedSymbol = (value: string): string | null => {
+  if (!value) return null;
+  const byId = COIN_BY_ID.get(value.toLowerCase());
+  if (byId) return byId;
+  const normalized = normalizeSymbol(value);
+  if (!normalized) return null;
+  if (SUPPORTED_SYMBOLS.has(normalized)) return normalized;
+  const stripped = normalized.endsWith("USDT")
+    ? normalized.slice(0, -4)
+    : normalized.endsWith("USD")
+    ? normalized.slice(0, -3)
+    : normalized;
+  return SUPPORTED_SYMBOLS.has(stripped) ? stripped : null;
 };
 
 // ============================================================================
@@ -132,56 +123,35 @@ const SYMBOL_MAP: Record<string, AssetConfig> = {
 const cache: Record<string, CacheEntry> = {};
 
 function getCacheKey(symbol: string): string {
-  return `market_${symbol.toUpperCase().replaceAll(/\s+/g, '_')}`;
+  return `market_${symbol.toUpperCase().replaceAll(/\s+/g, "_")}`;
 }
 
 function getCachedData(symbol: string): CacheEntry | null {
   const key = getCacheKey(symbol);
   const entry = cache[key];
-  
+
   if (!entry) return null;
-  
+
   const now = Date.now();
   if (now - entry.timestamp > entry.ttl) {
     delete cache[key];
     return null;
   }
-  
+
   return entry;
 }
 
-function setCacheData(symbol: string, data: MarketDataResponse['data'], ttl: number): void {
+function setCacheData(symbol: string, data: MarketDataResponse["data"], ttl: number): void {
   const key = getCacheKey(symbol);
   cache[key] = {
     data,
     timestamp: Date.now(),
-    ttl
+    ttl,
   };
 }
 
 // ============================================================================
-// GET ASSET CONFIG
-// ============================================================================
-
-function getAssetConfig(symbol: string): AssetConfig | null {
-  // Direct match
-  if (SYMBOL_MAP[symbol]) {
-    return SYMBOL_MAP[symbol];
-  }
-  
-  // Case-insensitive match
-  const upperSymbol = symbol.toUpperCase();
-  for (const [key, config] of Object.entries(SYMBOL_MAP)) {
-    if (key.toUpperCase() === upperSymbol) {
-      return config;
-    }
-  }
-  
-  return null;
-}
-
-// ============================================================================
-// BINANCE API (for Crypto - faster updates)
+// BINANCE API (CRYPTO)
 // ============================================================================
 
 async function fetchBinanceData(binanceSymbol: string): Promise<{
@@ -195,21 +165,21 @@ async function fetchBinanceData(binanceSymbol: string): Promise<{
 } | null> {
   try {
     const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${binanceSymbol}`;
-    
+
     const response = await fetch(url, {
       headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'VisionAIMind/2.0'
-      }
+        Accept: "application/json",
+        "User-Agent": "VisionAIMind/2.0",
+      },
     });
-    
+
     if (!response.ok) {
       console.error(`[Binance] Error ${response.status} for ${binanceSymbol}`);
       return null;
     }
-    
+
     const data = await response.json();
-    
+
     return {
       price: Number.parseFloat(data.lastPrice) || 0,
       change: Number.parseFloat(data.priceChange) || 0,
@@ -217,7 +187,7 @@ async function fetchBinanceData(binanceSymbol: string): Promise<{
       previousClose: Number.parseFloat(data.prevClosePrice) || 0,
       high24h: Number.parseFloat(data.highPrice) || 0,
       low24h: Number.parseFloat(data.lowPrice) || 0,
-      volume: Number.parseFloat(data.volume) || 0
+      volume: Number.parseFloat(data.volume) || 0,
     };
   } catch (error) {
     console.error(`[Binance] Fetch error for ${binanceSymbol}:`, error);
@@ -226,7 +196,7 @@ async function fetchBinanceData(binanceSymbol: string): Promise<{
 }
 
 // ============================================================================
-// YAHOO FINANCE API (for Indices, Forex, Commodities)
+// YAHOO FINANCE API (CRYPTO FALLBACK)
 // ============================================================================
 
 async function fetchYahooData(ticker: string): Promise<{
@@ -240,51 +210,47 @@ async function fetchYahooData(ticker: string): Promise<{
 } | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1m&range=1d`;
-    
+
     const response = await fetch(url, {
       headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+        Accept: "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
     });
-    
+
     if (!response.ok) {
       console.error(`[Yahoo] Error ${response.status} for ${ticker}`);
       return null;
     }
-    
+
     const json = await response.json();
     const result = json?.chart?.result?.[0];
-    
+
     if (!result) {
       console.error(`[Yahoo] No result for ${ticker}`);
       return null;
     }
-    
+
     const meta = result.meta;
     const quote = result.indicators?.quote?.[0];
-    
-    // Get latest price
+
     const price = meta.regularMarketPrice ?? meta.previousClose ?? 0;
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
-    
-    // Calculate change
+
     const change = price - previousClose;
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-    
-    // Get high/low from quotes or meta
+
     let high24h = meta.regularMarketDayHigh ?? 0;
     let low24h = meta.regularMarketDayLow ?? 0;
     let volume = meta.regularMarketVolume ?? 0;
-    
-    // If meta doesn't have it, calculate from quotes
+
     if (quote && (!high24h || !low24h)) {
       const highs = (quote.high || []).filter((h: number | null) => h !== null);
       const lows = (quote.low || []).filter((l: number | null) => l !== null);
       if (highs.length) high24h = Math.max(...highs);
       if (lows.length) low24h = Math.min(...lows);
     }
-    
+
     return {
       price,
       change,
@@ -292,7 +258,7 @@ async function fetchYahooData(ticker: string): Promise<{
       previousClose,
       high24h,
       low24h,
-      volume
+      volume,
     };
   } catch (error) {
     console.error(`[Yahoo] Fetch error for ${ticker}:`, error);
@@ -304,70 +270,59 @@ async function fetchYahooData(ticker: string): Promise<{
 // MAIN API HANDLER
 // ============================================================================
 
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-): Promise<void> {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 's-maxage=1, stale-while-revalidate=5');
-  
-  if (req.method === 'OPTIONS') {
+export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate=5");
+
+  if (req.method === "OPTIONS") {
     res.status(200).end();
     return;
   }
-  
-  if (req.method !== 'GET') {
+
+  if (req.method !== "GET") {
     res.status(405).json({
       ok: false,
-      status: 'error',
-      error: 'Method not allowed'
+      status: "error",
+      error: "Method not allowed",
     });
     return;
   }
-  
-  // Get symbol from query
-  const symbol = (req.query.symbol as string) || '';
-  
+
+  const symbolParam = (req.query?.symbol as string) || "";
+  const symbol = resolveSupportedSymbol(symbolParam);
+
   if (!symbol) {
     res.status(400).json({
       ok: false,
-      status: 'error',
-      error: 'Missing required parameter: symbol'
+      status: "error",
+      error: `Unsupported symbol: ${symbolParam}`,
     });
     return;
   }
-  
-  // Get asset config
-  const config = getAssetConfig(symbol);
-  
+
+  const config = SYMBOL_MAP[symbol];
   if (!config) {
     res.status(404).json({
       ok: false,
-      status: 'error',
-      error: `Unknown symbol: ${symbol}. Supported: BTC, ETH, DAX 40, S&P 500, EUR / USD, Gold, etc.`
+      status: "error",
+      error: `Unsupported symbol: ${symbol}`,
     });
     return;
   }
-  
-  // Check cache first
+
   const cached = getCachedData(symbol);
   if (cached) {
-    console.log(`[Cache HIT] ${symbol}`);
     res.status(200).json({
       ok: true,
-      status: 'cached',
+      status: "cached",
       data: cached.data,
-      cached: true
+      cached: true,
     });
     return;
   }
-  
-  console.log(`[Cache MISS] ${symbol} - fetching fresh data`);
-  
-  // Fetch data based on asset type
+
   let marketData: {
     price: number;
     change: number;
@@ -377,52 +332,44 @@ export default async function handler(
     low24h: number;
     volume: number;
   } | null = null;
-  
-  let provider: 'binance' | 'yahoo' = 'yahoo';
-  
-  // Try Binance first for crypto
+
+  let provider: "binance" | "yahoo" = "yahoo";
+
   if (config.useBinance && config.binanceSymbol) {
-    provider = 'binance';
+    provider = "binance";
     marketData = await fetchBinanceData(config.binanceSymbol);
-    
-    // Fallback to Yahoo if Binance fails
+
     if (!marketData) {
-      console.log(`[Fallback] ${symbol}: Binance failed, trying Yahoo`);
-      provider = 'yahoo';
+      provider = "yahoo";
       marketData = await fetchYahooData(config.ticker);
     }
   } else {
-    // Use Yahoo for non-crypto
     marketData = await fetchYahooData(config.ticker);
   }
-  
-  // Handle fetch failure
+
   if (!marketData) {
-    // Try to return stale cache
     const staleKey = getCacheKey(symbol);
     const staleEntry = cache[staleKey];
-    
+
     if (staleEntry) {
-      console.log(`[Stale Cache] ${symbol} - returning expired data`);
       res.status(200).json({
         ok: true,
-        status: 'cached',
+        status: "cached",
         data: staleEntry.data,
-        cached: true
+        cached: true,
       });
       return;
     }
-    
+
     res.status(503).json({
       ok: false,
-      status: 'error',
-      error: `Failed to fetch data for ${symbol}. Please try again.`
+      status: "error",
+      error: `Failed to fetch data for ${symbol}. Please try again.`,
     });
     return;
   }
-  
-  // Build response data
-  const responseData: MarketDataResponse['data'] = {
+
+  const responseData: MarketDataResponse["data"] = {
     symbol,
     ticker: config.ticker,
     price: marketData.price,
@@ -435,26 +382,16 @@ export default async function handler(
     timestamp: Date.now(),
     type: config.type,
     displayName: config.displayName || symbol,
-    provider
+    provider,
   };
-  
-  // Cache TTL based on asset type
-  const ttlMap: Record<AssetType, number> = {
-    crypto: 1000,      // 1 second
-    index: 5000,       // 5 seconds
-    forex: 3000,       // 3 seconds
-    commodity: 3000    // 3 seconds
-  };
-  
-  const ttl = ttlMap[config.type] || 5000;
+
+  const ttl = config.updateInterval || 1000;
   setCacheData(symbol, responseData, ttl);
-  
-  console.log(`[Success] ${symbol}: ${marketData.price} via ${provider}`);
-  
+
   res.status(200).json({
     ok: true,
-    status: 'ok',
+    status: "ok",
     data: responseData,
-    cached: false
+    cached: false,
   });
 }

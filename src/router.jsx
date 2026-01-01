@@ -12,7 +12,8 @@ const PortfolioPage = lazy(() => import('./features/portfolio/PortfolioPage'));
 const CoinList = lazy(() => import('./features/coins/CoinList'));
 const AssetDetail = lazy(() => import('./features/asset/AssetDetail'));
 const SignalsDashboard = lazy(() => import('./features/signals/SignalsDashboard'));
-const TradingDashboard = lazy(() => import('./App'));
+// const TradingDashboard = lazy(() => import('./App'));
+import TradingDashboard from './App';
 
 // Layout wrapper with navigation for sub-pages (not dashboard)
 function AppLayout() {
@@ -32,9 +33,7 @@ function AppLayout() {
 
 function DashboardRoute() {
   return (
-    <Suspense fallback={<FullScreenLoader />}>
-      <TradingDashboard />
-    </Suspense>
+    <TradingDashboard />
   );
 }
 

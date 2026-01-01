@@ -1,8 +1,8 @@
 /**
  * useMarketData - React Hook for Live Market Data
  * 
- * Fetches real-time price data for any supported asset
- * Automatically polls based on asset type (crypto: 1s, index: 5s, forex: 3s)
+ * Fetches real-time price data for supported crypto assets
+ * Automatically polls based on crypto update interval
  * Handles visibility changes and intersection observer for performance
  * 
  * @author Vision AI Mind
@@ -10,19 +10,17 @@
  * 
  * Usage:
  *   const { price, change, changePercent, isLoading, error } = useMarketData('BTC');
- *   const { price } = useMarketData('DAX 40');
- *   const { price } = useMarketData('EUR / USD');
  */
 
-/* global AbortSignal */
-
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { safeFixed } from "../lib/safeFixed";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type AssetType = 'crypto' | 'index' | 'commodity' | 'forex';
+export type AssetType = 'crypto';
+type MarketAbortSignal = AbortSignal;
 
 export interface MarketData {
   /** Current price */
@@ -45,7 +43,7 @@ export interface MarketData {
   error: string | null;
   /** Last successful update timestamp */
   lastUpdate: number | null;
-  /** Asset type (crypto, index, forex, commodity) */
+  /** Asset type (crypto) */
   type: AssetType | null;
   /** Data provider (binance, yahoo) */
   provider: string | null;
@@ -83,9 +81,6 @@ interface ApiResponse {
 
 const UPDATE_INTERVALS: Record<AssetType, number> = {
   crypto: 2000,     // 2 seconds (Binance is fast)
-  index: 5000,      // 5 seconds
-  forex: 3000,      // 3 seconds
-  commodity: 3000   // 3 seconds
 };
 
 // Default interval if type unknown
@@ -121,7 +116,7 @@ export function useMarketData(symbol: string): MarketData {
   const lastSymbolRef = useRef<string>(symbol);
   
   // Fetch market data
-  const fetchData = useCallback(async (abortSignal?: AbortSignal): Promise<void> => {
+  const fetchData = useCallback(async (abortSignal?: MarketAbortSignal): Promise<void> => {
     // Skip if tab is hidden
     if (!isVisibleRef.current) {
       return;
@@ -217,17 +212,8 @@ export function useMarketData(symbol: string): MarketData {
       
       // Guess interval from symbol name
       const upperSymbol = symbol.toUpperCase();
-      if (['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'LTC', 'DOGE', 'BNB', 'AVAX', 'DOT'].includes(upperSymbol)) {
+      if (upperSymbol) {
         return UPDATE_INTERVALS.crypto;
-      }
-      if (upperSymbol.includes('DAX') || upperSymbol.includes('S&P') || upperSymbol.includes('NASDAQ') || upperSymbol.includes('DOW') || upperSymbol.includes('FTSE') || upperSymbol.includes('NIKKEI')) {
-        return UPDATE_INTERVALS.index;
-      }
-      if (upperSymbol.includes('USD') || upperSymbol.includes('EUR') || upperSymbol.includes('GBP') || upperSymbol.includes('JPY') || upperSymbol.includes('CHF') || upperSymbol.includes('CAD') || upperSymbol.includes('AUD')) {
-        return UPDATE_INTERVALS.forex;
-      }
-      if (upperSymbol.includes('GOLD') || upperSymbol.includes('SILVER') || upperSymbol.includes('OIL') || upperSymbol.includes('XAU')) {
-        return UPDATE_INTERVALS.commodity;
       }
       
       return DEFAULT_INTERVAL;
@@ -285,37 +271,20 @@ export function useFormattedPrice(symbol: string): {
 } {
   const { price, change, changePercent, isLoading, type } = useMarketData(symbol);
   
-  // Format price based on asset type
-  const formatPrice = (p: number | null, t: AssetType | null): string => {
-    if (p === null) return '--';
-    
-    let decimals = 2;
-    let prefix = '$';
-    
-    // Adjust decimals based on type and value
-    if (t === 'forex') {
-      decimals = 4;
-      prefix = '';
-    } else if (t === 'crypto' && p < 1) {
-      decimals = 6;
-    } else if (t === 'index') {
-      decimals = 2;
-      // DAX is in EUR
-      if (symbol.includes('DAX')) prefix = '€';
-      else if (symbol.includes('FTSE')) prefix = '£';
-      else if (symbol.includes('NIKKEI') || symbol.includes('N225')) prefix = '¥';
-    }
-    
-    return `${prefix}${p.toLocaleString('en-US', { 
-      minimumFractionDigits: decimals, 
-      maximumFractionDigits: decimals 
+  // Format price for crypto
+  const formatPrice = (p: number | null, _t: AssetType | null): string => {
+    if (p === null) return "--";
+    const decimals = p < 1 ? 6 : 2;
+    return `$${p.toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
     })}`;
   };
   
   const formattedPrice = formatPrice(price, type);
   const isPositive = (change ?? 0) >= 0;
   const formattedChange = changePercent !== null 
-    ? `${isPositive ? '+' : ''}${changePercent.toFixed(2)}%`
+    ? `${isPositive ? '+' : ''}${safeFixed(changePercent, 2)}%`
     : '--';
   
   return {

@@ -1,4 +1,5 @@
 import { safeFetch, type SafeFetchOptions } from "./safeFetch";
+import { safeFixed } from "./safeFixed";
 
 export type Candle = {
   time: number;
@@ -95,10 +96,10 @@ export const buildFallbackChart = (length = 24, basePrice = 100, volatility = 0.
 
     candles.push({
       time: now - (length - idx) * 3600,
-      open: Number.parseFloat(open.toFixed(2)),
-      high: Number.parseFloat(high.toFixed(2)),
-      low: Number.parseFloat(low.toFixed(2)),
-      close: Number.parseFloat(close.toFixed(2)),
+      open: Number.parseFloat(safeFixed(open, 2)),
+      high: Number.parseFloat(safeFixed(high, 2)),
+      low: Number.parseFloat(safeFixed(low, 2)),
+      close: Number.parseFloat(safeFixed(close, 2)),
       volume,
       provider: "fallback",
     });

@@ -1,3 +1,5 @@
+import { safeFixed } from "../lib/safeFixed";
+
 export const createApiCheckers = () => [
     {
         key: "defillama",
@@ -44,15 +46,20 @@ export const createApiCheckers = () => [
         name: "Alpha Vantage",
         run: async (signal) => {
             const res = await fetch(
-                "https://www.alphavantage.co/query?function=ATR&symbol=IBM&interval=daily&time_period=14&apikey=demo",
+                "https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_DAILY&symbol=BTC&market=USD&apikey=demo",
                 { signal }
             );
             if (res.status === 503) throw new Error("Limit erreicht (503)");
             if (!res.ok) throw new Error("alphavantage failed");
             const data = await res.json();
-            const values = data?.TechnicalAnalysis?.ATR || data?.TechnicalAnalysisATR || data?.TechnicalAnalysisATR || {};
-            const first = Object.values(values)[0];
-            return { status: "ok", detail: first?.ATR ? `ATR ${Number(first.ATR).toFixed(2)}` : "Demo ok", data: "IBM Daily" };
+            const series = data?.["Time Series (Digital Currency Daily)"] || {};
+            const first = Object.values(series)[0];
+            const close = first?.["4b. close (USD)"];
+            return {
+                status: "ok",
+                detail: close ? `BTC: $${safeFixed(Number(close), 2)}` : "Demo ok",
+                data: "AlphaVantage BTC Daily",
+            };
         },
     },
     {
@@ -61,11 +68,11 @@ export const createApiCheckers = () => [
         run: async (signal) => {
             // Use our serverless Yahoo Finance proxy instead of FMP (no auth needed)
             try {
-                const res = await fetch("/api/market-data?symbol=SPY&period=1d", { signal });
+                const res = await fetch("/api/price?asset=BTCUSDT", { signal });
                 if (!res.ok) throw new Error("Market data unavailable");
                 const data = await res.json();
-                const price = data?.data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-                return { status: "ok", detail: price ? `SPY: $${price.toFixed(2)}` : "Markets aktiv", data: "Yahoo Finance Proxy" };
+                const price = data?.data?.price || data?.data?.value;
+                return { status: "ok", detail: price ? `BTC: $${safeFixed(price, 2)}` : "Markets aktiv", data: "Crypto Price Proxy" };
             } catch {
                 return { status: "ok", detail: "Proxy ready", data: "Serverless API" };
             }

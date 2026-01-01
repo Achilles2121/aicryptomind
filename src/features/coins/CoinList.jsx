@@ -7,6 +7,7 @@ import {
   Search, 
   RefreshCw
 } from 'lucide-react';
+import { safeFixed } from "../../lib/safeFixed";
 
 // Sparkline mini chart component
 function Sparkline({ data, positive }) {
@@ -37,20 +38,20 @@ function Sparkline({ data, positive }) {
 // Format large numbers
 function formatNumber(num, decimals = 2) {
   if (num === null || num === undefined) return 'N/A';
-  if (num >= 1e12) return `$${(num / 1e12).toFixed(decimals)}T`;
-  if (num >= 1e9) return `$${(num / 1e9).toFixed(decimals)}B`;
-  if (num >= 1e6) return `$${(num / 1e6).toFixed(decimals)}M`;
-  if (num >= 1e3) return `$${(num / 1e3).toFixed(decimals)}K`;
-  return `$${num.toFixed(decimals)}`;
+  if (num >= 1e12) return `$${safeFixed(num / 1e12, decimals)}T`;
+  if (num >= 1e9) return `$${safeFixed(num / 1e9, decimals)}B`;
+  if (num >= 1e6) return `$${safeFixed(num / 1e6, decimals)}M`;
+  if (num >= 1e3) return `$${safeFixed(num / 1e3, decimals)}K`;
+  return `$${safeFixed(num, decimals)}`;
 }
 
 // Format price with appropriate decimals
 function formatPrice(price) {
   if (price === null || price === undefined) return 'N/A';
   if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-  if (price >= 1) return `$${price.toFixed(2)}`;
-  if (price >= 0.01) return `$${price.toFixed(4)}`;
-  return `$${price.toFixed(8)}`;
+  if (price >= 1) return `$${safeFixed(price, 2)}`;
+  if (price >= 0.01) return `$${safeFixed(price, 4)}`;
+  return `$${safeFixed(price, 8)}`;
 }
 
 // Percentage change component
@@ -64,7 +65,7 @@ function PriceChange({ value }) {
   return (
     <span className={`flex items-center gap-1 ${colorClass}`}>
       <Icon className="w-3 h-3" />
-      {Math.abs(value).toFixed(2)}%
+      {safeFixed(Math.abs(value), 2)}%
     </span>
   );
 }
@@ -214,7 +215,7 @@ export default function CoinList() {
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
             <div className="text-slate-400 text-sm mb-1">BTC Dominance</div>
             <div className="text-xl font-bold text-amber-400">
-              {marketStats.btcDominance.toFixed(1)}%
+              {safeFixed(marketStats.btcDominance, 1)}%
             </div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">

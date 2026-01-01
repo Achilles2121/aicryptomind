@@ -2,8 +2,11 @@ import assert from "node:assert";
 import { computeStopAndTarget, computePositionSize, computeDailyRiskGate } from "../src/lib/riskEngine.js";
 import { buildFundamentalSnapshot, computeFundamentalScore } from "../src/lib/fundamentals.js";
 import { computeEdgeScore } from "../src/lib/strategyEngineV3.js";
-import { fetchEtfSeriesSafe } from "../api/etf/correlations.ts";
+// Note: fetchEtfSeriesSafe imported dynamically to support TypeScript via tsx
 import { computeDerivativesComposite, mapDerivativesRiskLevel } from "../src/lib/derivativesRisk.js";
+
+// Dynamic import for TypeScript module
+const { fetchEtfSeriesSafe } = await import("../api/etf/correlations.ts");
 
 // Stop/Target
 {

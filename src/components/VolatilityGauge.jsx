@@ -9,6 +9,7 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { Activity, AlertTriangle, TrendingUp, Pause } from 'lucide-react';
+import { safeFixed } from "../lib/safeFixed";
 
 const VolatilityGauge = ({
   volatilityScore = 50,
@@ -220,25 +221,25 @@ const VolatilityGauge = ({
             <div className="flex justify-between">
               <span className="text-slate-400">ATR:</span>
               <span className="text-slate-200 font-medium">
-                {metrics.atrPercent?.toFixed(2) || '-'}%
+                {metrics.atrPercent !== undefined && metrics.atrPercent !== null ? safeFixed(metrics.atrPercent, 2) : '-'}%
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">BB Width:</span>
               <span className="text-slate-200 font-medium">
-                {metrics.bollingerBandwidth?.toFixed(1) || '-'}
+                {metrics.bollingerBandwidth !== undefined && metrics.bollingerBandwidth !== null ? safeFixed(metrics.bollingerBandwidth, 1) : '-'}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Hist. Vol:</span>
               <span className="text-slate-200 font-medium">
-                {metrics.historicalVol?.toFixed(0) || '-'}%
+                {metrics.historicalVol !== undefined && metrics.historicalVol !== null ? safeFixed(metrics.historicalVol, 0) : '-'}%
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Prognose 4h:</span>
               <span className="text-slate-200 font-medium">
-                {metrics.garchForecast4h?.toFixed(1) || '-'}%
+                {metrics.garchForecast4h !== undefined && metrics.garchForecast4h !== null ? safeFixed(metrics.garchForecast4h, 1) : '-'}%
               </span>
             </div>
           </div>
@@ -247,7 +248,7 @@ const VolatilityGauge = ({
           <div className="flex justify-between pt-1 border-t border-slate-700/30">
             <span className="text-slate-400">Prognose 24h:</span>
             <span className="text-slate-200 font-medium">
-              {metrics.garchForecast24h?.toFixed(1) || '-'}% Vol
+              {metrics.garchForecast24h !== undefined && metrics.garchForecast24h !== null ? safeFixed(metrics.garchForecast24h, 1) : '-'}% Vol
             </span>
           </div>
 

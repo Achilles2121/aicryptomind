@@ -14,7 +14,16 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     this.setState({ errorInfo });
-    console.error('Vision AI Mind Error:', error, errorInfo);
+    
+    // Enhanced error logging for debugging
+    console.group('%c🚨 Vision AI Mind - Error Caught', 'color: #ef4444; font-weight: bold; font-size: 14px');
+    console.error('Error:', error);
+    console.error('Error Message:', error?.message);
+    console.error('Error Stack:', error?.stack);
+    if (errorInfo?.componentStack) {
+      console.error('Component Stack:', errorInfo.componentStack);
+    }
+    console.groupEnd();
     
     // Optional: Send to error tracking service
     // if (window.Sentry) {
@@ -57,9 +66,21 @@ class ErrorBoundary extends React.Component {
                 <summary className="text-sm text-slate-500 cursor-pointer hover:text-slate-400">
                   Technische Details
                 </summary>
-                <pre className="mt-2 p-3 bg-slate-800/50 rounded-lg text-xs text-red-300 overflow-auto max-h-32">
-                  {this.state.error.toString()}
-                </pre>
+                <div className="mt-2 space-y-2">
+                  <pre className="p-3 bg-slate-800/50 rounded-lg text-xs text-red-300 overflow-auto max-h-24">
+                    {this.state.error.toString()}
+                  </pre>
+                  {this.state.errorInfo?.componentStack && (
+                    <details className="text-left">
+                      <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400">
+                        Component Stack
+                      </summary>
+                      <pre className="mt-1 p-2 bg-slate-800/30 rounded text-xs text-amber-300/80 overflow-auto max-h-32 whitespace-pre-wrap">
+                        {this.state.errorInfo.componentStack}
+                      </pre>
+                    </details>
+                  )}
+                </div>
               </details>
             )}
             

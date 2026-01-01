@@ -9,6 +9,7 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { AlertTriangle, TrendingUp, TrendingDown, Zap, DollarSign, Activity, Clock } from 'lucide-react';
+import { safeFixed } from "../lib/safeFixed";
 
 const VolatilityAlerts = ({
   volatilityData = null,
@@ -56,7 +57,7 @@ const VolatilityAlerts = ({
         type: 'critical',
         icon: Zap,
         title: 'ATR Spike',
-        message: `ATR bei ${metrics.atrPercent.toFixed(2)}% - extreme Bewegungen!`,
+        message: `ATR bei ${safeFixed(metrics.atrPercent, 2)}% - extreme Bewegungen!`,
         priority: 1,
       });
     } else if (metrics?.atrPercent > 3) {
@@ -64,7 +65,7 @@ const VolatilityAlerts = ({
         type: 'warning',
         icon: Zap,
         title: 'Erhöhte ATR',
-        message: `ATR bei ${metrics.atrPercent.toFixed(2)}% - vorsichtig traden.`,
+        message: `ATR bei ${safeFixed(metrics.atrPercent, 2)}% - vorsichtig traden.`,
         priority: 3,
       });
     }
@@ -75,7 +76,7 @@ const VolatilityAlerts = ({
         type: 'warning',
         icon: TrendingUp,
         title: 'Vol-Anstieg erwartet',
-        message: `GARCH: ${metrics.garchForecast4h.toFixed(1)}% Vol in 4h prognostiziert.`,
+        message: `GARCH: ${safeFixed(metrics.garchForecast4h, 1)}% Vol in 4h prognostiziert.`,
         priority: 2,
       });
     } else if (metrics?.garchForecast4h < metrics?.historicalVol * 0.7) {
@@ -133,7 +134,7 @@ const VolatilityAlerts = ({
           type: 'info',
           icon: DollarSign,
           title: 'Hohe Funding Rate',
-          message: `Funding ${direction}: ${sentiment.fundingRate.toFixed(3)}%`,
+          message: `Funding ${direction}: ${safeFixed(sentiment.fundingRate, 3)}%`,
           priority: 3,
         });
       }

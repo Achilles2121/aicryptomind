@@ -7,6 +7,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
+import { safeFixed } from "./safeFixed";
 
 // ============ Types ============
 
@@ -284,7 +285,7 @@ export function useBacktestHistory(asset: string) {
   const averageWinRate = useMemo(() => {
     if (history.length === 0) return null;
     const sum = history.reduce((acc, h) => acc + h.winRate, 0);
-    return parseFloat((sum / history.length).toFixed(1));
+    return parseFloat(safeFixed(sum / history.length, 1));
   }, [history]);
 
   return { history, latestWinRate, averageWinRate };
@@ -343,14 +344,14 @@ export function formatMetrics(result: BacktestResult | null) {
   if (!result) return null;
   
   return {
-    winRate: `${result.winRate.toFixed(1)}%`,
-    profitFactor: result.profitFactor.toFixed(2),
-    sharpeRatio: result.sharpeRatio.toFixed(2),
-    maxDrawdown: `${result.maxDrawdown.toFixed(1)}%`,
-    totalReturn: `${result.totalReturn >= 0 ? '+' : ''}${result.totalReturn.toFixed(1)}%`,
+    winRate: `${safeFixed(result.winRate, 1)}%`,
+    profitFactor: safeFixed(result.profitFactor, 2),
+    sharpeRatio: safeFixed(result.sharpeRatio, 2),
+    maxDrawdown: `${safeFixed(result.maxDrawdown, 1)}%`,
+    totalReturn: `${result.totalReturn >= 0 ? '+' : ''}${safeFixed(result.totalReturn, 1)}%`,
     totalTrades: result.totalTrades.toString(),
-    avgWin: `+${result.avgWin.toFixed(2)}%`,
-    avgLoss: `-${result.avgLoss.toFixed(2)}%`,
+    avgWin: `+${safeFixed(result.avgWin, 2)}%`,
+    avgLoss: `-${safeFixed(result.avgLoss, 2)}%`,
     avgHoldingPeriod: result.avgHoldingPeriod,
   };
 }
@@ -386,7 +387,7 @@ export function calculateEquityCurve(trades: Trade[]): { date: string; equity: n
     equity += trade.pnlPercent;
     curve.push({
       date: trade.exitDate.split('T')[0],
-      equity: parseFloat(equity.toFixed(2)),
+      equity: parseFloat(safeFixed(equity, 2)),
     });
   }
   

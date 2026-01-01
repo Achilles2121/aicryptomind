@@ -3,6 +3,7 @@ import { Activity } from "lucide-react";
 import { fetchEtfCorrelationsLive } from "../../services/etfCorrelationLive";
 import { type ApiHealthUpdateFn, type ToastFn } from "../../lib/safeFetch";
 import { setCorrelationCache, type CorrelationPoint } from "./EtfCorrelationHeatmapCard";
+import { safeFixed } from "../../lib/safeFixed";
 
 const statusColor = (val: number | null | undefined) => {
   if (val === null || val === undefined) return "text-slate-400";
@@ -15,7 +16,7 @@ const statusColor = (val: number | null | undefined) => {
 
 const formatCorr = (val: number | null | undefined) => {
   if (val === null || val === undefined) return "N/A";
-  return Number.isFinite(val) ? val.toFixed(2) : "N/A";
+  return Number.isFinite(val) ? safeFixed(val, 2) : "N/A";
 };
 
 interface EtfCorrelationCardProps {

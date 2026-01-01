@@ -2,12 +2,10 @@
  * Yahoo Finance Unified Data Service
  * Vision AI Mind - Vision AI Mind
  * 
- * Provides OHLC data and current prices for:
- * - Crypto: BTC, ETH, SOL, etc.
- * - Forex: EUR/USD, GBP/USD, USD/JPY, etc.
- * - Indices: S&P 500, DAX, NASDAQ, etc.
- * - Commodities: Gold, Silver, Oil, etc.
+ * Provides OHLC data and current prices for supported crypto assets only.
  */
+
+import supportedCoins from "../../src/config/supportedCoins.js";
 
 // ============================================
 // TYPES
@@ -53,71 +51,21 @@ export interface YahooChartResult {
 // SYMBOL MAPPING
 // ============================================
 
+const normalizeSymbol = (value: string): string =>
+  value.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
+
 /**
  * Maps internal asset symbols to Yahoo Finance symbols
  */
-export const SYMBOL_MAP: Record<string, string> = {
-  // Crypto
-  BTC: "BTC-USD",
-  BTCUSD: "BTC-USD",
-  BTCUSDT: "BTC-USD",
-  ETH: "ETH-USD",
-  ETHUSD: "ETH-USD",
-  ETHUSDT: "ETH-USD",
-  SOL: "SOL-USD",
-  SOLUSD: "SOL-USD",
-  SOLUSDT: "SOL-USD",
-  XRP: "XRP-USD",
-  XRPUSD: "XRP-USD",
-  DOGE: "DOGE-USD",
-  ADA: "ADA-USD",
-  DOT: "DOT-USD",
-  AVAX: "AVAX-USD",
-  MATIC: "MATIC-USD",
-  LINK: "LINK-USD",
-  UNI: "UNI-USD",
-  
-  // Forex
-  EURUSD: "EURUSD=X",
-  GBPUSD: "GBPUSD=X",
-  USDJPY: "JPY=X",
-  USDCHF: "CHF=X",
-  AUDUSD: "AUDUSD=X",
-  USDCAD: "CAD=X",
-  NZDUSD: "NZDUSD=X",
-  EURGBP: "EURGBP=X",
-  EURJPY: "EURJPY=X",
-  GBPJPY: "GBPJPY=X",
-  
-  // Indices
-  SPX: "^GSPC",
-  SP500: "^GSPC",
-  GSPC: "^GSPC",
-  DAX: "^GDAXI",
-  GDAXI: "^GDAXI",
-  NASDAQ: "^IXIC",
-  NDX: "^NDX",
-  NDX100: "^NDX",
-  DJIA: "^DJI",
-  DOW: "^DJI",
-  FTSE: "^FTSE",
-  NIKKEI: "^N225",
-  CAC40: "^FCHI",
-  
-  // Commodities
-  XAUUSD: "GC=F",
-  GOLD: "GC=F",
-  XAU: "GC=F",
-  XAGUSD: "SI=F",
-  SILVER: "SI=F",
-  XAG: "SI=F",
-  OIL: "CL=F",
-  CRUDE: "CL=F",
-  WTI: "CL=F",
-  BRENT: "BZ=F",
-  NATGAS: "NG=F",
-  COPPER: "HG=F",
-};
+export const SYMBOL_MAP: Record<string, string> = supportedCoins.reduce((acc, coin) => {
+  const symbol = normalizeSymbol(coin.symbol);
+  if (!symbol || acc[symbol]) return acc;
+  const yahooSymbol = `${symbol}-USD`;
+  acc[symbol] = yahooSymbol;
+  acc[`${symbol}USD`] = yahooSymbol;
+  acc[`${symbol}USDT`] = yahooSymbol;
+  return acc;
+}, {} as Record<string, string>);
 
 /**
  * Maps interval in minutes to Yahoo Finance interval strings
@@ -136,9 +84,8 @@ export const INTERVAL_MAP: Record<number, string> = {
 /**
  * Maps interval to appropriate range for Yahoo Finance
  */
-const getRangeForInterval = (intervalMinutes: number, limit: number): string => {
+const getRangeForInterval = (intervalMinutes: number, _limit: number): string => {
   // Calculate range based on interval - limit parameter reserved for future use
-  const _ = limit; // Suppress unused warning
   
   if (intervalMinutes <= 5) return "1d";
   if (intervalMinutes <= 15) return "5d";
@@ -367,19 +314,10 @@ export function getYahooSymbol(asset: string): string {
 /**
  * Asset category detection
  */
-export function getAssetCategory(asset: string): "crypto" | "forex" | "index" | "commodity" | "unknown" {
-  const normalizedAsset = asset.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
-  
-  const cryptoAssets = ["BTC", "BTCUSD", "BTCUSDT", "ETH", "ETHUSD", "ETHUSDT", "SOL", "SOLUSD", "XRP", "DOGE", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"];
-  const forexAssets = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY"];
-  const indexAssets = ["SPX", "SP500", "GSPC", "DAX", "GDAXI", "NASDAQ", "NDX", "NDX100", "DJIA", "DOW", "FTSE", "NIKKEI", "CAC40"];
-  const commodityAssets = ["XAUUSD", "GOLD", "XAU", "XAGUSD", "SILVER", "XAG", "OIL", "CRUDE", "WTI", "BRENT", "NATGAS", "COPPER"];
-  
-  if (cryptoAssets.includes(normalizedAsset)) return "crypto";
-  if (forexAssets.includes(normalizedAsset)) return "forex";
-  if (indexAssets.includes(normalizedAsset)) return "index";
-  if (commodityAssets.includes(normalizedAsset)) return "commodity";
-  
-  return "unknown";
+export function getAssetCategory(asset: string): "crypto" | "unknown" {
+  const normalizedAsset = normalizeSymbol(asset);
+  if (SYMBOL_MAP[normalizedAsset]) return "crypto";
+  const stripped = normalizedAsset.replace(/USDT?$/, "").replace(/USD$/, "");
+  return SYMBOL_MAP[stripped] ? "crypto" : "unknown";
 }
 

@@ -9,6 +9,8 @@
  * - Win-rate optimization logic
  */
 
+import { safeFixed } from "./safeFixed";
+
 // ============================================
 // TYPES
 // ============================================
@@ -166,20 +168,20 @@ class VolatilityEngineClass {
       case 'LOW':
         // Low volatility = stable market = higher confidence
         adjusted.confidence = Math.min(originalSignal.confidence * 1.15, 0.95);
-        reasoning.push(`✅ Vol-Score: ${volData.volatilityScore.toFixed(0)} (niedrig) - Signal verstärkt`);
+        reasoning.push(`✅ Vol-Score: ${safeFixed(volData.volatilityScore, 0)} (niedrig) - Signal verstärkt`);
         reasoning.push('📊 Stabile Marktbedingungen - höhere Signalqualität');
         break;
 
       case 'MED':
         // Normal volatility = standard confidence
-        reasoning.push(`⚖️ Vol-Score: ${volData.volatilityScore.toFixed(0)} (normal) - Standardsignal`);
+        reasoning.push(`⚖️ Vol-Score: ${safeFixed(volData.volatilityScore, 0)} (normal) - Standardsignal`);
         break;
 
       case 'HIGH':
         // High volatility = reduce confidence, consider waiting
         adjusted.confidence = originalSignal.confidence * 0.70;
-        reasoning.push(`⚠️ Vol-Score: ${volData.volatilityScore.toFixed(0)} (hoch) - Signal abgeschwächt`);
-        reasoning.push(`📈 ATR: ${volData.metrics.atrPercent.toFixed(2)}% - erhöhte Schwankungen`);
+        reasoning.push(`⚠️ Vol-Score: ${safeFixed(volData.volatilityScore, 0)} (hoch) - Signal abgeschwächt`);
+        reasoning.push(`📈 ATR: ${safeFixed(volData.metrics.atrPercent, 2)}% - erhöhte Schwankungen`);
 
         // Force wait if confidence drops below 55%
         if (adjusted.confidence < 0.55) {
@@ -199,9 +201,9 @@ class VolatilityEngineClass {
         // Clear reasoning and add warning
         reasoning.length = 0;
         reasoning.push('🚨 EXTREME VOLATILITÄT ERKANNT');
-        reasoning.push(`Vol-Score: ${volData.volatilityScore.toFixed(0)}/100`);
-        reasoning.push(`ATR: ${volData.metrics.atrPercent.toFixed(2)}% (${volData.classification})`);
-        reasoning.push(`Prognose 4h: ${volData.metrics.garchForecast4h.toFixed(1)}% Volatilität`);
+        reasoning.push(`Vol-Score: ${safeFixed(volData.volatilityScore, 0)}/100`);
+        reasoning.push(`ATR: ${safeFixed(volData.metrics.atrPercent, 2)}% (${volData.classification})`);
+        reasoning.push(`Prognose 4h: ${safeFixed(volData.metrics.garchForecast4h, 1)}% Volatilität`);
         reasoning.push('⏳ Trading-Pause bis Markt stabiler wird');
         reasoning.push('💡 Check zurück in 4-6 Stunden');
 
@@ -361,7 +363,7 @@ class VolatilityEngineClass {
         alerts.push('🤑 Extreme Greed: Vorsicht bei FOMO-Trades');
       }
       if (volData.sentiment.fundingRate !== null && Math.abs(volData.sentiment.fundingRate) > 0.05) {
-        alerts.push(`💰 Hohe Funding Rate: ${volData.sentiment.fundingRate.toFixed(3)}%`);
+        alerts.push(`💰 Hohe Funding Rate: ${safeFixed(volData.sentiment.fundingRate, 3)}%`);
       }
     }
 

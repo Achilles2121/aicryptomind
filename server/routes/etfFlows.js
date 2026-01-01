@@ -10,6 +10,7 @@ import { withCache } from "../utils/cache.js";
 const router = Router();
 const DEFAULT_SYMBOLS = (process.env.ETF_SYMBOLS || "IBIT,FBTC,ARKB,BITB,HODL").split(",").map((s) => s.trim().toUpperCase());
 const MAX_SYMBOLS = Number(process.env.ETF_SYMBOL_LIMIT || 12);
+const safeFixed = (val, digits = 2) => (Number(val) || 0).toFixed(digits);
 
 const parseSymbols = (query) => {
   if (!query) return DEFAULT_SYMBOLS;
@@ -38,7 +39,7 @@ const buildSampleFlow = (symbol) => {
   return Array.from({ length: 30 }, (_, idx) => ({
     symbol,
     ts: now - (30 - idx) * 24 * 60 * 60 * 1000,
-    flowUsd: (Math.sin(idx / 5) * 50_000).toFixed(2),
+    flowUsd: safeFixed(Math.sin(idx / 5) * 50_000, 2),
   }));
 };
 

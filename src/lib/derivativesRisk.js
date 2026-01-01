@@ -1,3 +1,5 @@
+import { safeFixed } from "./safeFixed";
+
 export const computeZ = (values = []) => {
   if (!values.length) return 0;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
@@ -9,7 +11,7 @@ export const computeZ = (values = []) => {
 
 export const normalizeScore = (value) => {
   const clipped = Math.max(-3, Math.min(3, value));
-  return Number((0.5 + clipped / 6).toFixed(4));
+  return Number(safeFixed(0.5 + clipped / 6, 4));
 };
 
 export const mapDerivativesRiskLevel = (score) => {

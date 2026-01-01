@@ -9,6 +9,8 @@ import BacktestDashboard from "../../components/BacktestDashboard";
 import { buildBacktestSignals } from "../../lib/signalsV2";
 import { computeVolatilityScore } from "../../lib/strategyEngineV3";
 import { usePriceStore } from "../../stores/usePriceStore";
+import { useUnifiedPrice } from "../../hooks/useUnifiedPrice";
+import { safeFixed } from "../../lib/safeFixed";
 
 function SignalPanel({
   selectedAssetId,
@@ -47,16 +49,19 @@ function SignalPanel({
   const storeSelectedAssetId = usePriceStore((state) => state.selectedAssetId);
   const resolvedAssetId = selectedAssetId ?? storeSelectedAssetId;
   const priceAsset = usePriceStore((state) => state.selectPriceAsset(resolvedAssetId));
-  const livePrice = priceAsset.livePrice;
+  
+  // SINGLE SOURCE OF TRUTH - Use unified price for consistency
+  const unifiedPrice = useUnifiedPrice(resolvedAssetId, priceValue);
+  const displayPrice = unifiedPrice.lastPrice;
+  
   const wsStatus = priceAsset.wsStatus;
   const wsAttempts = priceAsset.wsAttempts;
-  const displayPrice = livePrice ?? priceValue ?? null;
 
   const signalBadges = useMemo(
     () => [
       {
         label: "RSI",
-        value: indicators.rsi ? indicators.rsi.toFixed(1) : "-",
+        value: indicators.rsi ? safeFixed(indicators.rsi, 1) : "-",
         intent: indicators.rsi && (indicators.rsi < 30 || indicators.rsi > 70) ? "warn" : "ok",
       },
       {
@@ -146,7 +151,7 @@ function SignalPanel({
     <div
       className="flex flex-col gap-4"
       data-timeframe={timeFrame ?? ""}
-      data-volatility-score={Number.isFinite(volatilityScore) ? volatilityScore.toFixed(2) : undefined}
+      data-volatility-score={Number.isFinite(volatilityScore) ? safeFixed(volatilityScore, 2) : undefined}
       data-backtest-signals={Number.isFinite(fallbackSignalCount) ? fallbackSignalCount : undefined}
     >
       <Card title={t("signals")} icon={Signal}>
@@ -267,7 +272,7 @@ function SignalPanel({
               <div className="flex justify-between text-xs">
                 <span className="text-slate-400">Konfidenz</span>
                 <span className={`font-bold ${aiSignal.confidence >= 0.65 ? "text-emerald-300" : aiSignal.confidence >= 0.55 ? "text-amber-300" : "text-slate-400"}`}>
-                  {(aiSignal.confidence * 100).toFixed(0)}%
+                  {safeFixed(aiSignal.confidence * 100, 0)}%
                 </span>
               </div>
               <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
@@ -285,21 +290,21 @@ function SignalPanel({
                 <div className="text-[10px] uppercase tracking-wide text-emerald-400 mb-1">Take Profit</div>
                 <div className="text-lg font-bold text-emerald-300">{aiSignal.tp ? formatUSD(aiSignal.tp) : "-"}</div>
                 {aiSignal.tp && displayPrice ? (
-                  <div className="text-[10px] text-emerald-400/70">+{(((aiSignal.tp - displayPrice) / displayPrice) * 100).toFixed(1)}%</div>
+                  <div className="text-[10px] text-emerald-400/70">+{safeFixed(((aiSignal.tp - displayPrice) / displayPrice) * 100, 1)}%</div>
                 ) : null}
               </div>
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center">
                 <div className="text-[10px] uppercase tracking-wide text-red-400 mb-1">Stop Loss</div>
                 <div className="text-lg font-bold text-red-300">{aiSignal.sl ? formatUSD(aiSignal.sl) : "-"}</div>
                 {aiSignal.sl && displayPrice ? (
-                  <div className="text-[10px] text-red-400/70">-{(((displayPrice - aiSignal.sl) / displayPrice) * 100).toFixed(1)}%</div>
+                  <div className="text-[10px] text-red-400/70">-{safeFixed(((displayPrice - aiSignal.sl) / displayPrice) * 100, 1)}%</div>
                 ) : null}
               </div>
             </div>
 
             {aiSignal.tp && aiSignal.sl && displayPrice ? (
               <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-center text-xs text-slate-300">
-                Risiko/Reward: <span className="text-emerald-300 font-semibold">1:{((aiSignal.tp - displayPrice) / (displayPrice - aiSignal.sl)).toFixed(1)}</span>
+                Risiko/Reward: <span className="text-emerald-300 font-semibold">1:{safeFixed((aiSignal.tp - displayPrice) / (displayPrice - aiSignal.sl), 1)}</span>
               </div>
             ) : null}
             <div className="text-[10px] text-slate-500">{aiSignal.reason}</div>
@@ -369,7 +374,7 @@ function SignalPanel({
             </div>
             <div className="flex items-center justify-between text-xs">
               <span>Confidence</span>
-              <span className="font-semibold text-emerald-300">{(proSignal.confidence * 100).toFixed(0)}%</span>
+              <span className="font-semibold text-emerald-300">{safeFixed(proSignal.confidence * 100, 0)}%</span>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-xs space-y-1">
               <div className="flex justify-between">
@@ -384,13 +389,13 @@ function SignalPanel({
                 <span>{t("rrLabel")}</span>
                 <span className="font-semibold">
                   {proSignal.tp && proSignal.sl && lastClose
-                    ? ((proSignal.action === "long" ? proSignal.tp - lastClose : lastClose - proSignal.tp) / (proSignal.action === "long" ? lastClose - proSignal.sl : proSignal.sl - lastClose || 1)).toFixed(2)
+                    ? safeFixed((proSignal.action === "long" ? proSignal.tp - lastClose : lastClose - proSignal.tp) / (proSignal.action === "long" ? lastClose - proSignal.sl : proSignal.sl - lastClose || 1), 2)
                     : "-"}
                 </span>
               </div>
               <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-slate-400 sm:grid-cols-2">
-                <span>ATR%: {proSignal.meta?.atrPct ? proSignal.meta.atrPct.toFixed(2) : "-"}</span>
-                <span>MACD ?: {proSignal.meta?.macdDiff ? proSignal.meta.macdDiff.toFixed(2) : "-"}</span>
+                <span>ATR%: {proSignal.meta?.atrPct ? safeFixed(proSignal.meta.atrPct, 2) : "-"}</span>
+                <span>MACD ?: {proSignal.meta?.macdDiff ? safeFixed(proSignal.meta.macdDiff, 2) : "-"}</span>
                 <span>VWAP: {proSignal.meta?.vwap ? formatUSD(proSignal.meta.vwap) : "-"}</span>
                 <span>Vol Spike: {proSignal.meta?.volSpike ? "Ja" : "Nein"}</span>
               </div>
@@ -398,7 +403,7 @@ function SignalPanel({
             <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-[11px] text-slate-200 space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">{t("checks")}:</span>
-                <span className="text-slate-300">{(proSignal.score * 100).toFixed(0)}%</span>
+                <span className="text-slate-300">{safeFixed(proSignal.score * 100, 0)}%</span>
               </div>
               <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                 <span className={`rounded px-2 py-1 text-[10px] font-semibold ${proSignal.meta?.checks?.trend === "ok" ? "bg-emerald-500/15 text-emerald-200" : proSignal.meta?.checks?.trend === "warn" ? "bg-red-500/15 text-red-200" : "bg-slate-800 text-slate-200"}`}>
@@ -438,7 +443,7 @@ function SignalPanel({
             <div className="flex items-center justify-between">
               <span>{t("backtestWinRate")}</span>
               <span className="font-semibold text-emerald-300 whitespace-nowrap overflow-hidden text-ellipsis">
-                {backtestStats.winRate !== null ? `${backtestStats.winRate.toFixed(0)}%` : "-"}
+                {backtestStats.winRate !== null ? `${safeFixed(backtestStats.winRate, 0)}%` : "-"}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -450,7 +455,7 @@ function SignalPanel({
             <div className="flex items-center justify-between">
               <span>{t("backtestAvgRR")}</span>
               <span className="font-semibold whitespace-nowrap overflow-hidden text-ellipsis">
-                {backtestStats.avgRR !== null ? backtestStats.avgRR.toFixed(2) : "-"}
+                {backtestStats.avgRR !== null ? safeFixed(backtestStats.avgRR, 2) : "-"}
               </span>
             </div>
             <p className="text-[11px] text-slate-400">{t("backtestNote")}</p>

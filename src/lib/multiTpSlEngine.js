@@ -3,6 +3,7 @@
 // and ATR-based dynamic stop losses with timezone awareness
 
 import { RISK_CONFIG } from './riskEngine';
+import { safeFixed } from "./safeFixed";
 
 /**
  * Fibonacci Extension Levels for Take Profit calculations
@@ -210,7 +211,7 @@ export const computeFibRetracements = (high, low, direction = 'up') => {
   const fibRatios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
   
   return fibRatios.map(ratio => {
-    const label = `${(ratio * 100).toFixed(1)}%`;
+    const label = `${safeFixed(ratio * 100, 1)}%`;
     let price;
     
     if (direction === 'up') {
@@ -241,25 +242,11 @@ export const computeFibRetracements = (high, low, direction = 'up') => {
  * Format price based on asset type and size
  */
 export const formatTradePrice = (price, assetClass = 'crypto') => {
-  if (!Number.isFinite(price)) return '—';
-  
-  if (assetClass === 'crypto') {
-    if (price >= 10000) return price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (price >= 100) return price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-    if (price >= 1) return price.toFixed(4);
-    return price.toFixed(6);
-  }
-  
-  if (assetClass === 'forex' || assetClass === 'fx') {
-    return price.toFixed(5);
-  }
-  
-  if (assetClass === 'index') {
-    return price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  
-  // Commodities (Gold, Silver, Oil)
-  return price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!Number.isFinite(price)) return "--";
+  if (price >= 10000) return price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (price >= 100) return price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  if (price >= 1) return safeFixed(price, 4);
+  return safeFixed(price, 6);
 };
 
 export default {

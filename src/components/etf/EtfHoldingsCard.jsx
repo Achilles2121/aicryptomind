@@ -1,9 +1,10 @@
 import React from "react";
 import PropTypes from "prop-types";
 import { TrendingUp } from "lucide-react";
+import { safeFixed } from "../../lib/safeFixed";
 
 const formatUSD = (val) => (val === null || val === undefined ? "-" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val));
-const formatPct = (val) => (val === null || val === undefined ? "-" : `${val >= 0 ? "+" : ""}${val.toFixed(2)}%`);
+const formatPct = (val) => (val === null || val === undefined ? "-" : `${val >= 0 ? "+" : ""}${safeFixed(val, 2)}%`);
 
 const EtfHoldingsCard = ({ holdings, loading, error, lastUpdated }) => {
   return (

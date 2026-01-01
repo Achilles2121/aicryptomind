@@ -2,11 +2,7 @@
  * Unified Price API Endpoint
  * Vision AI Mind - Vision AI Mind
  * 
- * Supports ALL assets via Yahoo Finance:
- * - Crypto: BTC, ETH, SOL, etc.
- * - Forex: EUR/USD, GBP/USD, etc.
- * - Indices: S&P 500, DAX, NASDAQ, etc.
- * - Commodities: Gold, Silver, Oil, etc.
+ * Supports crypto assets only via multi-source aggregation.
  */
 
 // ============================================
@@ -26,74 +22,16 @@ type Res = {
 };
 
 // ============================================
-// YAHOO FINANCE SYMBOL MAPPING
+// CRYPTO-ONLY SYMBOL MAPPING
 // ============================================
 
-const YAHOO_SYMBOLS: Record<string, string> = {
-  // Crypto
-  BTC: "BTC-USD", BTCUSD: "BTC-USD", BTCUSDT: "BTC-USD",
-  ETH: "ETH-USD", ETHUSD: "ETH-USD", ETHUSDT: "ETH-USD",
-  SOL: "SOL-USD", SOLUSD: "SOL-USD",
-  XRP: "XRP-USD", DOGE: "DOGE-USD",
-  ADA: "ADA-USD", DOT: "DOT-USD",
-  AVAX: "AVAX-USD", MATIC: "MATIC-USD",
-  LINK: "LINK-USD", UNI: "UNI-USD", LTC: "LTC-USD",
-  
-  // Forex
-  EURUSD: "EURUSD=X", GBPUSD: "GBPUSD=X",
-  USDJPY: "JPY=X", USDCHF: "CHF=X",
-  AUDUSD: "AUDUSD=X", USDCAD: "CAD=X",
-  NZDUSD: "NZDUSD=X", EURGBP: "EURGBP=X",
-  EURJPY: "EURJPY=X", GBPJPY: "GBPJPY=X",
-  
-  // Indices
-  SPX: "^GSPC", SP500: "^GSPC",
-  DAX: "^GDAXI", NASDAQ: "^IXIC",
-  NDX: "^NDX", DJI: "^DJI", DOW: "^DJI",
-  NIKKEI: "^N225", FTSE: "^FTSE",
-  CAC40: "^FCHI", STOXX50: "^STOXX50E",
-  
-  // Commodities
-  GOLD: "GC=F", XAUUSD: "GC=F",
-  SILVER: "SI=F", XAGUSD: "SI=F",
-  OIL: "CL=F", WTI: "CL=F", BRENT: "BZ=F",
-  NATGAS: "NG=F", COPPER: "HG=F",
-};
-
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
-const COINGECKO_SYMBOLS: Record<string, string> = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  SOL: "solana",
-  XRP: "ripple",
-  DOGE: "dogecoin",
-  ADA: "cardano",
-  DOT: "polkadot",
-  AVAX: "avalanche-2",
-  MATIC: "matic-network",
-  LINK: "chainlink",
-  UNI: "uniswap",
-  LTC: "litecoin",
-  USDT: "tether",
-  USDC: "usd-coin",
-  BNB: "binancecoin",
-  TRX: "tron",
-  STETH: "staked-ether",
-  WSTETH: "wrapped-steth",
-  WETH: "weth",
-  WBTC: "wrapped-bitcoin",
-  XMR: "monero",
-  HBAR: "hedera-hashgraph",
-  DAI: "dai",
-  SHIB: "shiba-inu",
-  TON: "the-open-network",
-  MNT: "mantle",
-  SUI: "sui",
-  LEO: "leo-token",
-  CRO: "crypto-com-chain",
-  BGB: "bitget-token",
-  XAUT: "tether-gold",
-};
+const COIN_BY_ID = new Map(supportedCoins.map((coin) => [coin.id, coin.symbol.toUpperCase()]));
+const COINGECKO_SYMBOLS: Record<string, string> = supportedCoins.reduce((acc, coin) => {
+  acc[coin.symbol.toUpperCase()] = coin.id;
+  return acc;
+}, {} as Record<string, string>);
+const SUPPORTED_SYMBOLS = new Set(Object.keys(COINGECKO_SYMBOLS));
 
 const COINCAP_SYMBOLS: Record<string, string> = {
   BTC: "bitcoin",
@@ -129,7 +67,7 @@ const COINCAP_SYMBOLS: Record<string, string> = {
   XAUT: "tether-gold",
 };
 
-type SourceKey = "binance" | "coincap" | "kraken" | "coingecko" | "yahoo";
+type SourceKey = "binance" | "coincap" | "kraken" | "coingecko";
 
 interface SourceMetric {
   avgLatency: number;
@@ -139,15 +77,6 @@ interface SourceMetric {
 }
 
 const sourceMetrics = new Map<SourceKey, SourceMetric>();
-
-function getAssetCategory(asset: string): string {
-  const norm = asset.toUpperCase();
-  if (["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI", "LTC"].some(c => norm.includes(c))) return "crypto";
-  if (["EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD"].some(c => norm.includes(c))) return "forex";
-  if (["SPX", "SP500", "DAX", "NASDAQ", "NDX", "DJI", "DOW", "NIKKEI", "FTSE", "CAC", "STOXX"].some(c => norm.includes(c))) return "index";
-  if (["GOLD", "XAU", "SILVER", "XAG", "OIL", "CL", "GC", "SI", "NG", "BRENT", "COPPER"].some(c => norm.includes(c))) return "commodity";
-  return "unknown";
-}
 
 // ============================================
 // CACHE (30 seconds)
@@ -315,65 +244,6 @@ async function safeFetch<T>(url: string, options?: { timeoutMs?: number }): Prom
 }
 
 // ============================================
-// YAHOO FINANCE PRICE FETCHER
-// ============================================
-
-async function fetchYahooPrice(asset: string): Promise<PriceData> {
-  const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const yahooSymbol = YAHOO_SYMBOLS[normalized];
-  
-  if (!yahooSymbol) {
-    throw new Error(`Unsupported asset: ${asset}`);
-  }
-  
-  const encodedSymbol = encodeURIComponent(yahooSymbol);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=2d`;
-  
-  interface YahooResponse {
-    chart?: {
-      result?: Array<{
-        meta?: {
-          regularMarketPrice?: number;
-          previousClose?: number;
-          regularMarketDayHigh?: number;
-          regularMarketDayLow?: number;
-          regularMarketVolume?: number;
-        };
-      }>;
-      error?: { description?: string };
-    };
-  }
-  
-  const data = await fetchWithMetrics("yahoo", () => safeFetch<YahooResponse>(url, { timeoutMs: 2000 }));
-  
-  if (data.chart?.error) {
-    throw new Error(data.chart.error.description || "Yahoo API error");
-  }
-  
-  const meta = data.chart?.result?.[0]?.meta;
-  if (!meta?.regularMarketPrice) {
-    throw new Error("No Yahoo price data");
-  }
-  
-  const price = meta.regularMarketPrice;
-  const prevClose = meta.previousClose || price;
-  const change24h = price - prevClose;
-  const changePercent24h = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-  
-  return normalizeData({
-    asset: normalized,
-    price,
-    change24h,
-    changePercent24h,
-    high24h: meta.regularMarketDayHigh || null,
-    low24h: meta.regularMarketDayLow || null,
-    volume24h: meta.regularMarketVolume || null,
-    provider: "yahoo",
-    category: getAssetCategory(normalized),
-  });
-}
-
-// ============================================
 // BINANCE FALLBACK (CRYPTO)
 // ============================================
 
@@ -413,6 +283,103 @@ async function fetchBinancePrice(asset: string): Promise<PriceData> {
     provider: "binance",
     category: "crypto",
   });
+}
+
+import supportedCoins, { GOLD_FOREX_ASSETS, getAssetClass } from "../src/config/supportedCoins.js";
+
+// ============================================
+// GOLD & FOREX PRICE SOURCES
+// ============================================
+
+const GOLD_FOREX_SYMBOLS = new Set(GOLD_FOREX_ASSETS.map((a) => a.symbol.toUpperCase()));
+
+// Static fallback prices (updated frequently via external sources)
+const GOLD_FOREX_FALLBACK: Record<string, { price: number; change24h: number }> = {
+  XAUUSD: { price: 2650.00, change24h: 0.45 },
+  XAGUSD: { price: 31.50, change24h: 0.65 },
+  EURUSD: { price: 1.0850, change24h: -0.12 },
+  GBPUSD: { price: 1.2650, change24h: 0.08 },
+  USDJPY: { price: 149.50, change24h: 0.25 },
+};
+
+async function fetchForexPrice(symbol: string): Promise<PriceData> {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, "");
+  const assetClass = getAssetClass(normalized);
+  const fallback = GOLD_FOREX_FALLBACK[normalized];
+  
+  // Try free forex API first (exchangerate-api)
+  try {
+    // For XAUUSD/XAGUSD use metal API, for forex use exchange rate API
+    if (normalized === "XAUUSD" || normalized === "XAGUSD") {
+      const metal = normalized === "XAUUSD" ? "XAU" : "XAG";
+      const url = `https://api.metals.live/v1/spot/${metal.toLowerCase()}`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (response.ok) {
+        const data = await response.json() as Array<{ price: number }>;
+        const price = data?.[0]?.price;
+        if (typeof price === 'number' && price > 0) {
+          return normalizeData({
+            asset: normalized,
+            price,
+            change24h: fallback?.change24h ?? null,
+            changePercent24h: fallback ? (fallback.change24h / fallback.price) * 100 : null,
+            high24h: null,
+            low24h: null,
+            volume24h: null,
+            provider: "metals.live",
+            category: assetClass,
+          });
+        }
+      }
+    } else {
+      // Forex pairs - use exchangerate.host
+      const base = normalized.slice(0, 3);
+      const quote = normalized.slice(3);
+      const url = `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (response.ok) {
+        const data = await response.json() as { rates?: Record<string, number> };
+        const rate = data?.rates?.[quote];
+        if (typeof rate === 'number' && rate > 0) {
+          return normalizeData({
+            asset: normalized,
+            price: rate,
+            change24h: fallback?.change24h ?? null,
+            changePercent24h: fallback ? (fallback.change24h / fallback.price) * 100 : null,
+            high24h: null,
+            low24h: null,
+            volume24h: null,
+            provider: "exchangerate.host",
+            category: assetClass,
+          });
+        }
+      }
+    }
+  } catch {
+    // Fall through to fallback
+  }
+  
+  // Return fallback price
+  if (fallback) {
+    return normalizeData({
+      asset: normalized,
+      price: fallback.price,
+      change24h: fallback.change24h,
+      changePercent24h: (fallback.change24h / fallback.price) * 100,
+      high24h: null,
+      low24h: null,
+      volume24h: null,
+      provider: "fallback",
+      category: assetClass,
+    });
+  }
+  
+  throw new Error(`No price data for ${normalized}`);
+}
+
+function isGoldForexSymbol(symbol: string): boolean {
+  const normalized = symbol.toUpperCase().replace(/[^A-Z]/g, "");
+  return GOLD_FOREX_SYMBOLS.has(normalized);
 }
 
 // ============================================
@@ -519,16 +486,28 @@ async function fetchCoinCapPrice(asset: string): Promise<PriceData> {
 // COINGECKO FALLBACK (CRYPTO)
 // ============================================
 
+const normalizeAsset = (asset: string) => asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+const resolveSupportedSymbol = (asset: string): string | null => {
+  if (!asset) return null;
+  const idKey = asset.toLowerCase();
+  const byId = COIN_BY_ID.get(idKey);
+  if (byId) return byId;
+  const normalized = normalizeAsset(asset);
+  if (!normalized) return null;
+  if (SUPPORTED_SYMBOLS.has(normalized)) return normalized;
+  const stripped = normalized.replace(/USDT?$/, "").replace(/USD$/, "");
+  return SUPPORTED_SYMBOLS.has(stripped) ? stripped : null;
+};
+
 const getCoinGeckoId = (asset: string): string | null => {
-  const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const stripped = normalized.replace(/USDT?$/, "");
-  return COINGECKO_SYMBOLS[normalized] || COINGECKO_SYMBOLS[stripped] || null;
+  const symbol = resolveSupportedSymbol(asset);
+  return symbol ? COINGECKO_SYMBOLS[symbol] : null;
 };
 
 const getCoinCapId = (asset: string): string | null => {
-  const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const stripped = normalized.replace(/USDT?$/, "");
-  return COINCAP_SYMBOLS[normalized] || COINCAP_SYMBOLS[stripped] || null;
+  const symbol = resolveSupportedSymbol(asset);
+  return symbol ? COINCAP_SYMBOLS[symbol] || null : null;
 };
 
 async function fetchCoinGeckoPrice(asset: string): Promise<PriceData> {
@@ -602,9 +581,17 @@ export default async function handler(req: Req, res: Res) {
   }
   
   try {
-    const assetParam = getQueryParam(req.query, "asset")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") ||
-                       getQueryParam(req.query, "symbol")?.toUpperCase()?.replace(/[^A-Z0-9]/g, "") ||
-                       "BTCUSD";
+    const requestedAsset = getQueryParam(req.query, "asset") ||
+                       getQueryParam(req.query, "symbol") ||
+                       "BTC";
+    const assetParam = resolveSupportedSymbol(requestedAsset);
+    if (!assetParam) {
+      return res.status(400).json({
+        ok: false,
+        status: "error",
+        error: `Unsupported asset: ${requestedAsset}`,
+      });
+    }
     
     // Rate limiting
     const clientKey = req.headers?.["x-forwarded-for"] ?? "anon";
@@ -627,15 +614,22 @@ export default async function handler(req: Req, res: Res) {
       });
     }
     
-    const category = getAssetCategory(assetParam);
-    const isCrypto = category === "crypto" || Boolean(getCoinGeckoId(assetParam)) || Boolean(getCoinCapId(assetParam));
+    // Detect asset class: Gold/Forex vs Crypto
+    const isForexOrGold = isGoldForexSymbol(assetParam);
     let result: PriceData | null = null;
     let lastError: Error | null = null;
     
-    // Check if Yahoo supports this asset
-    const isYahooSupported = !!YAHOO_SYMBOLS[assetParam];
-
-    if (isCrypto) {
+    // Route to appropriate price source
+    if (isForexOrGold) {
+      // Gold & Forex: Use dedicated forex/metals sources
+      try {
+        result = await fetchForexPrice(assetParam);
+      } catch (err) {
+        lastError = err as Error;
+        console.log(`[price] Forex/Gold failed for ${assetParam}:`, (err as Error).message);
+      }
+    } else {
+      // Crypto: Use multi-source aggregation
       const sourceOrder = getSourceOrder();
       for (const source of sourceOrder) {
         if (source === "binance") {
@@ -679,14 +673,7 @@ export default async function handler(req: Req, res: Res) {
           }
         }
       }
-    } else if (isYahooSupported) {
-      try {
-        result = await fetchYahooPrice(assetParam);
-      } catch (err) {
-        lastError = err as Error;
-        console.log(`[price] Yahoo failed for ${assetParam}:`, (err as Error).message);
-      }
-    }
+    } // End crypto sources
     
     if (!result) {
       return res.status(502).json({

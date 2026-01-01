@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from "react";
 import PropTypes from "prop-types";
 import { TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { safeFixed } from "../../lib/safeFixed";
 
 const EtfHoldingsCard = lazy(() => import("../../components/etf/EtfHoldingsCard"));
 const EtfProviderQualityCard = lazy(() => import("../../components/etf/EtfProviderQualityCard"));
@@ -12,8 +13,11 @@ const ETF_COLORS = ["#22c55e", "#38bdf8", "#a855f7", "#fbbf24", "#ef4444", "#0ea
 
 const buildEtfChartData = (seriesList = []) => {
   const map = {};
+  if (!Array.isArray(seriesList)) return [];
   seriesList.forEach((s) => {
+    if (!s || !Array.isArray(s.points)) return;
     s.points.forEach((p) => {
+      if (!p) return;
       const key = p.date;
       if (!map[key]) map[key] = { date: key };
       map[key][s.symbol] = p.netFlowUsd ?? p.flow ?? 0;
@@ -92,7 +96,7 @@ function ResearchCenter({
                   <BarChart data={buildEtfChartData(etfFlowSeries)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                     <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                    <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => `${v >= 0 ? "+" : ""}${(v / 1_000_000).toFixed(1)}M`} />
+                    <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickFormatter={(v) => `${v >= 0 ? "+" : ""}${safeFixed(v / 1_000_000, 1)}M`} />
                     <Tooltip
                       contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }}
                       labelStyle={{ color: "#e2e8f0" }}

@@ -1,3 +1,5 @@
+const safeFixed = (val, digits = 2) => (Number(val) || 0).toFixed(digits);
+
 export function buildLiquidityHeatmap(candles = [], buckets = 10) {
   if (!Array.isArray(candles) || candles.length === 0) return [];
   const highs = candles.map((c) => c.high ?? 0);
@@ -11,7 +13,7 @@ export function buildLiquidityHeatmap(candles = [], buckets = 10) {
     const start = min + idx * step;
     const end = start + step;
     return {
-      level: Number(((start + end) / 2).toFixed(2)),
+      level: Number(safeFixed((start + end) / 2, 2)),
       liquidity: 0,
     };
   });
@@ -29,6 +31,6 @@ export function buildLiquidityHeatmap(candles = [], buckets = 10) {
   const maxLiquidity = Math.max(...heatmap.map((h) => h.liquidity));
   return heatmap.map((h) => ({
     ...h,
-    intensity: maxLiquidity ? Number((h.liquidity / maxLiquidity).toFixed(3)) : 0,
+    intensity: maxLiquidity ? Number(safeFixed(h.liquidity / maxLiquidity, 3)) : 0,
   }));
 }

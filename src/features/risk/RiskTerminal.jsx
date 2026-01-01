@@ -3,6 +3,8 @@ import PropTypes from "prop-types";
 import { Shield, Target } from "lucide-react";
 import { computePositionSize, computeStopAndTarget } from "../../lib/riskEngine";
 import { usePriceStore } from "../../stores/usePriceStore";
+import { useUnifiedPrice } from "../../hooks/useUnifiedPrice";
+import { safeFixed } from "../../lib/safeFixed";
 
 const toNumber = (value) => {
   const num = typeof value === "string" ? Number(value) : value;
@@ -16,7 +18,7 @@ const formatUSD = (value) => {
 
 const formatPct = (value) => {
   if (!Number.isFinite(value)) return "-";
-  return `${value.toFixed(2)}%`;
+  return `${safeFixed(value, 2)}%`;
 };
 
 const CardShell = ({ title, icon: Icon, children, actions }) => (
@@ -42,8 +44,10 @@ CardShell.propTypes = {
 function RiskTerminal({ selectedAssetId, balance }) {
   const storeSelectedAssetId = usePriceStore((state) => state.selectedAssetId);
   const resolvedAssetId = selectedAssetId ?? storeSelectedAssetId;
-  const priceAsset = usePriceStore((state) => state.selectPriceAsset(resolvedAssetId));
-  const livePrice = priceAsset.livePrice;
+  
+  // SINGLE SOURCE OF TRUTH - Use unified price for consistency
+  const unifiedPrice = useUnifiedPrice(resolvedAssetId);
+  const livePrice = unifiedPrice.lastPrice;
 
   const [equity, setEquity] = useState(() => {
     if (Number.isFinite(balance)) return balance;
@@ -60,13 +64,17 @@ function RiskTerminal({ selectedAssetId, balance }) {
   const [aiNote, setAiNote] = useState("");
 
   useEffect(() => {
-    if (Number.isFinite(balance) && balance !== equity) setEquity(balance);
+    if (Number.isFinite(balance) && balance !== equity) {
+      // Defer to avoid synchronous cascading render
+      queueMicrotask(() => setEquity(balance));
+    }
   }, [balance, equity]);
 
   useEffect(() => {
     if (!Number.isFinite(entry) && Number.isFinite(livePrice)) {
       // Only auto-fill entry if it's currently null/empty
-      setEntry(livePrice);
+      // Defer to avoid synchronous cascading render
+      queueMicrotask(() => setEntry(livePrice));
     }
   }, [entry, livePrice]);
 
@@ -135,8 +143,8 @@ function RiskTerminal({ selectedAssetId, balance }) {
     if (result.tp && result.sl) {
       const tp = direction === "long" ? ((result.tp - price) / price) * 100 : ((price - result.tp) / price) * 100;
       const sl = direction === "long" ? ((price - result.sl) / price) * 100 : ((result.sl - price) / price) * 100;
-      setTpPct(Number(tp.toFixed(2)));
-      setSlPct(Number(sl.toFixed(2)));
+      setTpPct(Number(safeFixed(tp, 2)));
+      setSlPct(Number(safeFixed(sl, 2)));
       setAiNote("ATR-based stops loaded.");
       if (!Number.isFinite(entryPrice)) setEntry(price);
     }
@@ -267,7 +275,7 @@ function RiskTerminal({ selectedAssetId, balance }) {
           </div>
           <div className="flex justify-between">
             <span>Risk/Reward</span>
-            <span className="font-semibold">{rr !== null ? rr.toFixed(2) : "-"}</span>
+            <span className="font-semibold">{rr !== null ? safeFixed(rr, 2) : "-"}</span>
           </div>
         </div>
 
@@ -275,7 +283,7 @@ function RiskTerminal({ selectedAssetId, balance }) {
           <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
             <div className="flex justify-between">
               <span>Suggested Size</span>
-              <span className="font-semibold">{suggestedSize ? suggestedSize.toFixed(4) : "-"}</span>
+              <span className="font-semibold">{suggestedSize ? safeFixed(suggestedSize, 4) : "-"}</span>
             </div>
             <div className="flex justify-between">
               <span>Risk Budget</span>

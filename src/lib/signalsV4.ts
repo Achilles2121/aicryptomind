@@ -16,6 +16,8 @@
  * (c) Vision AI Mind - VisionAIMnd
  */
 
+import { safeFixed } from "./safeFixed";
+
 // ============================================
 // TYPE DEFINITIONS
 // ============================================
@@ -396,16 +398,16 @@ function computeIndicatorScore(row: IndicatorRow): IndicatorScore {
     let rsiScore = 0;
     if (rsi > 70) {
       rsiScore = -0.5 - (rsi - 70) / 60; // Overbought
-      reasons.push(`RSI overbought (${rsi.toFixed(1)})`);
+      reasons.push(`RSI overbought (${safeFixed(rsi, 1)})`);
     } else if (rsi < 30) {
       rsiScore = 0.5 + (30 - rsi) / 60; // Oversold
-      reasons.push(`RSI oversold (${rsi.toFixed(1)})`);
+      reasons.push(`RSI oversold (${safeFixed(rsi, 1)})`);
     } else if (rsi > 55) {
       rsiScore = (rsi - 50) / 40;
-      reasons.push(`RSI bullish (${rsi.toFixed(1)})`);
+      reasons.push(`RSI bullish (${safeFixed(rsi, 1)})`);
     } else if (rsi < 45) {
       rsiScore = (rsi - 50) / 40;
-      reasons.push(`RSI bearish (${rsi.toFixed(1)})`);
+      reasons.push(`RSI bearish (${safeFixed(rsi, 1)})`);
     }
     totalScore += rsiScore * 0.3;
     weights += 0.3;
@@ -956,10 +958,10 @@ export function buildBeginnerSignal(
   
   if (signal.action === "long" && confidenceLevel !== "LOW") {
     action = "BUY";
-    message = `📈 BUY Signal (${(signal.confidence * 100).toFixed(0)}% confidence) - Market shows bullish momentum`;
+    message = `📈 BUY Signal (${safeFixed(signal.confidence * 100, 0)}% confidence) - Market shows bullish momentum`;
   } else if (signal.action === "short" && confidenceLevel !== "LOW") {
     action = "SELL";
-    message = `📉 SELL Signal (${(signal.confidence * 100).toFixed(0)}% confidence) - Market shows bearish momentum`;
+    message = `📉 SELL Signal (${safeFixed(signal.confidence * 100, 0)}% confidence) - Market shows bearish momentum`;
   } else {
     message = "⏸️ WAIT - No clear trading opportunity right now";
   }
@@ -967,7 +969,7 @@ export function buildBeginnerSignal(
   // Calculate R:R display
   let rrDisplay = "N/A";
   if (signal.rrRatio && Number.isFinite(signal.rrRatio)) {
-    rrDisplay = `1:${signal.rrRatio.toFixed(1)}`;
+    rrDisplay = `1:${safeFixed(signal.rrRatio, 1)}`;
   }
   
   return {

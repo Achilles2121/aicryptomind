@@ -14,31 +14,32 @@ import {
   FileText,
   Github
 } from 'lucide-react';
+import { safeFixed } from "../../lib/safeFixed";
 
 // Format helpers
 function formatPrice(price) {
   if (price === null || price === undefined) return 'N/A';
   if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-  if (price >= 1) return `$${price.toFixed(2)}`;
-  if (price >= 0.01) return `$${price.toFixed(4)}`;
-  return `$${price.toFixed(8)}`;
+  if (price >= 1) return `$${safeFixed(price, 2)}`;
+  if (price >= 0.01) return `$${safeFixed(price, 4)}`;
+  return `$${safeFixed(price, 8)}`;
 }
 
 function formatNumber(num, decimals = 2) {
   if (num === null || num === undefined) return 'N/A';
-  if (num >= 1e12) return `$${(num / 1e12).toFixed(decimals)}T`;
-  if (num >= 1e9) return `$${(num / 1e9).toFixed(decimals)}B`;
-  if (num >= 1e6) return `$${(num / 1e6).toFixed(decimals)}M`;
-  if (num >= 1e3) return `$${(num / 1e3).toFixed(decimals)}K`;
-  return `$${num.toFixed(decimals)}`;
+  if (num >= 1e12) return `$${safeFixed(num / 1e12, decimals)}T`;
+  if (num >= 1e9) return `$${safeFixed(num / 1e9, decimals)}B`;
+  if (num >= 1e6) return `$${safeFixed(num / 1e6, decimals)}M`;
+  if (num >= 1e3) return `$${safeFixed(num / 1e3, decimals)}K`;
+  return `$${safeFixed(num, decimals)}`;
 }
 
 function formatSupply(num) {
   if (num === null || num === undefined) return 'N/A';
-  if (num >= 1e12) return `${(num / 1e12).toFixed(2)}T`;
-  if (num >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
-  if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
-  if (num >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
+  if (num >= 1e12) return `${safeFixed(num / 1e12, 2)}T`;
+  if (num >= 1e9) return `${safeFixed(num / 1e9, 2)}B`;
+  if (num >= 1e6) return `${safeFixed(num / 1e6, 2)}M`;
+  if (num >= 1e3) return `${safeFixed(num / 1e3, 2)}K`;
   return num.toLocaleString();
 }
 
@@ -54,7 +55,7 @@ function PriceChange({ value, large = false }) {
   return (
     <span className={`inline-flex items-center gap-1 ${colorClass} ${large ? `${bgClass} px-3 py-1 rounded-lg` : ''}`}>
       <Icon className={large ? 'w-4 h-4' : 'w-3 h-3'} />
-      {Math.abs(value).toFixed(2)}%
+      {safeFixed(Math.abs(value), 2)}%
     </span>
   );
 }
@@ -281,7 +282,7 @@ export default function AssetDetail() {
           icon={TrendingUp}
           label="All-Time High"
           value={formatPrice(coin.ath || coin.market_data?.ath?.usd)}
-          subValue={coin.ath_change_percentage ? `${coin.ath_change_percentage.toFixed(1)}% from ATH` : null}
+          subValue={coin.ath_change_percentage ? `${safeFixed(coin.ath_change_percentage, 1)}% from ATH` : null}
         />
       </div>
 

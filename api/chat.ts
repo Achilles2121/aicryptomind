@@ -17,6 +17,7 @@ type VercelResponse = {
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_MODEL = "llama-3.1-8b-instant";
+const safeFixed = (val: number, digits = 2) => (Number(val) || 0).toFixed(digits);
 
 // Platform context for intelligent responses
 type PlatformContext = {
@@ -38,50 +39,50 @@ const buildSystemPrompt = (ctx: PlatformContext) => {
   let contextInfo = "";
   
   if (ctx.asset && ctx.price) {
-    contextInfo += `\n\nAKTUELLE MARKTDATEN (Vision AI Mind Platform):
+    contextInfo += `\n\nCURRENT MARKET DATA (Vision AI Mind Platform):
 - Asset: ${ctx.asset}
-- Preis: $${ctx.price?.toLocaleString() || "N/A"}`;
+- Price: $${ctx.price?.toLocaleString() || "N/A"}`;
     
     if (ctx.rsi !== undefined) {
-      const rsiStatus = ctx.rsi < 30 ? "überverkauft" : ctx.rsi > 70 ? "überkauft" : "neutral";
-      contextInfo += `\n- RSI: ${ctx.rsi.toFixed(1)} (${rsiStatus})`;
+      const rsiStatus = ctx.rsi < 30 ? "oversold" : ctx.rsi > 70 ? "overbought" : "neutral";
+      contextInfo += `\n- RSI: ${safeFixed(ctx.rsi, 1)} (${rsiStatus})`;
     }
     if (ctx.macd !== undefined && ctx.macdSignal !== undefined) {
       const macdStatus = ctx.macd > ctx.macdSignal ? "bullish" : "bearish";
-      contextInfo += `\n- MACD: ${macdStatus} (${ctx.macd.toFixed(2)} vs Signal ${ctx.macdSignal.toFixed(2)})`;
+      contextInfo += `\n- MACD: ${macdStatus} (${safeFixed(ctx.macd, 2)} vs Signal ${safeFixed(ctx.macdSignal, 2)})`;
     }
     if (ctx.trend) contextInfo += `\n- Trend: ${ctx.trend}`;
-    if (ctx.regime) contextInfo += `\n- Markt-Regime: ${ctx.regime}`;
+    if (ctx.regime) contextInfo += `\n- Market Regime: ${ctx.regime}`;
     if (ctx.fearGreed !== undefined) contextInfo += `\n- Fear & Greed Index: ${ctx.fearGreed}`;
-    if (ctx.signal) contextInfo += `\n- Aktuelles Signal: ${ctx.signal} (${(ctx.confidence || 0) * 100}% Konfidenz)`;
-    if (ctx.tp) contextInfo += `\n- Take Profit Ziel: $${ctx.tp.toLocaleString()}`;
+    if (ctx.signal) contextInfo += `\n- Current Signal: ${ctx.signal} (${(ctx.confidence || 0) * 100}% confidence)`;
+    if (ctx.tp) contextInfo += `\n- Take Profit Target: $${ctx.tp.toLocaleString()}`;
     if (ctx.sl) contextInfo += `\n- Stop Loss: $${ctx.sl.toLocaleString()}`;
   }
 
-  return `Du bist Vision AI, der intelligente Trading-Assistent der Vision AI Mind Plattform.
+  return `You are Vision AI, the intelligent trading assistant of the Vision AI Mind platform.
 
-DEINE IDENTITÄT:
-- Du heißt "Vision AI" und bist Teil der Vision AI Mind Trading-Plattform
-- Du analysierst Echtzeit-Marktdaten und erklärst Trading-Konzepte
-- Du bist ein Educator, KEIN Finanzberater
+YOUR IDENTITY:
+- You are called "Vision AI" and are part of the Vision AI Mind Trading Platform
+- You analyze real-time market data and explain trading concepts
+- You are an educator, NOT a financial advisor
 
-DEINE EXPERTISE:
-- Technische Analyse (RSI, MACD, Bollinger Bands, EMA, VWAP, Order Blocks, Fair Value Gaps)
-- Fundamentalanalyse (On-Chain-Metriken, TVL, Funding Rates, Open Interest)
-- Risk Management (Position Sizing, Stop Loss, Take Profit, R/R-Verhältnis)
-- Marktzyklen (BTC Dominance, Alt Season, Market Regimes)
-- DeFi-Konzepte (Liquidity Mining, Yield Farming, AMMs)
+YOUR EXPERTISE:
+- Technical Analysis (RSI, MACD, Bollinger Bands, EMA, VWAP, Order Blocks, Fair Value Gaps)
+- Fundamental Analysis (On-Chain Metrics, TVL, Funding Rates, Open Interest)
+- Risk Management (Position Sizing, Stop Loss, Take Profit, R/R Ratio)
+- Market Cycles (BTC Dominance, Alt Season, Market Regimes)
+- DeFi Concepts (Liquidity Mining, Yield Farming, AMMs)
 ${contextInfo}
 
-REGELN:
-1. Beginne JEDE Antwort mit "Vision AI:" 
-2. Analysiere die aktuellen Plattform-Daten wenn relevant
-3. Erkläre komplexe Konzepte einfach und verständlich
-4. Nutze die Marktdaten um Kontext zu geben (KEINE Kaufempfehlungen!)
-5. Antworte präzise und strukturiert (max 250 Wörter)
-6. Bei Fragen zu aktuellen Werten: Beziehe dich auf die Plattform-Daten oben
-7. Warne IMMER: "Dies ist keine Anlageberatung. Eigene Recherche erforderlich."
-8. Antworte in der Sprache der Frage (Deutsch oder Englisch)`;
+RULES:
+1. Start EVERY response with "Vision AI:" 
+2. Analyze current platform data when relevant
+3. Explain complex concepts simply and understandably
+4. Use market data to provide context (NO buy recommendations!)
+5. Answer precisely and structured (max 250 words)
+6. For questions about current values: Refer to the platform data above
+7. ALWAYS warn: "This is not investment advice. Own research required."
+8. Answer in the language of the question (German or English)`;
 };
 
 // Intelligent context-aware responses
@@ -92,112 +93,112 @@ const getContextualResponse = (prompt: string, ctx: PlatformContext): string => 
   // RSI questions
   if (lower.includes("rsi")) {
     if (hasCtx && ctx.rsi !== undefined) {
-      const status = ctx.rsi < 30 ? "überverkauft (potenziell bullish)" : 
-                     ctx.rsi > 70 ? "überkauft (Vorsicht bei Longs)" : "neutral";
-      return `Vision AI: Der aktuelle RSI für ${ctx.asset} liegt bei ${ctx.rsi.toFixed(1)} - das ist ${status}.
+      const status = ctx.rsi < 30 ? "oversold (potentially bullish)" : 
+                     ctx.rsi > 70 ? "overbought (caution with longs)" : "neutral";
+      return `Vision AI: The current RSI for ${ctx.asset} is at ${safeFixed(ctx.rsi, 1)} - that is ${status}.
 
-Der RSI (Relative Strength Index) misst Momentum auf einer Skala von 0-100:
-• Unter 30: Überverkauft - oft folgt eine Erholung
-• Über 70: Überkauft - Konsolidierung/Korrektur möglich
-• 40-60: Neutral Zone
+The RSI (Relative Strength Index) measures momentum on a scale of 0-100:
+- Below 30: Oversold - often followed by recovery
+- Above 70: Overbought - consolidation/correction possible
+- 40-60: Neutral Zone
 
-Wichtig: RSI allein ist kein Handelssignal. Auf Vision AI Mind kombinieren wir RSI mit MACD, Volumen und Market Regime für bessere Signale.
+Important: RSI alone is not a trading signal. On Vision AI Mind we combine RSI with MACD, volume and Market Regime for better signals.
 
-⚠️ Dies ist keine Anlageberatung. Eigene Recherche erforderlich.`;
+Note: This is not investment advice. Own research required.`;
     }
-    return `Vision AI: Der RSI (Relative Strength Index) ist ein Momentum-Indikator.
+    return `Vision AI: The RSI (Relative Strength Index) is a momentum indicator.
 
-Werte unter 30 = überverkauft, über 70 = überkauft. Auf unserer Plattform siehst du den RSI-Verlauf im Chart mit farblicher Hervorhebung.
+Values below 30 = oversold, above 70 = overbought. On our platform you can see the RSI trend in the chart with color highlighting.
 
-⚠️ Dies ist keine Anlageberatung.`;
+Note: This is not investment advice.`;
   }
   
   // MACD questions
   if (lower.includes("macd")) {
     if (hasCtx && ctx.macd !== undefined) {
-      const status = ctx.macd > (ctx.macdSignal || 0) ? "bullish (MACD über Signal)" : "bearish (MACD unter Signal)";
-      return `Vision AI: Der MACD für ${ctx.asset} ist aktuell ${status}.
+      const status = ctx.macd > (ctx.macdSignal || 0) ? "bullish (MACD above signal)" : "bearish (MACD below signal)";
+      return `Vision AI: The MACD for ${ctx.asset} is currently ${status}.
 
-MACD zeigt Trend-Momentum:
-• MACD über Signallinie = Aufwärtsmomentum
-• MACD unter Signallinie = Abwärtsmomentum  
-• Histogramm zeigt die Differenz
+MACD shows trend momentum:
+- MACD above signal line = upward momentum
+- MACD below signal line = downward momentum  
+- Histogram shows the difference
 
-Auf Vision AI Mind siehst du MACD-Crossovers und Divergenzen automatisch markiert.
+On Vision AI Mind you see MACD crossovers and divergences automatically marked.
 
-⚠️ Dies ist keine Anlageberatung. Eigene Recherche erforderlich.`;
+Note: This is not investment advice. Own research required.`;
     }
   }
   
   // Price questions
-  if (lower.includes("preis") || lower.includes("price") || lower.includes("aktuell")) {
+  if (lower.includes("preis") || lower.includes("price") || lower.includes("aktuell") || lower.includes("current")) {
     if (hasCtx) {
-      let response = `Vision AI: ${ctx.asset} notiert aktuell bei $${ctx.price?.toLocaleString()}.`;
-      if (ctx.regime) response += ` Das Markt-Regime ist "${ctx.regime}".`;
-      if (ctx.signal) response += ` Unser Signal zeigt: ${ctx.signal} (${((ctx.confidence || 0) * 100).toFixed(0)}% Konfidenz).`;
-      response += `\n\n⚠️ Dies ist keine Anlageberatung. Eigene Recherche erforderlich.`;
+      let response = `Vision AI: ${ctx.asset} is currently trading at $${ctx.price?.toLocaleString()}.`;
+      if (ctx.regime) response += ` The market regime is "${ctx.regime}".`;
+      if (ctx.signal) response += ` Our signal shows: ${ctx.signal} (${safeFixed((ctx.confidence || 0) * 100, 0)}% confidence).`;
+      response += `\n\nNote: This is not investment advice. Own research required.`;
       return response;
     }
   }
   
   // Signal/Trade questions
-  if (lower.includes("signal") || lower.includes("trade") || lower.includes("kaufen") || lower.includes("verkaufen")) {
+  if (lower.includes("signal") || lower.includes("trade") || lower.includes("kaufen") || lower.includes("verkaufen") || lower.includes("buy") || lower.includes("sell")) {
     if (hasCtx && ctx.signal) {
-      return `Vision AI: Basierend auf unseren Algorithmen zeigt ${ctx.asset} ein "${ctx.signal}"-Signal mit ${((ctx.confidence || 0) * 100).toFixed(0)}% Konfidenz.
+      return `Vision AI: Based on our algorithms, ${ctx.asset} shows a "${ctx.signal}" signal with ${safeFixed((ctx.confidence || 0) * 100, 0)}% confidence.
 
-${ctx.tp ? `• Take Profit Ziel: $${ctx.tp.toLocaleString()}` : ""}
-${ctx.sl ? `• Stop Loss: $${ctx.sl.toLocaleString()}` : ""}
+${ctx.tp ? `- Take Profit Target: $${ctx.tp.toLocaleString()}` : ""}
+${ctx.sl ? `- Stop Loss: $${ctx.sl.toLocaleString()}` : ""}
 
-Unsere Signale basieren auf RSI, MACD, Market Regime und weiteren Faktoren - sie sind KEINE Kaufempfehlung, sondern Bildungszwecke.
+Our signals are based on RSI, MACD, Market Regime and other factors - they are NOT buy recommendations, but for educational purposes.
 
-⚠️ Dies ist keine Anlageberatung. Eigene Recherche und Risikomanagement sind essentiell!`;
+Note: This is not investment advice. Own research and risk management are essential!`;
     }
-    return `Vision AI: Auf Vision AI Mind berechnen wir Signale basierend auf technischer Analyse (RSI, MACD, Bollinger Bands) und Market Regime.
+    return `Vision AI: On Vision AI Mind we calculate signals based on technical analysis (RSI, MACD, Bollinger Bands) and Market Regime.
 
-Signale zeigen Wahrscheinlichkeiten, keine Garantien. Immer eigenes Risikomanagement anwenden!
+Signals show probabilities, not guarantees. Always apply your own risk management!
 
-⚠️ Dies ist keine Anlageberatung.`;
+Note: This is not investment advice.`;
   }
   
   // Stop Loss / Take Profit
   if (lower.includes("stop") || lower.includes("loss") || lower.includes("take profit") || lower.includes("tp") || lower.includes("sl")) {
     if (hasCtx && (ctx.tp || ctx.sl)) {
-      return `Vision AI: Für ${ctx.asset} bei $${ctx.price?.toLocaleString()} berechnet unsere Plattform:
+      return `Vision AI: For ${ctx.asset} at $${ctx.price?.toLocaleString()} our platform calculates:
 
-${ctx.tp ? `• Take Profit: $${ctx.tp.toLocaleString()} (+${(((ctx.tp - (ctx.price || 0)) / (ctx.price || 1)) * 100).toFixed(1)}%)` : ""}
-${ctx.sl ? `• Stop Loss: $${ctx.sl.toLocaleString()} (-${(((ctx.price || 0) - ctx.sl) / (ctx.price || 1) * 100).toFixed(1)}%)` : ""}
+${ctx.tp ? `- Take Profit: $${ctx.tp.toLocaleString()} (+${safeFixed(((ctx.tp - (ctx.price || 0)) / (ctx.price || 1)) * 100, 1)}%)` : ""}
+${ctx.sl ? `- Stop Loss: $${ctx.sl.toLocaleString()} (-${safeFixed(((ctx.price || 0) - ctx.sl) / (ctx.price || 1) * 100, 1)}%)` : ""}
 
-Diese Werte basieren auf ATR (Average True Range) und Market Regime. Du kannst sie im TP/SL-Rechner anpassen.
+These values are based on ATR (Average True Range) and Market Regime. You can adjust them in the TP/SL calculator.
 
-⚠️ Dies ist keine Anlageberatung. Passe Stops an dein Risikoprofil an!`;
+Note: This is not investment advice. Adjust stops to your risk profile!`;
     }
   }
   
   // Fear & Greed
   if (lower.includes("fear") || lower.includes("greed") || lower.includes("sentiment") || lower.includes("stimmung")) {
     if (hasCtx && ctx.fearGreed !== undefined) {
-      const status = ctx.fearGreed < 30 ? "Extreme Fear (oft Kaufgelegenheit historisch)" :
-                     ctx.fearGreed > 70 ? "Greed (Vorsicht bei neuen Positionen)" : "Neutral";
-      return `Vision AI: Der Fear & Greed Index steht bei ${ctx.fearGreed} - ${status}.
+      const status = ctx.fearGreed < 30 ? "Extreme Fear (historically often buying opportunity)" :
+                     ctx.fearGreed > 70 ? "Greed (caution with new positions)" : "Neutral";
+      return `Vision AI: The Fear & Greed Index is at ${ctx.fearGreed} - ${status}.
 
-Der Index misst Marktstimmung von 0 (Extreme Fear) bis 100 (Extreme Greed). Historisch waren extreme Fear-Phasen oft gute Einstiegspunkte - aber keine Garantie!
+The index measures market sentiment from 0 (Extreme Fear) to 100 (Extreme Greed). Historically, extreme fear phases were often good entry points - but no guarantee!
 
-⚠️ Dies ist keine Anlageberatung.`;
+Note: This is not investment advice.`;
     }
   }
   
   // Default response
-  return `Vision AI: Das ist eine gute Frage! Als Trading-Educator auf Vision AI Mind erkläre ich gerne Konzepte.
+  return `Vision AI: That's a good question! As a trading educator on Vision AI Mind I'm happy to explain concepts.
 
-Auf unserer Plattform findest du:
-• Live-Preise mit RSI, MACD, Bollinger Bands
-• AI-basierte Signale mit Konfidenzwerten
-• TP/SL-Rechner mit ATR-Berechnung
-• Market Regime Analyse
+On our platform you'll find:
+- Live prices with RSI, MACD, Bollinger Bands
+- AI-based signals with confidence values
+- TP/SL calculator with ATR calculation
+- Market Regime Analysis
 
-Frag mich zu spezifischen Themen wie RSI, MACD, Stop Loss, Fibonacci oder Trading-Strategien!
+Ask me about specific topics like RSI, MACD, Stop Loss, Fibonacci or trading strategies!
 
-⚠️ Vision AI Mind bietet Education, keine Anlageberatung.`;
+Note: Vision AI Mind offers education, not investment advice.`;
 };
 
 // Rate limiting
@@ -290,8 +291,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       model: GROQ_MODEL
     });
     
-  } catch (error) {
+  } catch (_error) {
     const response = getContextualResponse(userMessage, platformContext);
     return res.status(200).json({ ok: true, response, source: "vision-ai-fallback" });
   }
 }
+

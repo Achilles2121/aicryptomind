@@ -24,6 +24,8 @@ import VisionAILogo from "./components/VisionAILogo";
 import { APP_BRAND, APP_TAGLINE } from "./config/brand";
 import { dataSources } from "./config/dataSources";
 import { DEFAULT_MARKET_ID, MARKETS } from "./config/markets";
+import supportedCoins, { SUPPORTED_TICKERS, formatMarketId } from "./config/supportedCoins";
+import { resolveFullTradingViewSymbol } from "./config/coinConfig";
 import FullScreenLoader from "./components/FullScreenLoader";
 import WelcomeModal from "./components/WelcomeModal";
 import Footer from "./components/Footer";
@@ -45,6 +47,8 @@ import { safeFetch, subscribeToSourceHealth, getSourceHealthSnapshot } from "./l
 import { loadChart, buildFallbackChart } from "./lib/chartLoader";
 import { fetchHtfOhlc } from "./services/marketDataLive";
 import { fetchDerivativesLive } from "./services/derivativesLive";
+import { safeFixed } from "./lib/safeFixed";
+import { useUnifiedPrice } from "./hooks/useUnifiedPrice";
 import {
   calculateEMA,
   calculateRSISeries,
@@ -72,12 +76,76 @@ const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const MARKET_OPTIONS = Object.values(MARKETS);
+const buildSupportedMarket = (coin) => {
+  const base = String(coin.symbol || "").toUpperCase();
+  const id = formatMarketId(base);
+  return {
+    id,
+    label: `${base} / USD`,
+    assetClass: "crypto",
+    defaultProvider: "coingecko",
+    base,
+    quote: "USD",
+    providerSymbols: {
+      coingecko: coin.id,
+      binance: `${base}USDT`,
+    },
+    supportsIntraday: true,
+  };
+};
+
+const SUPPORTED_MARKETS = supportedCoins.reduce((acc, coin) => {
+  const id = formatMarketId(coin.symbol);
+  acc[id] = MARKETS[id] ? { ...MARKETS[id] } : buildSupportedMarket(coin);
+  return acc;
+}, {});
+
+const MARKET_OPTIONS = Array.from(
+  new Map(
+    supportedCoins.map((coin) => {
+      const id = formatMarketId(coin.symbol);
+      return [id, SUPPORTED_MARKETS[id]];
+    })
+  ).values()
+).filter(Boolean);
 const ASSET_CLASS_LABELS = {
   crypto: "Crypto",
-  index: "Indices",
-  commodity: "Commodities",
-  fx: "FX",
+};
+const SUPPORTED_BY_ID = new Map(supportedCoins.map((coin) => [coin.id.toLowerCase(), formatMarketId(coin.symbol)]));
+const SUPPORTED_BY_SYMBOL = new Map(supportedCoins.map((coin) => [coin.symbol.toUpperCase(), formatMarketId(coin.symbol)]));
+const normalizeSymbolKey = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const normalizeAssetSymbol = (value) => {
+  const raw = String(value || "");
+  const rawId = raw.toLowerCase();
+  if (SUPPORTED_BY_ID.has(rawId)) return SUPPORTED_BY_ID.get(rawId);
+  const normalized = normalizeSymbolKey(raw);
+  if (!normalized) return null;
+  if (SUPPORTED_TICKERS.has(normalized)) return normalized;
+  const base = normalized.endsWith("USDT")
+    ? normalized.slice(0, -4)
+    : normalized.endsWith("USD")
+    ? normalized.slice(0, -3)
+    : normalized;
+  if (SUPPORTED_BY_SYMBOL.has(base)) return SUPPORTED_BY_SYMBOL.get(base);
+  const candidate = `${base}USD`;
+  return SUPPORTED_TICKERS.has(candidate) ? candidate : DEFAULT_MARKET_ID;
+};
+
+// Locale initialization - MUST be before any function that uses it
+let activeLocale = "de-DE";
+try {
+  const params = new URLSearchParams(window.location.search);
+  const langParam = params.get("lang");
+  if (langParam === "en" || (!langParam && navigator.language.startsWith("en"))) {
+    activeLocale = "en-US";
+  }
+} catch {
+  // SSR or window not available
+  activeLocale = "de-DE";
+}
+
+const setActiveLocale = (locale) => {
+  activeLocale = locale || "de-DE";
 };
 
 const _API_SOURCES_OLD = [
@@ -103,21 +171,23 @@ const _API_SOURCES_OLD = [
   },
   {
     name: "FMP",
-    desc: "Cross-Asset Data (Stocks/Crypto Corr).",
+    desc: "Crypto correlation data.",
     limit: "250 Calls/Tag free",
   },
 ];
 
 const getApiSources = () => {
-  const isEn = activeLocale.startsWith("en");
+  const isEn = (activeLocale || "de-DE").startsWith("en");
   return [
     { name: "DeFiLlama", desc: isEn ? "DeFi Yields, TVL, Chains - for Yield Tracker." : "DeFi-Yields, TVL, Chains - fuer Yield Tracker.", limit: "Unlimited free" },
     { name: "Santiment", desc: isEn ? "On-Chain + Sentiment (Whale Alerts, Social Volume)." : "On-Chain + Sentiment (Whale Alerts, Social Volume).", limit: isEn ? "100 Calls/month free" : "100 Calls/Monat free" },
     { name: "HuggingFace", desc: isEn ? "AI Predictions (Inference for Price Forecast)." : "AI-Predictions (Inference fuer Price-Forecast).", limit: "Free Inference" },
     { name: "Alpha Vantage", desc: isEn ? "Vol-Forecast, Tech Indicators (ATR, Correlations)." : "Vol-Forecast, Tech Indicators (ATR, Correlations).", limit: "25 Calls/Tag free" },
-    { name: "FMP", desc: isEn ? "Cross-Asset Data (Stocks/Crypto Corr)." : "Cross-Asset Data (Stocks/Crypto Corr).", limit: "250 Calls/Tag free" },
+    { name: "FMP", desc: isEn ? "Crypto correlation data." : "Crypto correlation data.", limit: "250 Calls/Tag free" },
   ];
 };
+
+const API_SOURCES = getApiSources();
 
 const SHOW_CRYPTO_EDU_CHAT = true;
 const DATA_SOURCE_LIST = Object.values(dataSources || {});
@@ -131,17 +201,6 @@ const getFormatter = (locale, opts) => {
     formatterCache.set(key, new Intl.NumberFormat(locale, opts));
   }
   return formatterCache.get(key);
-};
-
-let activeLocale = "de-DE";
-const params = new URLSearchParams(window.location.search);
-const langParam = params.get("lang");
-if (langParam === "en" || (!langParam && navigator.language.startsWith("en"))) {
-  activeLocale = "en-US";
-}
-
-const setActiveLocale = (locale) => {
-  activeLocale = locale || "de-DE";
 };
 
 const formatUSD = (value, locale) => {
@@ -656,10 +715,24 @@ function App() {
   const lastProcessedSymbol = useRef(null);
   const routeAssetId = useMemo(() => {
     const raw = params?.assetId || params?.symbol;
-    return raw ? raw.toUpperCase() : DEFAULT_MARKET_ID;
+    return normalizeAssetSymbol(raw) || DEFAULT_MARKET_ID;
   }, [params?.assetId, params?.symbol]);
-  const selectedAssetId = routeAssetId;
-  const selectedMarket = useMemo(() => MARKETS[selectedAssetId] || MARKETS[DEFAULT_MARKET_ID], [selectedAssetId]);
+  // Use full TradingView symbol with correct exchange (BINANCE for crypto, OANDA for gold, FX for forex)
+  const tradingViewSymbol = useMemo(
+    () => resolveFullTradingViewSymbol(params?.assetId || params?.symbol),
+    [params?.assetId, params?.symbol]
+  );
+  const [selectedAsset, setSelectedAsset] = useState(DEFAULT_MARKET_ID);
+  useEffect(() => {
+    if (!routeAssetId) return;
+    if (routeAssetId === selectedAsset) return;
+    setSelectedAsset(routeAssetId);
+  }, [routeAssetId, selectedAsset]);
+  const selectedAssetId = selectedAsset;
+  const selectedMarket = useMemo(
+    () => SUPPORTED_MARKETS[selectedAssetId] || SUPPORTED_MARKETS[DEFAULT_MARKET_ID],
+    [selectedAssetId]
+  );
   const groupedMarkets = useMemo(() => {
     return marketOptions.reduce((acc, market) => {
       const key = market.assetClass || "other";
@@ -668,15 +741,38 @@ function App() {
       return acc;
     }, {});
   }, [marketOptions]);
-  const handleAssetChange = useCallback(
+  const handleAssetSelect = useCallback(
     (next) => {
-      if (!next) return;
-      navigate(`/trading/${next}`);
+      const value =
+        typeof next === "string"
+          ? next
+          : next?.symbol || next?.assetId || next?.id || next;
+      const normalized = normalizeAssetSymbol(value) || DEFAULT_MARKET_ID;
+      if (!normalized) return;
+      const baseSymbol = SUPPORTED_MARKETS[normalized]?.base;
+      const normalizedKey = normalizeSymbolKey(value);
+      const fallbackSymbol = normalizedKey.endsWith("USDT")
+        ? normalizedKey.slice(0, -4)
+        : normalizedKey.endsWith("USD")
+        ? normalizedKey.slice(0, -3)
+        : normalizedKey;
+      const routeValue = baseSymbol || fallbackSymbol || normalized;
+      setSelectedAsset((prev) => (prev === normalized ? prev : normalized));
+      navigate(`/trading/${routeValue}`);
     },
     [navigate]
   );
+  const handleAssetChange = useCallback(
+    (next) => {
+      if (!next) return;
+      handleAssetSelect(next);
+    },
+    [handleAssetSelect]
+  );
   const priceAsset = usePriceStore((state) => state.selectPriceAsset(selectedMarket.id));
-  const livePrice = priceAsset.livePrice;
+  // Use unified price for consistency across all components
+  const unifiedPriceData = useUnifiedPrice(selectedMarket.id, priceAsset.restPrice);
+  const livePrice = unifiedPriceData.lastPrice;
   const trades = priceAsset.trades;
   const wsStatus = priceAsset.wsStatus;
   const wsAttempts = priceAsset.wsAttempts;
@@ -826,7 +922,7 @@ function App() {
       return next.slice(0, 3);
     });
     toastTimers.current[id] = setTimeout(() => removeToast(id), 5200);
-  }, []);
+  }, [removeToast]);
 
   useEffect(
     () => () => {
@@ -841,7 +937,7 @@ function App() {
   }, []);
 
   // Bekannte API-Fehler die keine Toast-Meldung brauchen (Rate Limits, CORS, etc.)
-  const isKnownApiIssue = (source, message) => {
+  const isKnownApiIssue = useCallback((source, message) => {
     const msg = (message || "").toLowerCase();
     const src = (source || "").toLowerCase();
     // Rate limits und bekannte temporaere Fehler
@@ -857,7 +953,7 @@ function App() {
     const knownFlaky = ["coingecko", "binance", "kraken", "glassnode", "santiment", "cryptocompare", "coinapi", "fear_greed"];
     if (knownFlaky.some((s) => src.includes(s))) return true;
     return false;
-  };
+  }, []);
 
   const logEvent = useCallback((source, level = "info", message = "", meta = {}) => {
     const key = `${source}:${level}:${message || ""}`;
@@ -891,7 +987,7 @@ function App() {
         }, 5200);
       }
     }
-  }, []);
+  }, [isDevBuild, isKnownApiIssue]);
 
   const updateApiHealth = useCallback((source, status, message = "") => {
     setApiHealth((prev) => {
@@ -930,34 +1026,28 @@ function App() {
   const disconnectPrice = usePriceStore((state) => state.disconnect);
 
   useEffect(() => {
-    // REF GUARD: Only run full reset if symbol actually changed
-    if (!routeAssetId && !lastProcessedSymbol.current) return;
-    if (routeAssetId && lastProcessedSymbol.current === routeAssetId) return;
+    if (!selectedAsset) return;
+    if (lastProcessedSymbol.current === selectedAsset) return;
 
-    // If routeAssetId is null but we have a default, we might want to check against default? 
-    // Usually routeAssetId determines the page.
-    const nextSymbol = routeAssetId || DEFAULT_MARKET_ID;
-    if (lastProcessedSymbol.current === nextSymbol) return;
+    lastProcessedSymbol.current = selectedAsset;
+    setSelectedAssetId(selectedAsset);
 
-    lastProcessedSymbol.current = nextSymbol;
-
-    // Reset transient state
     setOhlcv([]);
     setHtfOhlcv({ h4: [], d1: [] });
     setIndicators({ rsi: null, macd: null, signal: null, histogram: null });
     setPriceState({ value: null, change24h: null, source: "CoinGecko", updatedAt: null });
     setLastError("");
-  }, [routeAssetId]);
+  }, [selectedAsset, setSelectedAssetId]);
 
-  const buildAbortError = () => {
+  const buildAbortError = useCallback(() => {
     const err = new Error("AbortError");
     err.name = "AbortError";
     return err;
-  };
+  }, []);
 
-  const isAbortError = (err) => err?.name === "AbortError";
+  const isAbortError = useCallback((err) => err?.name === "AbortError", []);
 
-  const fetchWithCache = async (key, fetcher, customTtl = CACHE_TTL, signal) => {
+  const fetchWithCache = useCallback(async (key, fetcher, customTtl = CACHE_TTL, signal) => {
     const cached = cacheRef.current.get(key);
     if (cached && Date.now() - cached.time < customTtl) return cached.value;
     if (signal?.aborted) throw buildAbortError();
@@ -965,17 +1055,17 @@ function App() {
     if (signal?.aborted) throw buildAbortError();
     cacheRef.current.set(key, { value, time: Date.now() });
     return value;
-  };
+  }, [buildAbortError]);
 
-  const relayProxyHealth = (entries) => {
+  const relayProxyHealth = useCallback((entries) => {
     if (!Array.isArray(entries) || !entries.length) return;
     for (const entry of entries) {
       if (!entry?.key || !entry?.status) continue;
       updateApiHealth(entry.key, entry.status, entry.message);
     }
-  };
+  }, [updateApiHealth]);
 
-  const fetchPriceProxy = async (assetId, signal) => {
+  const fetchPriceProxy = useCallback(async (assetId, signal) => {
     const params = new URLSearchParams({ asset: assetId, vs: "USD" });
     const response = await safeFetch(`/api/price?${params.toString()}`, {
       serviceName: "price_proxy",
@@ -991,10 +1081,31 @@ function App() {
     if (response?.error) throw new Error(response.error);
     if (!response?.data) throw new Error("Price payload missing");
     return response.data;
-  };
+  }, [logEvent, relayProxyHealth, updateApiHealth]);
+
+  // Fallback: Traditional Fear & Greed from Alternative.me
+  const fetchFearGreedFallback = useCallback(async (signal) => {
+    const data = await safeFetch("https://api.alternative.me/fng/?limit=1&format=json", {
+      serviceName: "fear_greed",
+      timeoutMs: 8000,
+      retries: 1,
+      signal,
+      onHealthUpdate: updateApiHealth,
+      onLog: logEvent,
+      uiLevel: "status",
+    });
+    const item = data?.data?.[0];
+    if (!item) throw new Error("Fear & Greed malformed");
+    return {
+      value: Number(item.value),
+      classification: item.value_classification,
+      updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now(),
+      source: "alternative.me",
+    };
+  }, [logEvent, updateApiHealth]);
 
   // NEW: Real-time Sentiment API (combines Binance + Alternative.me)
-  const fetchRealTimeSentiment = async (signal) => {
+  const fetchRealTimeSentiment = useCallback(async (signal) => {
     try {
       const response = await safeFetch("/api/sentiment", {
         serviceName: "sentiment_realtime",
@@ -1026,51 +1137,37 @@ function App() {
       console.warn("Real-time sentiment failed, using fallback:", err?.message);
       return fetchFearGreedFallback(signal);
     }
-  };
-
-  // Fallback: Traditional Fear & Greed from Alternative.me
-  const fetchFearGreedFallback = async (signal) => {
-    const data = await safeFetch("https://api.alternative.me/fng/?limit=1&format=json", {
-      serviceName: "fear_greed",
-      timeoutMs: 8000,
-      retries: 1,
-      signal,
-      onHealthUpdate: updateApiHealth,
-      onLog: logEvent,
-      uiLevel: "status",
-    });
-    const item = data?.data?.[0];
-    if (!item) throw new Error("Fear & Greed malformed");
-    return {
-      value: Number(item.value),
-      classification: item.value_classification,
-      updatedAt: item.timestamp ? Number(item.timestamp) * 1000 : Date.now(),
-      source: "alternative.me",
-    };
-  };
+  }, [fetchFearGreedFallback, isAbortError, logEvent, updateApiHealth]);
 
   // Use real-time sentiment as primary
   const fetchFearGreed = fetchRealTimeSentiment;
 
-  const formatCandleLabel = (timestamp, minutes) => {
+  const formatCandleLabel = useCallback((timestamp, minutes) => {
     const date = new Date(Number(timestamp) * 1000);
     if (minutes >= 1440) return date.toLocaleDateString();
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
+  }, []);
 
-  const decorateCandles = (series, intervalMinutes) => {
+  const decorateCandles = useCallback((series, intervalMinutes) => {
     const windowSize = Number(intervalMinutes) || 60;
     if (!Array.isArray(series)) return [];
     return series.map((row) => ({
       ...row,
       label: formatCandleLabel(row.time, windowSize),
     }));
-  };
+  }, [formatCandleLabel]);
 
-  const resolveProviderSymbol = (providerId) => {
+  const resolveProviderSymbol = useCallback((providerId) => {
     const entry = Object.entries(selectedMarket?.providerSymbols || {}).find(([id]) => id.toLowerCase() === providerId.toLowerCase());
     return entry?.[1];
-  };
+  }, [selectedMarket]);
+
+  const fallbackSeries = useMemo(() => {
+    const basePrice = Number(priceState.value) || 100;
+    const intervalMinutes = Number(timeFrame) || 60;
+    const series = buildFallbackChart(120, basePrice, 0.02);
+    return decorateCandles(series, intervalMinutes);
+  }, [decorateCandles, priceState.value, timeFrame]);
 
   const loadPrice = useCallback(async (signal) => {
     try {
@@ -1100,7 +1197,7 @@ function App() {
       updateApiHealth("price_proxy", "error", err?.message);
       logEvent("price", "error", err?.message || "price proxy failed");
     }
-  }, [selectedMarket?.id, t]);
+  }, [selectedMarket?.id, t, fetchWithCache, fetchPriceProxy, updateApiHealth, logEvent, isAbortError]);
 
 
 
@@ -1133,12 +1230,12 @@ function App() {
       if (data?.classification === "EXTREME") {
         addToast({
           type: "warn",
-          message: `🚨 EXTREME VOLATILITÄT: ${data.volatilityScore?.toFixed(0)}/100 - Trading pausieren!`,
+          message: `🚨 EXTREME VOLATILITÄT: ${safeFixed(Number(data.volatilityScore) || 0, 2)}/100 - Trading pausieren!`,
         });
       } else if (data?.classification === "HIGH" && data?.volatilityScore > 75) {
         addToast({
           type: "info",
-          message: `⚠️ Hohe Volatilität: ${data.volatilityScore?.toFixed(0)}/100 - Vorsicht!`,
+          message: `⚠️ Hohe Volatilität: ${safeFixed(Number(data.volatilityScore) || 0, 2)}/100 - Vorsicht!`,
         });
       }
     } catch (err) {
@@ -1147,7 +1244,7 @@ function App() {
       setVolatilityData(null);
       updateApiHealth("volatility", "degraded", err?.message);
     }
-  }, [selectedMarket?.id, timeFrame, addToast, updateApiHealth]);
+  }, [selectedMarket?.id, timeFrame, addToast, updateApiHealth, fetchWithCache, isAbortError]);
 
   const loadFearGreed = useCallback(async (signal) => {
     try {
@@ -1162,7 +1259,7 @@ function App() {
       updateApiHealth("fear_greed", "degraded", t("fetchFailFearGreed"));
       logEvent("fearGreed", "warn", t("fetchFailFearGreed"));
     }
-  }, [fetchFearGreed, t]);
+  }, [fetchFearGreed, t, fetchWithCache, updateApiHealth, logEvent, isAbortError]);
 
   const loadOHLC = useCallback(async (signal) => {
     const pair = resolveProviderSymbol("kraken") || resolveProviderSymbol(selectedMarket.defaultProvider) || selectedMarket.id;
@@ -1205,7 +1302,7 @@ function App() {
       logEvent("ohlcv", "error", err?.message || "chart loader failed");
       setOhlcv(fallbackSeries);
     }
-  }, [timeFrame, selectedMarket, t]);
+  }, [timeFrame, selectedMarket, t, decorateCandles, fetchWithCache, logEvent, resolveProviderSymbol, updateApiHealth, fallbackSeries, isAbortError]);
 
   const loadHTF = useCallback(async (signal) => {
     if (!hasProAccess) {
@@ -1230,7 +1327,7 @@ function App() {
       updateApiHealth("MARKET_HTF_PRIMARY", "error", err.message);
       logEvent("MARKET_HTF_PRIMARY", "error", err.message);
     }
-  }, [hasProAccess, selectedMarket.id, updateApiHealth, logEvent, addToast]);
+  }, [hasProAccess, selectedMarket.id, updateApiHealth, logEvent, addToast, fetchWithCache, isAbortError]);
 
   const resolveDerivativesSymbol = (cc) => `DERIBIT_PERPETUAL_${(cc || "").toUpperCase()}_USD`;
 
@@ -1264,7 +1361,7 @@ function App() {
       updateApiHealth("DERIVATIVES_PRIMARY", "error", err.message);
       logEvent("DERIVATIVES_PRIMARY", "error", err.message);
     }
-  }, [hasProAccess, selectedMarket, updateApiHealth, logEvent, addToast]);
+  }, [hasProAccess, selectedMarket, updateApiHealth, logEvent, addToast, fetchWithCache, isAbortError]);
 
   const refreshAll = useCallback(async (signal) => {
     if (signal?.aborted) return;
@@ -1281,7 +1378,7 @@ function App() {
     setIsRefreshing(false);
   }, [loadPrice, loadFearGreed, loadOHLC, loadHTF, loadDerivatives, loadVolatility]);
 
-  const fetchEtfNewsProxy = async (signal) => {
+  const fetchEtfNewsProxy = useCallback(async (signal) => {
     const response = await safeFetch(`/api/etf/news?limit=8`, {
       serviceName: "ETF_PROXY_NEWS",
       timeoutMs: 10000,
@@ -1302,7 +1399,7 @@ function App() {
       return [];
     }
     return list.slice(0, 8);
-  };
+  }, [logEvent, relayProxyHealth, updateApiHealth]);
 
   const loadEtfNews = useCallback(async (signal) => {
     setEtfLoading(true);
@@ -1323,9 +1420,9 @@ function App() {
         setEtfLoading(false);
       }
     }
-  }, [t, updateApiHealth, logEvent]);
+  }, [t, updateApiHealth, logEvent, fetchWithCache, fetchEtfNewsProxy, isAbortError]);
 
-  const fetchEtfFlows = async (symbols = etfSelection, signal) => {
+  const fetchEtfFlows = useCallback(async (symbols = etfSelection, signal) => {
     const params = new URLSearchParams();
     if (symbols?.length) params.set("symbols", symbols.join(","));
     const query = params.toString();
@@ -1355,7 +1452,7 @@ function App() {
       .filter((row) => row.name);
     if (!simplified.length) throw new Error("ETF flows empty");
     return simplified.slice(0, 6);
-  };
+  }, [addToast, etfSelection, logEvent, relayProxyHealth, updateApiHealth]);
 
   const loadEtfFlows = useCallback(async (signal) => {
     const symbols = Array.isArray(etfSelection) && etfSelection.length ? [...etfSelection] : undefined;
@@ -1374,7 +1471,7 @@ function App() {
       logEvent("etfFlows", "warn", t("fetchFailETFFlows"));
       updateApiHealth("ETFFLOWS", "error", err?.message);
     }
-  }, [etfSelection, t, updateApiHealth, logEvent]);
+  }, [etfSelection, t, updateApiHealth, logEvent, fetchWithCache, fetchEtfFlows, isAbortError]);
 
   const loadEtfFlowData = useCallback(async (symbols = etfSelection, signal) => {
     if (!symbols?.length) {
@@ -1400,7 +1497,7 @@ function App() {
         setEtfAumLoading(false);
       }
     }
-  }, [etfSelection, updateApiHealth]);
+  }, [etfSelection, updateApiHealth, isAbortError]);
 
   const loadEtfHoldingsData = useCallback(async (symbols = etfSelection, signal) => {
     if (!symbols?.length) {
@@ -1426,7 +1523,7 @@ function App() {
         setEtfHoldingsLoading(false);
       }
     }
-  }, [etfSelection, updateApiHealth]);
+  }, [etfSelection, updateApiHealth, isAbortError]);
 
   const apiCheckers = useMemo(() => createApiCheckers(), []);
 
@@ -1462,7 +1559,7 @@ function App() {
       return acc;
     }, {});
     setApiStatuses((prev) => ({ ...prev, ...mapped }));
-  }, [apiCheckers, t]);
+  }, [apiCheckers, t, fetchWithCache, isAbortError]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1889,8 +1986,21 @@ function App() {
     return () => {
       disconnectPrice(selectedMarket.id);
     };
-  }, [selectedMarket.id, selectedMarket.assetClass, connectPrice, disconnectPrice, loadPrice, logEvent, updateApiHealth]);
-  const candles = ohlcv;
+  }, [selectedMarket.id, selectedMarket.assetClass, connectPrice, disconnectPrice, loadPrice, logEvent, updateApiHealth, resolveProviderSymbol]);
+  const candles = useMemo(() => {
+    if (!ohlcv.length) return [];
+    if (!livePrice || !Number.isFinite(livePrice)) return ohlcv;
+    
+    const lastCandle = ohlcv[ohlcv.length - 1];
+    const updatedLast = {
+      ...lastCandle,
+      close: livePrice,
+      high: Math.max(lastCandle.high, livePrice),
+      low: Math.min(lastCandle.low, livePrice),
+    };
+    
+    return [...ohlcv.slice(0, -1), updatedLast];
+  }, [ohlcv, livePrice]);
   const indicatorSeries = useMemo(() => {
     if (!candles.length) return [];
     const closes = candles.map((c) => c.close);
@@ -2082,13 +2192,17 @@ function App() {
       emaBias !== null ? Math.min(1, Math.abs(emaBias)) : 0.3,
       bbWidth !== null ? Math.min(1, bbWidth / 10) : 0.3,
     ];
-    const confidence = Number(((confidenceParts.reduce((a, b) => a + b, 0) / confidenceParts.length) * 0.9 + 0.1).toFixed(2));
+    const confidence = Number(
+      safeFixed(Number((confidenceParts.reduce((a, b) => a + b, 0) / confidenceParts.length) * 0.9 + 0.1) || 0, 2)
+    );
     return {
       label,
       color,
       intent,
       confidence,
-      detail: `EMA200 ${emaBias !== null ? (emaBias * 100).toFixed(2) + "%" : "-"} | ADX ${adxVal ? adxVal.toFixed(1) : "-"} | BBW ${bbWidth ? bbWidth.toFixed(2) + "%" : "-"
+      detail: `EMA200 ${emaBias !== null ? safeFixed(Number(emaBias * 100) || 0, 2) + "%" : "-"} | ADX ${
+        adxVal ? safeFixed(Number(adxVal) || 0, 2) : "-"
+      } | BBW ${bbWidth ? safeFixed(Number(bbWidth) || 0, 2) + "%" : "-"
         }`,
     };
   };
@@ -2142,8 +2256,8 @@ function App() {
     return {
       bids,
       asks,
-      dominance: dominance.toFixed(0),
-      imbalance: Math.abs(50 - dominance).toFixed(0),
+      dominance: safeFixed(Number(dominance) || 0, 2),
+      imbalance: safeFixed(Number(Math.abs(50 - dominance)) || 0, 2),
       tone,
     };
   }, [trades]);
@@ -2195,8 +2309,7 @@ function App() {
       sentimentScore: sentimentMetrics?.score,
       volatilityData, // NEW: Pass volatility data for adaptive signals
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indicatorSeries, indicators.macd, indicators.signal, indicators.rsi, displayPrice, volatilityData, sentimentMetrics?.score]);
+  }, [indicatorSeries, indicators, displayPrice, volatilityData, sentimentMetrics?.score]);
 
   const visionSignal = useMemo(() => {
     return calculateVisionSignal({
@@ -2205,7 +2318,7 @@ function App() {
       displayPrice,
       fearGreedValue: fearGreed?.value,
     });
-  }, [indicatorSeries, indicators.rsi, displayPrice, fearGreed?.value]);
+  }, [indicatorSeries, indicators, displayPrice, fearGreed?.value]);
 
   const proSignal = useMemo(() => {
     const enrichedBacktest = {
@@ -2582,13 +2695,15 @@ function App() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-400">RSI</span>
                     <span className={`font-semibold ${indicators.rsi && (indicators.rsi < 30 || indicators.rsi > 70) ? "text-amber-400" : "text-emerald-300"}`}>
-                      {indicators.rsi ? indicators.rsi.toFixed(1) : "-"}
+                      {indicators.rsi ? safeFixed(Number(indicators.rsi) || 0, 2) : "-"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-400">MACD</span>
                     <span className="font-semibold text-slate-100">
-                      {indicators.macd && indicators.signal ? `${(indicators.macd - indicators.signal).toFixed(2)} (${indicators.macd.toFixed(2)}/${indicators.signal.toFixed(2)})` : "-"}
+                      {indicators.macd && indicators.signal
+                        ? `${safeFixed(Number(indicators.macd - indicators.signal) || 0, 2)} (${safeFixed(Number(indicators.macd) || 0, 2)}/${safeFixed(Number(indicators.signal) || 0, 2)})`
+                        : "-"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
@@ -2618,9 +2733,12 @@ function App() {
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
                 <ChartSection
+                  selectedAsset={selectedAsset}
+                  handleAssetSelect={handleAssetSelect}
                   selectedMarket={selectedMarket}
                   timeFrame={timeFrame}
                   onTimeFrameChange={setTimeFrame}
+                  tradingViewSymbol={tradingViewSymbol}
                   t={t}
                   indicatorSeries={indicatorSeries}
                   aiSignal={aiSignal}
@@ -2665,11 +2783,11 @@ function App() {
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-400">Winrate</span>
-                        <span className="font-semibold text-emerald-300">{backtestStats.winRate ? `${backtestStats.winRate.toFixed(1)}%` : "--"}</span>
+                        <span className="font-semibold text-emerald-300">{backtestStats.winRate ? `${safeFixed(Number(backtestStats.winRate) || 0, 2)}%` : "--"}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-400">Avg R/R</span>
-                        <span className="font-semibold text-slate-100">{backtestStats.avgRr ? backtestStats.avgRr.toFixed(2) : "--"}</span>
+                        <span className="font-semibold text-slate-100">{backtestStats.avgRr ? safeFixed(Number(backtestStats.avgRr) || 0, 2) : "--"}</span>
                       </div>
                       <div className="text-xs text-slate-400">
                         Validiert lokal gegen aktuelle OHLC-Serie, keine API-Last. Ziel: 90%+ Treffer bei klaren Trends.
@@ -2741,7 +2859,7 @@ function App() {
                     </p>
                     <div className="mt-4 flex items-center justify-between">
                       <div className="text-3xl font-black text-slate-50 whitespace-nowrap">
-                        {(marketRegime.confidence * 100).toFixed(0)}%
+                        {safeFixed(Number(marketRegime.confidence * 100) || 0, 2)}%
                       </div>
                       <div className="text-[11px] text-slate-300 leading-tight min-h-[32px] max-w-[180px]">
                         {marketRegime.detail}
@@ -2870,17 +2988,17 @@ function App() {
                           <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[140px] space-y-1 break-words">
                             <div className="flex items-center justify-between gap-2">
                               <span>Whales</span>
-                              <span className="font-semibold text-slate-100">{(onChainMetrics.supplyWhales ?? 0.6 * 100).toFixed(0)}%</span>
+                              <span className="font-semibold text-slate-100">{safeFixed(Number(onChainMetrics.supplyWhales ?? 0.6 * 100) || 0, 2)}%</span>
                             </div>
                             <div className="flex items-center justify-between gap-2">
                               <span>Retail</span>
-                              <span className="font-semibold text-slate-100">{(onChainMetrics.supplyRetail ?? 0.4 * 100).toFixed(0)}%</span>
+                              <span className="font-semibold text-slate-100">{safeFixed(Number(onChainMetrics.supplyRetail ?? 0.4 * 100) || 0, 2)}%</span>
                             </div>
                             <div className="flex items-center justify-between gap-2">
                               <span>Delta</span>
                               <span className="font-semibold text-slate-100">
                                 {onChainMetrics.supplyWhales && onChainMetrics.supplyRetail
-                                  ? ((onChainMetrics.supplyWhales - onChainMetrics.supplyRetail) * 100).toFixed(1) + "%"
+                                  ? safeFixed(Number((onChainMetrics.supplyWhales - onChainMetrics.supplyRetail) * 100) || 0, 2) + "%"
                                   : "--"}
                               </span>
                             </div>
@@ -2982,7 +3100,7 @@ function App() {
                                   <span>Positiv</span>
                                   <span className="text-slate-200">{pct >= 0 ? "Ja" : "Nein"}</span>
                                 </div>
-                                <div className="text-[10px] text-slate-300 mt-1">Std: {val !== null ? Math.abs(val).toFixed(2) : "--"}</div>
+                                <div className="text-[10px] text-slate-300 mt-1">Std: {val !== null ? safeFixed(Number(Math.abs(val)) || 0, 2) : "--"}</div>
                               </div>
                             );
                           })}
@@ -3027,7 +3145,7 @@ function App() {
                               <div key={f.symbol} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
                                 <div className="flex items-center justify-between">
                                   <span className="font-semibold text-slate-50">{f.symbol}</span>
-                                  <span className={bullish ? "text-emerald-300" : "text-red-300"}>{pct.toFixed(4)}%</span>
+                                  <span className={bullish ? "text-emerald-300" : "text-red-300"}>{safeFixed(Number(pct) || 0, 2)}%</span>
                                 </div>
                                 <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
                                   <div className={`h-1.5 ${bullish ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, Math.abs(pct) * 800)}%` }} />
@@ -3046,7 +3164,7 @@ function App() {
                             <span>Avg Rate</span>
                             <span className="font-semibold text-slate-100">
                               {fundingRates.length
-                                ? (fundingRates.reduce((a, b) => a + (b.rate || 0), 0) / fundingRates.length * 100).toFixed(4) + "%"
+                                ? safeFixed(Number((fundingRates.reduce((a, b) => a + (b.rate || 0), 0) / fundingRates.length) * 100) || 0, 2) + "%"
                                 : "--"}
                             </span>
                           </div>
@@ -3054,7 +3172,7 @@ function App() {
                             <span>Hourly est.</span>
                             <span className="font-semibold text-slate-100">
                               {fundingRates.length
-                                ? (fundingRates.reduce((a, b) => a + (b.rate || 0), 0) / fundingRates.length * 24 * 100).toFixed(4) + "%"
+                                ? safeFixed(Number((fundingRates.reduce((a, b) => a + (b.rate || 0), 0) / fundingRates.length) * 24 * 100) || 0, 2) + "%"
                                 : "--"}
                             </span>
                           </div>
@@ -3067,6 +3185,7 @@ function App() {
 
               <div className="flex flex-col gap-4">
                 <SignalPanel
+                  selectedAssetId={selectedAsset}
                   timeFrame={timeFrame}
                   t={t}
                   lang={lang}
@@ -3099,7 +3218,7 @@ function App() {
                   Paywall={Paywall}
                   formatUSD={formatUSD}
                 />
-                <RiskTerminal balance={DEFAULT_BALANCE} />
+                <RiskTerminal selectedAssetId={selectedAsset} balance={DEFAULT_BALANCE} />
               </div>
             </div>
             <div className="mt-6">
@@ -3444,13 +3563,15 @@ function App() {
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-400">RSI</span>
                           <span className={`font-semibold ${indicators.rsi && (indicators.rsi < 30 || indicators.rsi > 70) ? "text-amber-400" : "text-emerald-300"}`}>
-                            {indicators.rsi ? indicators.rsi.toFixed(1) : "-"}
+                            {indicators.rsi ? safeFixed(Number(indicators.rsi) || 0, 2) : "-"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-400">MACD</span>
                           <span className="font-semibold text-slate-100">
-                            {indicators.macd && indicators.signal ? `${(indicators.macd - indicators.signal).toFixed(2)} (${indicators.macd.toFixed(2)}/${indicators.signal.toFixed(2)})` : "-"}
+                            {indicators.macd && indicators.signal
+                              ? `${safeFixed(Number(indicators.macd - indicators.signal) || 0, 2)} (${safeFixed(Number(indicators.macd) || 0, 2)}/${safeFixed(Number(indicators.signal) || 0, 2)})`
+                              : "-"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
@@ -3543,9 +3664,12 @@ function App() {
               ) : null}
               {mobileTab === "charts" ? (
                 <ChartSection
+                  selectedAsset={selectedAsset}
+                  handleAssetSelect={handleAssetSelect}
                   selectedMarket={selectedMarket}
                   timeFrame={timeFrame}
                   onTimeFrameChange={setTimeFrame}
+                  tradingViewSymbol={tradingViewSymbol}
                   t={t}
                   indicatorSeries={indicatorSeries}
                   aiSignal={aiSignal}
@@ -3560,6 +3684,7 @@ function App() {
               ) : null}
               {mobileTab === "signals" ? (
                 <SignalPanel
+                  selectedAssetId={selectedAsset}
                   timeFrame={timeFrame}
                   t={t}
                   lang={lang}
@@ -3594,7 +3719,7 @@ function App() {
                 />
               ) : null}
               {mobileTab === "risk" ? (
-                <RiskTerminal balance={DEFAULT_BALANCE} />
+                <RiskTerminal selectedAssetId={selectedAsset} balance={DEFAULT_BALANCE} />
               ) : null}
 
               {mobileTab === "research" ? (
@@ -3635,16 +3760,18 @@ function App() {
                         <div className="text-xs text-slate-300 leading-tight min-w-[120px] max-w-[160px] space-y-1 break-words">
                           <div className="flex items-center justify-between gap-2">
                             <span>Whales</span>
-                            <span className="font-semibold text-slate-100">{(onChainMetrics.supplyWhales ?? 0.6 * 100).toFixed(0)}%</span>
+                            <span className="font-semibold text-slate-100">{safeFixed(Number(onChainMetrics.supplyWhales ?? 0.6 * 100) || 0, 2)}%</span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span>Retail</span>
-                            <span className="font-semibold text-slate-100">{(onChainMetrics.supplyRetail ?? 0.4 * 100).toFixed(0)}%</span>
+                            <span className="font-semibold text-slate-100">{safeFixed(Number(onChainMetrics.supplyRetail ?? 0.4 * 100) || 0, 2)}%</span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span>Delta</span>
                             <span className="font-semibold text-slate-100">
-                              {onChainMetrics.supplyWhales && onChainMetrics.supplyRetail ? ((onChainMetrics.supplyWhales - onChainMetrics.supplyRetail) * 100).toFixed(1) + "%" : "--"}
+                              {onChainMetrics.supplyWhales && onChainMetrics.supplyRetail
+                                ? safeFixed(Number((onChainMetrics.supplyWhales - onChainMetrics.supplyRetail) * 100) || 0, 2) + "%"
+                                : "--"}
                             </span>
                           </div>
                         </div>
@@ -3750,7 +3877,7 @@ function App() {
                               <div key={f.symbol} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
                                 <div className="flex items-center justify-between">
                                   <span className="font-semibold">{f.symbol}</span>
-                                  <span className={`text-xs font-semibold ${bullish ? "text-emerald-300" : "text-red-300"}`}>{pct.toFixed(4)}%</span>
+                                  <span className={`text-xs font-semibold ${bullish ? "text-emerald-300" : "text-red-300"}`}>{safeFixed(Number(pct) || 0, 2)}%</span>
                                 </div>
                                 <p className="text-[11px] text-slate-400">Mark: {f.mark ? formatUSD(f.mark) : "-"}</p>
                               </div>

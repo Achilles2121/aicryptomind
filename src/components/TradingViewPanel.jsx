@@ -7,6 +7,7 @@ import TradingViewTechnicalAnalysis from "./TradingViewTechnicalAnalysis";
 import { getTVSymbol, getTVConfig, ASSET_CLASS_COLORS } from "../config/tradingview-map";
 import { getTradingViewInterval } from "../lib/tradingViewSymbols";
 import { getMarketSession } from "../lib/multiTpSlEngine";
+import { safeFixed } from "../lib/safeFixed";
 
 /**
  * Complete TradingView Integration Panel
@@ -23,6 +24,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
   assetId = "BTC",
   assetClass = "crypto",
   timeFrame = "60",
+  tradingViewSymbol = null,
   showTechnicalAnalysis = true,
   chartHeight = 450,
   technicalHeight = 300,
@@ -46,7 +48,12 @@ const TradingViewPanel = memo(function TradingViewPanel({
   const session = useMemo(() => getMarketSession(timezone), [timezone]);
   // Get TradingView symbol und Config aus dem zentralen Mapping
   const tvConfig = useMemo(() => getTVConfig(assetId), [assetId]);
-  const tvSymbol = useMemo(() => getTVSymbol(assetId), [assetId]);
+  const tvSymbol = useMemo(() => {
+    if (tradingViewSymbol) {
+      return tradingViewSymbol.includes(":") ? tradingViewSymbol : `BINANCE:${tradingViewSymbol}`;
+    }
+    return getTVSymbol(assetId);
+  }, [assetId, tradingViewSymbol]);
   const tvInterval = useMemo(() => getTradingViewInterval(timeFrame), [timeFrame]);
   
   // Dynamischer Header-Titel aus dem Mapping (z.B. "GOLD (XAU/USD)")
@@ -56,11 +63,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
   const assetClassLabel = useMemo(() => {
     const effectiveClass = tvConfig?.assetClass || assetClass;
     const labels = {
-      crypto: "Krypto",
-      forex: "Forex",
-      fx: "Forex",
-      index: "Index",
-      commodity: "Rohstoff",
+      crypto: "Crypto",
     };
     return labels[effectiveClass] || "Asset";
   }, [tvConfig, assetClass]);
@@ -75,8 +78,8 @@ const TradingViewPanel = memo(function TradingViewPanel({
   const formatPrice = (price) => {
     if (!price) return "—";
     if (price >= 1000) return price.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (price >= 1) return price.toFixed(4);
-    return price.toFixed(6);
+    if (price >= 1) return safeFixed(price, 4);
+    return safeFixed(price, 6);
   };
 
   // Interval label
@@ -197,7 +200,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
                   {/* R:R Badge */}
                   {typeof riskReward === 'number' && riskReward !== 0 && (
                     <span className="px-2 py-0.5 text-xs rounded bg-slate-700/50 text-slate-300">
-                      R:R {riskReward.toFixed(1)}
+                      R:R {safeFixed(riskReward, 1)}
                     </span>
                   )}
                 </div>
@@ -221,7 +224,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
                         <span className="text-white font-mono">{formatPrice(tpPrice)}</span>
                         {tpPct !== null && (
                           <span className="text-emerald-500 text-xs font-medium">
-                            +{Math.abs(tpPct).toFixed(2)}%
+                            +{safeFixed(Math.abs(tpPct), 2)}%
                           </span>
                         )}
                       </div>
@@ -251,7 +254,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
                       <span className="text-white font-mono">{formatPrice(slLevel)}</span>
                       {currentPrice && (
                         <span className="text-red-500 text-xs font-medium">
-                          {((slLevel - currentPrice) / currentPrice * 100).toFixed(2)}%
+                          {safeFixed((slLevel - currentPrice) / currentPrice * 100, 2)}%
                         </span>
                       )}
                     </div>
@@ -261,7 +264,7 @@ const TradingViewPanel = memo(function TradingViewPanel({
                 {/* ATR Info */}
                 {typeof atrPct === 'number' && (
                   <div className="flex items-center justify-between text-xs text-slate-500 mt-2 pt-2 border-t border-slate-800">
-                    <span>ATR%: {atrPct.toFixed(2)}%</span>
+                    <span>ATR%: {safeFixed(atrPct, 2)}%</span>
                     <span>Session: {session?.session || 'OFF'}</span>
                   </div>
                 )}
@@ -356,6 +359,7 @@ TradingViewPanel.propTypes = {
   assetId: PropTypes.string,
   assetClass: PropTypes.string,
   timeFrame: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  tradingViewSymbol: PropTypes.string,
   showTechnicalAnalysis: PropTypes.bool,
   chartHeight: PropTypes.number,
   technicalHeight: PropTypes.number,

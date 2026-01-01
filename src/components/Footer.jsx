@@ -12,13 +12,8 @@ const Footer = () => {
         <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl mb-6">
           <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-amber-200/80">
-            <strong className="text-amber-300">Risikowarnung:</strong>{' '}
-            Der Handel mit Kryptowährungen, Forex und anderen Finanzinstrumenten 
-            birgt erhebliche Risiken und kann zum Verlust Ihres gesamten Kapitals führen. 
-            Die auf dieser Plattform bereitgestellten Signale und Analysen dienen 
-            ausschließlich zu Informationszwecken und stellen <strong>keine Finanzberatung</strong> dar. 
-            Handeln Sie nur mit Kapital, dessen Verlust Sie sich leisten können. 
-            Vergangene Performance ist keine Garantie für zukünftige Ergebnisse.
+            <strong className="text-amber-300">Risikowarnung:</strong>{" "}
+            Der Handel mit Kryptowaehrungen und anderen Finanzinstrumenten birgt erhebliche Risiken und kann zum Verlust Ihres gesamten Kapitals fuehren. Die auf dieser Plattform bereitgestellten Signale und Analysen dienen ausschliesslich zu Informationszwecken und stellen <strong>keine Finanzberatung</strong> dar. Handeln Sie nur mit Kapital, dessen Verlust Sie sich leisten koennen. Vergangene Performance ist keine Garantie fuer zukuenftige Ergebnisse.
           </div>
         </div>
 
@@ -27,8 +22,8 @@ const Footer = () => {
           {/* Copyright */}
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-400">Vision AI Mind</span>
-            <span>© {currentYear}</span>
-            <span className="hidden md:inline">• Alle Rechte vorbehalten</span>
+            <span>(c) {currentYear}</span>
+            <span className="hidden md:inline">Alle Rechte vorbehalten</span>
           </div>
 
           {/* Links */}

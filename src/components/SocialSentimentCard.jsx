@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Zap
 } from 'lucide-react';
+import { safeFixed } from "../lib/safeFixed";
 
 const SENTIMENT_CACHE_KEY = 'visionai_sentiment_cache';
 const CACHE_TTL = 30000; // 30 seconds
@@ -244,7 +245,7 @@ const SocialSentimentCard = ({ onSentimentChange, minTier: _minTier = 'basic' })
           <div className="text-xs text-slate-500 mb-1">Long/Short</div>
           <div className="flex items-baseline gap-1">
             <span className={`text-lg font-bold ${data.longShortRatio > 1 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {data.longShortRatio.toFixed(2)}
+              {safeFixed(data.longShortRatio, 2)}
             </span>
             {longShortTrend === 'up' && <TrendingUp className="w-3 h-3 text-emerald-400" />}
             {longShortTrend === 'down' && <TrendingDown className="w-3 h-3 text-red-400" />}
@@ -260,8 +261,8 @@ const SocialSentimentCard = ({ onSentimentChange, minTier: _minTier = 'basic' })
             />
           </div>
           <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-            <span>{data.longPercent.toFixed(1)}% Long</span>
-            <span>{data.shortPercent.toFixed(1)}% Short</span>
+            <span>{safeFixed(data.longPercent, 1)}% Long</span>
+            <span>{safeFixed(data.shortPercent, 1)}% Short</span>
           </div>
         </div>
 
@@ -269,7 +270,7 @@ const SocialSentimentCard = ({ onSentimentChange, minTier: _minTier = 'basic' })
         <div className="bg-slate-800/30 rounded-lg p-3">
           <div className="text-xs text-slate-500 mb-1">Top Trader Ratio</div>
           <div className={`text-lg font-bold ${data.topTraderLongShortRatio > 1 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {data.topTraderLongShortRatio.toFixed(2)}
+            {safeFixed(data.topTraderLongShortRatio, 2)}
           </div>
           <div className="text-[10px] text-slate-500 mt-2">
             {data.topTraderLongShortRatio > 1.5 
@@ -298,7 +299,7 @@ const SocialSentimentCard = ({ onSentimentChange, minTier: _minTier = 'basic' })
         <StatRow 
           icon={Activity}
           label="Open Interest"
-          value={`${(data.openInterest / 1000).toFixed(1)}K BTC`}
+          value={`${safeFixed(data.openInterest / 1000, 1)}K BTC`}
         />
       </div>
 

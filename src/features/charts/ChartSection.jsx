@@ -3,7 +3,6 @@ import PropTypes from "prop-types";
 import { Activity, LineChart as LineChartIcon, TrendingUp } from "lucide-react";
 import {
   Bar,
-  BarChart,
   CartesianGrid,
   ComposedChart,
   Legend,
@@ -16,6 +15,8 @@ import {
   YAxis,
 } from "recharts";
 import { usePriceStore } from "../../stores/usePriceStore";
+import { useUnifiedPrice } from "../../hooks/useUnifiedPrice";
+import { safeFixed } from "../../lib/safeFixed";
 
 const TradingViewPanel = lazy(() => import("../../components/TradingViewPanel"));
 
@@ -44,6 +45,7 @@ const ChartSection = ({
   selectedMarket,
   timeFrame,
   onTimeFrameChange,
+  tradingViewSymbol,
   t,
   indicatorSeries,
   aiSignal,
@@ -56,9 +58,12 @@ const ChartSection = ({
   variant = "desktop",
 }) => {
   const priceAsset = usePriceStore((state) => state.selectPriceAsset(selectedMarket.id));
-  const livePrice = priceAsset.livePrice;
+  
+  // SINGLE SOURCE OF TRUTH - Use unified price for consistency
+  const unifiedPrice = useUnifiedPrice(selectedMarket.id, priceValue);
+  const displayPrice = unifiedPrice.lastPrice;
+  
   const trades = priceAsset.trades;
-  const displayPrice = livePrice ?? priceValue ?? null;
   const tpLevel = aiSignal?.tp ?? null;
   const slLevel = aiSignal?.sl ?? null;
 
@@ -112,9 +117,12 @@ const ChartSection = ({
 
   const bubbleData = useMemo(() => buildBubbleData(indicatorSeries, selectedMarket.id), [indicatorSeries, selectedMarket.id]);
 
+  // Use state for time-based updates to avoid impure function in useMemo
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
+    // Initialize with current time
+    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 60000); // Update every minute
     return () => clearInterval(timer);
   }, []);
@@ -122,8 +130,9 @@ const ChartSection = ({
   const volumeBuckets = useMemo(() => {
     const bucketCount = 24;
     const buckets = [];
+    const currentTime = now; // Use state value instead of Date.now()
     for (let i = bucketCount - 1; i >= 0; i -= 1) {
-      const start = now - i * 60 * 1000;
+      const start = currentTime - i * 60 * 1000;
       const end = start + 60 * 1000;
       const tradesInBucket = trades.filter((t) => t.ts >= start && t.ts < end);
       const buy = tradesInBucket.filter((t) => t.side === "buy").reduce((acc, t) => acc + t.usd, 0);
@@ -136,7 +145,7 @@ const ChartSection = ({
       });
     }
     return buckets;
-  }, [trades]);
+  }, [trades, now]);
 
   const chartHeight = variant === "mobile" ? 350 : 450;
   const chartHeightClass = variant === "mobile" ? "h-[350px]" : "h-[450px]";
@@ -173,6 +182,7 @@ const ChartSection = ({
               assetId={selectedMarket.id}
               assetClass={selectedMarket.assetClass}
               timeFrame={timeFrame}
+              tradingViewSymbol={tradingViewSymbol}
               showTechnicalAnalysis
               chartHeight={chartHeight}
               technicalHeight={technicalHeight}
@@ -265,7 +275,7 @@ const ChartSection = ({
                       >
                         <div className="text-center text-[10px] font-semibold leading-tight px-1">
                           <div className="truncate max-w-[80px]">{b.label}</div>
-                          <div className="text-[9px] opacity-80">RSI {b.rsi.toFixed(1)}</div>
+                          <div className="text-[9px] opacity-80">RSI {safeFixed(b.rsi, 1)}</div>
                         </div>
                       </div>
                     ))}
@@ -289,7 +299,7 @@ const ChartSection = ({
                     <ComposedChart data={indicatorSeries}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                       <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} minTickGap={20} />
-                      <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={60} tickCount={5} padding={{ top: 8, bottom: 8 }} tickFormatter={(v) => (Number.isFinite(v) ? v.toFixed(0) : "")} />
+                      <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 10 }} width={60} tickCount={5} padding={{ top: 8, bottom: 8 }} tickFormatter={(v) => (Number.isFinite(v) ? safeFixed(v, 0) : "")} />
                       <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1f2937" }} labelStyle={{ color: "#e2e8f0" }} />
                       <Line type="monotone" dataKey="rsi" stroke="#22c55e" strokeWidth={2} dot={renderLastDot(indicatorSeries.length, "#22c55e")} name="RSI" isAnimationActive={false} />
                       <Line type="monotone" dataKey={() => 70} stroke="#f59e0b" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
@@ -370,8 +380,8 @@ const ChartSection = ({
                     <div className="flex items-center justify-between">
                       <span>Stoch RSI</span>
                       <span className="font-semibold text-emerald-300">
-                        {indicatorSeries.at(-1)?.stochPriceK ? indicatorSeries.at(-1).stochPriceK.toFixed(1) : "-"} /{" "}
-                        {indicatorSeries.at(-1)?.stochPriceD ? indicatorSeries.at(-1).stochPriceD.toFixed(1) : "-"}
+                        {indicatorSeries.at(-1)?.stochPriceK ? safeFixed(indicatorSeries.at(-1).stochPriceK, 1) : "-"} /{" "}
+                        {indicatorSeries.at(-1)?.stochPriceD ? safeFixed(indicatorSeries.at(-1).stochPriceD, 1) : "-"}
                       </span>
                     </div>
                     <p className="text-xs text-slate-400">
@@ -395,7 +405,7 @@ const ChartSection = ({
                     <div className="flex items-center justify-between">
                       <span>CCI</span>
                       <span className={`font-semibold ${Number(indicatorSeries.at(-1)?.cci) > 100 ? "text-emerald-300" : Number(indicatorSeries.at(-1)?.cci) < -100 ? "text-red-300" : "text-slate-100"}`}>
-                        {indicatorSeries.at(-1)?.cci ? indicatorSeries.at(-1).cci.toFixed(1) : "-"}
+                        {indicatorSeries.at(-1)?.cci ? safeFixed(indicatorSeries.at(-1).cci, 1) : "-"}
                       </span>
                     </div>
                     <p className="text-xs text-slate-400">+100 overbought, -100 oversold</p>
@@ -413,7 +423,7 @@ const ChartSection = ({
                     <div className="flex items-center justify-between">
                       <span>ATR%</span>
                       <span className="font-semibold text-emerald-300">
-                        {indicatorSeries.at(-1)?.atrPct ? indicatorSeries.at(-1).atrPct.toFixed(2) : "-"}%
+                        {indicatorSeries.at(-1)?.atrPct ? safeFixed(indicatorSeries.at(-1).atrPct, 2) : "-"}%
                       </span>
                     </div>
                     <p className="text-xs text-slate-400">Higher = wider SL/TP</p>
@@ -437,6 +447,7 @@ ChartSection.propTypes = {
   }).isRequired,
   timeFrame: PropTypes.string.isRequired,
   onTimeFrameChange: PropTypes.func,
+  tradingViewSymbol: PropTypes.string,
   t: PropTypes.func.isRequired,
   indicatorSeries: PropTypes.arrayOf(PropTypes.object).isRequired,
   aiSignal: PropTypes.object,

@@ -1,6 +1,8 @@
 /**
  * @param {Array<any>} candles
  */
+const safeFixed = (val, digits = 2) => (Number(val) || 0).toFixed(digits);
+
 export function scanLiquidations(candles = []) {
   if (!Array.isArray(candles) || candles.length === 0) return [];
   const levels = [];
@@ -13,7 +15,7 @@ export function scanLiquidations(candles = []) {
   const bands = [mean - std, mean, mean + std];
   bands.forEach((level, idx) => {
     levels.push({
-      price: Number(level.toFixed(2)),
+      price: Number(safeFixed(level, 2)),
       size: Math.max(1, Math.round(std * (idx + 1))),
       side: idx < 1 ? "long" : idx > 1 ? "short" : "mixed",
     });

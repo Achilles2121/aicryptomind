@@ -2,7 +2,7 @@
  * Volatility API Endpoint
  * Vision AI Mind - Vision AI Mind
  * 
- * Multi-Asset Volatility Analysis with:
+ * Crypto-only volatility analysis with:
  * - ATR (Average True Range) calculation
  * - Bollinger Bandwidth normalization
  * - Historical Volatility (30d annualized)
@@ -11,6 +11,8 @@
  * 
  * Designed to improve win-rate from 55% -> 67%
  */
+
+import supportedCoins from "../src/config/supportedCoins.js";
 
 // ============================================
 // TYPES
@@ -70,32 +72,63 @@ interface VolatilityResponse {
 }
 
 // ============================================
-// ASSET TYPE DETECTION & THRESHOLDS
+// SUPPORTED COINS & THRESHOLDS
 // ============================================
 
-const ASSET_TYPES: Record<string, string> = {
-  // Crypto
-  BTC: 'crypto', ETH: 'crypto', SOL: 'crypto', XRP: 'crypto',
-  DOGE: 'crypto', ADA: 'crypto', DOT: 'crypto', AVAX: 'crypto',
-  MATIC: 'crypto', LINK: 'crypto', UNI: 'crypto', LTC: 'crypto',
-  // Forex
-  EURUSD: 'forex', GBPUSD: 'forex', USDJPY: 'forex', USDCHF: 'forex',
-  AUDUSD: 'forex', USDCAD: 'forex', NZDUSD: 'forex', EURGBP: 'forex',
-  EURJPY: 'forex', GBPJPY: 'forex',
-  // Indices
-  SPX: 'index', SP500: 'index', DAX: 'index', NASDAQ: 'index',
-  DJI: 'index', NIKKEI: 'index', FTSE: 'index', CAC40: 'index',
-  // Commodities
-  GOLD: 'commodity', XAUUSD: 'commodity', SILVER: 'commodity',
-  XAGUSD: 'commodity', OIL: 'commodity', USOIL: 'commodity',
-  NATGAS: 'commodity',
+/**
+ * Enhanced symbol normalization for Forex pairs
+ * Correctly handles symbols with / character (e.g., XAU/USD, EUR/USD)
+ * Prevents calculation errors from malformed symbols
+ */
+const normalizeSymbol = (value: string): string => {
+  if (!value) return "";
+  // Remove slashes first, then normalize
+  const cleaned = String(value).replace(/\//g, "");
+  return cleaned.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
+};
+
+/**
+ * Preserve original symbol format for display/logging
+ */
+export const preserveSymbolFormat = (value: string): string => {
+  if (!value) return "";
+  return String(value).toUpperCase().trim();
+};
+
+/**
+ * Detect asset class from symbol
+ */
+export const detectAssetClass = (symbol: string): 'crypto' | 'forex' | 'commodity' => {
+  const normalized = normalizeSymbol(symbol);
+  if (normalized.startsWith('XAU') || normalized.startsWith('XAG')) return 'commodity';
+  if (['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'].includes(normalized)) return 'forex';
+  return 'crypto';
+};
+
+const COIN_BY_ID = new Map(
+  supportedCoins.map((coin) => [coin.id.toLowerCase(), coin.symbol.toUpperCase()])
+);
+const SUPPORTED_SYMBOLS = new Set(
+  supportedCoins.map((coin) => normalizeSymbol(coin.symbol)).filter(Boolean)
+);
+
+const resolveSupportedSymbol = (value: string): string | null => {
+  if (!value) return null;
+  const byId = COIN_BY_ID.get(value.toLowerCase());
+  if (byId) return byId;
+  const normalized = normalizeSymbol(value);
+  if (!normalized) return null;
+  if (SUPPORTED_SYMBOLS.has(normalized)) return normalized;
+  const stripped = normalized.endsWith("USDT")
+    ? normalized.slice(0, -4)
+    : normalized.endsWith("USD")
+    ? normalized.slice(0, -3)
+    : normalized;
+  return SUPPORTED_SYMBOLS.has(stripped) ? stripped : null;
 };
 
 const VOLATILITY_THRESHOLDS: Record<string, { low: number; med: number; high: number }> = {
   crypto: { low: 30, med: 70, high: 85 },
-  index: { low: 20, med: 50, high: 75 },
-  forex: { low: 15, med: 40, high: 65 },
-  commodity: { low: 25, med: 60, high: 80 },
 };
 
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
@@ -103,39 +136,22 @@ const COINGECKO_CACHE_TTL = 60 * 1000;
 const REQUEST_DEBOUNCE_MS = 250;
 
 // ============================================
-// YAHOO FINANCE SYMBOL MAPPING
+// YAHOO + COINGECKO SYMBOL MAPPING
 // ============================================
 
-const YAHOO_SYMBOLS: Record<string, string> = {
-  // Crypto
-  BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", XRP: "XRP-USD",
-  DOGE: "DOGE-USD", ADA: "ADA-USD", DOT: "DOT-USD", AVAX: "AVAX-USD",
-  MATIC: "MATIC-USD", LINK: "LINK-USD", UNI: "UNI-USD", LTC: "LTC-USD",
-  // Forex
-  EURUSD: "EURUSD=X", GBPUSD: "GBPUSD=X", USDJPY: "JPY=X",
-  USDCHF: "CHF=X", AUDUSD: "AUDUSD=X", USDCAD: "CAD=X",
-  // Indices
-  SPX: "^GSPC", SP500: "^GSPC", DAX: "^GDAXI", NASDAQ: "^IXIC",
-  DJI: "^DJI", NIKKEI: "^N225", FTSE: "^FTSE",
-  // Commodities
-  GOLD: "GC=F", XAUUSD: "GC=F", SILVER: "SI=F", XAGUSD: "SI=F",
-  OIL: "CL=F", USOIL: "CL=F", NATGAS: "NG=F",
-};
+const YAHOO_SYMBOLS: Record<string, string> = supportedCoins.reduce((acc, coin) => {
+  const symbol = normalizeSymbol(coin.symbol);
+  if (!symbol || acc[symbol]) return acc;
+  acc[symbol] = `${symbol}-USD`;
+  return acc;
+}, {} as Record<string, string>);
 
-const COINGECKO_IDS: Record<string, string> = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  SOL: "solana",
-  XRP: "ripple",
-  DOGE: "dogecoin",
-  ADA: "cardano",
-  DOT: "polkadot",
-  AVAX: "avalanche-2",
-  MATIC: "matic-network",
-  LINK: "chainlink",
-  UNI: "uniswap",
-  LTC: "litecoin",
-};
+const COINGECKO_IDS: Record<string, string> = supportedCoins.reduce((acc, coin) => {
+  const symbol = normalizeSymbol(coin.symbol);
+  if (!symbol || acc[symbol]) return acc;
+  acc[symbol] = coin.id;
+  return acc;
+}, {} as Record<string, string>);
 
 type CoinGeckoCache = {
   data: OHLC[] | null;
@@ -147,18 +163,14 @@ let coinGeckoCache: CoinGeckoCache = { data: null, ts: 0, key: "" };
 const inflightRequests = new Map<string, { startedAt: number; controller: AbortController; promise: Promise<OHLC[]> }>();
 
 const getYahooSymbol = (symbol: string): string => {
-  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (YAHOO_SYMBOLS[normalized]) return YAHOO_SYMBOLS[normalized];
-  if (normalized.endsWith("USD") && normalized.length > 3) {
-    return `${normalized.slice(0, -3)}-USD`;
-  }
-  return `${normalized}-USD`;
+  const normalized = normalizeSymbol(symbol);
+  if (!normalized) return "BTC-USD";
+  return YAHOO_SYMBOLS[normalized] || `${normalized}-USD`;
 };
 
 const getCoinGeckoId = (symbol: string): string | null => {
-  const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const stripped = normalized.replace(/USDT?$/, "");
-  return COINGECKO_IDS[normalized] || COINGECKO_IDS[stripped] || null;
+  const resolved = resolveSupportedSymbol(symbol);
+  return resolved ? COINGECKO_IDS[resolved] || null : null;
 };
 
 // ============================================
@@ -277,10 +289,12 @@ function garchForecast(candles: OHLC[], horizonHours: number): number {
 
 /**
  * Calculate Composite Volatility Score (0-100)
+ * @param metrics - The volatility metrics
+ * @param _assetType - Asset type for future differentiation (currently unused)
  */
 function calculateVolatilityScore(
   metrics: VolatilityMetrics,
-  assetType: string
+  _assetType: string
 ): number {
   // Normalize each metric to 0-100 scale
   const atrScore = Math.min((metrics.atrPercent / 5) * 100, 100);
@@ -288,16 +302,8 @@ function calculateVolatilityScore(
   const hvScore = Math.min((metrics.historicalVol / 100) * 100, 100);
   const garchScore = Math.min((metrics.garchForecast4h / 5) * 100, 100);
 
-  // Weighted composite based on asset type
-  let weights = { atr: 0.30, bb: 0.25, hv: 0.25, garch: 0.20 };
-
-  if (assetType === 'crypto') {
-    // Crypto: More weight on GARCH (fast-moving)
-    weights = { atr: 0.25, bb: 0.20, hv: 0.25, garch: 0.30 };
-  } else if (assetType === 'forex') {
-    // Forex: More weight on historical vol
-    weights = { atr: 0.25, bb: 0.25, hv: 0.35, garch: 0.15 };
-  }
+  // Crypto weights: more emphasis on GARCH for fast-moving markets
+  const weights = { atr: 0.25, bb: 0.2, hv: 0.25, garch: 0.3 };
 
   return (
     atrScore * weights.atr +
@@ -527,9 +533,7 @@ async function fetchSentimentData(symbol: string): Promise<{
     liquidations24h: null as number | null,
   };
 
-  // Only fetch for crypto assets
-  const assetType = ASSET_TYPES[symbol.toUpperCase()] || 'crypto';
-  if (assetType !== 'crypto') return result;
+  if (!resolveSupportedSymbol(symbol)) return result;
 
   try {
     // Fear & Greed Index
@@ -613,8 +617,16 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   const interval = (req.query?.interval as string) || '1h';
   const lookback = Math.min(parseInt((req.query?.lookback as string) || '100', 10), 500);
 
-  const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const assetType = ASSET_TYPES[symbol] || 'crypto';
+  const symbol = resolveSupportedSymbol(rawSymbol);
+  if (!symbol) {
+    sendJson(400, {
+      ok: false,
+      error: `Unsupported symbol: ${rawSymbol}`,
+    });
+    cleanupListeners.forEach((cleanup) => cleanup());
+    return;
+  }
+  const assetType = "crypto";
 
   try {
     // Fetch OHLC data
@@ -717,4 +729,5 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 }
+
 

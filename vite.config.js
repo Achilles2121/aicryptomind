@@ -3,6 +3,26 @@ import react from "@vitejs/plugin-react";
 
 const COPYRIGHT_BANNER = "/* Copyright (c) 2025 Vision AI Mind. All rights reserved. Unauthorized use prohibited. */";
 
+// Production obfuscation settings
+const OBFUSCATION_OPTIONS = {
+  compact: true,
+  controlFlowFlattening: true,
+  controlFlowFlatteningThreshold: 0.75,
+  deadCodeInjection: true,
+  deadCodeInjectionThreshold: 0.4,
+  debugProtection: false, // Enable in production if needed
+  disableConsoleOutput: true,
+  identifierNamesGenerator: "hexadecimal",
+  renameGlobals: false,
+  rotateStringArray: true,
+  selfDefending: true,
+  stringArray: true,
+  stringArrayEncoding: ["base64"],
+  stringArrayThreshold: 0.75,
+  transformObjectKeys: true,
+  unicodeEscapeSequence: false,
+};
+
 export default defineConfig({
   base: "/",
   plugins: [react()],
@@ -21,12 +41,18 @@ export default defineConfig({
       allow: ['.'],
       strict: false,
     },
-    // Proxy nur aktiv wenn dev:api läuft (Port 5176)
-    // Für lokale Tests ohne API: auskommentieren oder vercel dev nutzen
+    // Proxy für lokales Backend (server.js auf Port 5000)
+    // Starte zuerst: node server.js
     proxy: {
       "/api": {
-        target: "http://localhost:5176",
+        target: "http://localhost:5000",
         changeOrigin: true,
+        secure: false,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.warn('[Vite Proxy] Backend nicht erreichbar:', err.message);
+          });
+        },
       },
     },
   },
@@ -34,21 +60,40 @@ export default defineConfig({
     ssr: false,
     chunkSizeWarningLimit: 1200,
     minify: "terser",
-    // Hinweis: Source Maps in Prod vermeiden; bei Bedarf aktivieren: sourcemap: true (nicht empfohlen fuer Prod).
+    // SECURITY: No source maps in production
     sourcemap: false,
     terserOptions: {
       compress: {
         drop_console: true,
         drop_debugger: true,
-        passes: 2,
+        passes: 3,
+        pure_funcs: ["console.log", "console.info", "console.debug"],
+        dead_code: true,
+        conditionals: true,
+        evaluate: true,
+        booleans: true,
+        loops: true,
+        unused: true,
+        toplevel: true,
+      },
+      mangle: {
+        toplevel: true,
+        properties: {
+          regex: /^_/, // Only mangle properties starting with underscore
+        },
       },
       format: {
         comments: false,
+        ascii_only: true,
       },
     },
     rollupOptions: {
       output: {
         banner: COPYRIGHT_BANNER,
+        // Obscure chunk names in production
+        chunkFileNames: "assets/[hash].js",
+        entryFileNames: "assets/[hash].js",
+        assetFileNames: "assets/[hash].[ext]",
       },
     },
   },
