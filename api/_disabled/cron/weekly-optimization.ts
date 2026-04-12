@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Weekly Strategy Optimization Cron Job
  * Vision AI Mind - Vision AI Mind
  * 

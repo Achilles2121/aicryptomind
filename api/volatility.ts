@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Volatility API Endpoint
  * Vision AI Mind - Vision AI Mind
  * 

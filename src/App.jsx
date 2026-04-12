@@ -110,6 +110,9 @@ const MARKET_OPTIONS = Array.from(
 ).filter(Boolean);
 const ASSET_CLASS_LABELS = {
   crypto: "Crypto",
+  commodity: "Commodity",
+  forex: "Forex",
+  index: "Indices",
 };
 const SUPPORTED_BY_ID = new Map(supportedCoins.map((coin) => [coin.id.toLowerCase(), formatMarketId(coin.symbol)]));
 const SUPPORTED_BY_SYMBOL = new Map(supportedCoins.map((coin) => [coin.symbol.toUpperCase(), formatMarketId(coin.symbol)]));
@@ -1087,8 +1090,29 @@ function App() {
     return response.data;
   }, [logEvent, relayProxyHealth, updateApiHealth]);
 
-  // Fallback: Traditional Fear & Greed from Alternative.me
+  // Fallback: Traditional Fear & Greed from Alternative.me (via server proxy)
   const fetchFearGreedFallback = useCallback(async (signal) => {
+    // Try serverless proxy first (avoids CORS)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch("/api/sentiment?source=fng", { signal: signal || controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.data?.dailyFearGreed != null) {
+          return {
+            value: Number(json.data.dailyFearGreed),
+            classification: json.data.dailyFearGreedLabel || "Neutral",
+            updatedAt: json.data.timestamp || Date.now(),
+            source: "alternative.me",
+          };
+        }
+      }
+    } catch {
+      clearTimeout(timeout);
+    }
+    // Direct call as last resort
     const data = await safeFetch("https://api.alternative.me/fng/?limit=1&format=json", {
       serviceName: "fear_greed",
       timeoutMs: 8000,
@@ -2683,7 +2707,7 @@ function App() {
                       <span className="text-sm uppercase tracking-wide text-slate-400">{fearGreed.classification}</span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-slate-800">
-                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
+                      <div className={`h-2 rounded-full ${Number(fearGreed.value) <= 24 ? "bg-red-500" : Number(fearGreed.value) <= 49 ? "bg-orange-400" : Number(fearGreed.value) <= 74 ? "bg-emerald-400" : "bg-green-600"}`} style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
                     </div>
                     <span className="text-xs text-slate-400">
                       Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} | Source: {fearGreed.source || "alternative.me"}
@@ -3549,7 +3573,7 @@ function App() {
                             <span className="text-sm uppercase tracking-wide text-slate-400">{fearGreed.classification}</span>
                           </div>
                           <div className="h-2 w-full rounded-full bg-slate-800">
-                            <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
+                            <div className={`h-2 rounded-full ${Number(fearGreed.value) <= 24 ? "bg-red-500" : Number(fearGreed.value) <= 49 ? "bg-orange-400" : Number(fearGreed.value) <= 74 ? "bg-emerald-400" : "bg-green-600"}`} style={{ width: `${Math.min(100, fearGreed.value)}%` }} />
                           </div>
                           <span className="text-xs text-slate-400">
                             Stand: {new Date(fearGreed.updatedAt).toLocaleTimeString()} | Source: {fearGreed.source || "alternative.me"}

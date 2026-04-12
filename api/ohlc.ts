@@ -53,7 +53,7 @@ const YAHOO_CRYPTO_SYMBOLS: Record<string, string> = supportedCoins.reduce((acc,
   return acc;
 }, {} as Record<string, string>);
 
-// Gold, Silver, Forex Yahoo symbols
+// Gold, Silver, Oil, Forex, Indices Yahoo symbols
 const YAHOO_GOLD_FOREX_SYMBOLS: Record<string, string> = {
   // Gold
   "XAUUSD": "GC=F",
@@ -63,6 +63,10 @@ const YAHOO_GOLD_FOREX_SYMBOLS: Record<string, string> = {
   "XAGUSD": "SI=F",
   "SILVER": "SI=F",
   "SILVER-XAGUSD": "SI=F",
+  // Oil
+  "WTIUSD": "CL=F",
+  "OIL": "CL=F",
+  "OIL-WTI": "CL=F",
   // Forex
   "EURUSD": "EURUSD=X",
   "EUR/USD": "EURUSD=X",
@@ -73,6 +77,13 @@ const YAHOO_GOLD_FOREX_SYMBOLS: Record<string, string> = {
   "USDJPY": "USDJPY=X",
   "USD/JPY": "USDJPY=X",
   "FOREX-USDJPY": "USDJPY=X",
+  // Indices
+  "DAX": "^GDAXI",
+  "INDEX-DAX": "^GDAXI",
+  "SP500": "^GSPC",
+  "INDEX-SP500": "^GSPC",
+  "NASDAQ": "^IXIC",
+  "INDEX-NASDAQ": "^IXIC",
 };
 
 // Combined symbol mapping
@@ -84,6 +95,9 @@ const YAHOO_SYMBOLS: Record<string, string> = {
 const COIN_BY_ID = new Map(supportedCoins.map((coin) => [coin.id, coin.symbol.toUpperCase()]));
 const SUPPORTED_SYMBOLS = new Set(supportedCoins.map((coin) => coin.symbol.toUpperCase()));
 
+// Non-crypto symbols that are directly supported
+const NON_CRYPTO_SYMBOLS = new Set(Object.keys(YAHOO_GOLD_FOREX_SYMBOLS));
+
 const resolveSupportedSymbol = (asset: string): string | null => {
   if (!asset) return null;
   const idKey = asset.toLowerCase();
@@ -91,6 +105,11 @@ const resolveSupportedSymbol = (asset: string): string | null => {
   if (byId) return byId;
   const normalized = asset.toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!normalized) return null;
+  // Check non-crypto symbols (gold, forex, indices)
+  if (NON_CRYPTO_SYMBOLS.has(normalized)) return normalized;
+  // Also check with common prefixes
+  const withPrefix = asset.toUpperCase().replace(/[^A-Z0-9/-]/g, "");
+  if (NON_CRYPTO_SYMBOLS.has(withPrefix)) return withPrefix;
   if (SUPPORTED_SYMBOLS.has(normalized)) return normalized;
   const stripped = normalized.replace(/USDT?$/, "").replace(/USD$/, "");
   return SUPPORTED_SYMBOLS.has(stripped) ? stripped : null;
@@ -105,15 +124,17 @@ const INTERVAL_MAP: Record<number, { yahoo: string; range: string; binance: stri
   1440: { yahoo: "1d", range: "6mo", binance: "1d" },
 };
 
-type AssetCategory = "crypto" | "commodity" | "forex";
+type AssetCategory = "crypto" | "commodity" | "forex" | "index";
 
-const GOLD_SYMBOLS = new Set(["XAUUSD", "GOLD", "GOLD-XAUUSD", "XAGUSD", "SILVER", "SILVER-XAGUSD"]);
+const GOLD_SYMBOLS = new Set(["XAUUSD", "GOLD", "GOLD-XAUUSD", "XAGUSD", "SILVER", "SILVER-XAGUSD", "WTIUSD", "OIL", "OIL-WTI"]);
 const FOREX_SYMBOLS = new Set(["EURUSD", "EUR/USD", "FOREX-EURUSD", "GBPUSD", "GBP/USD", "FOREX-GBPUSD", "USDJPY", "USD/JPY", "FOREX-USDJPY"]);
+const INDEX_SYMBOLS = new Set(["DAX", "INDEX-DAX", "SP500", "INDEX-SP500", "NASDAQ", "INDEX-NASDAQ"]);
 
 function getAssetCategory(asset: string): AssetCategory {
   const normalized = asset.toUpperCase().replace(/[^A-Z0-9/-]/g, "");
   if (GOLD_SYMBOLS.has(normalized)) return "commodity";
   if (FOREX_SYMBOLS.has(normalized)) return "forex";
+  if (INDEX_SYMBOLS.has(normalized)) return "index";
   return "crypto";
 }
 

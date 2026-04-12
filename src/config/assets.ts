@@ -19,13 +19,14 @@ export interface Asset {
   assetClass?: AssetClass;
 }
 
-export type AssetClass = "crypto" | "commodity" | "forex";
-export type NormalizedAssetClass = "crypto" | "commodity" | "forex";
+export type AssetClass = "crypto" | "commodity" | "forex" | "index";
+export type NormalizedAssetClass = "crypto" | "commodity" | "forex" | "index";
 
 export interface AssetConfig {
   crypto: Asset[];
   commodity: Asset[];
   forex: Asset[];
+  index: Asset[];
 }
 
 const normalizeKey = (value: string): string =>
@@ -67,6 +68,7 @@ export const ASSETS: AssetConfig = {
   }, [] as Asset[]),
   commodity: GOLD_FOREX_ASSETS.filter(a => a.assetClass === "commodity").map(buildGoldForexAsset),
   forex: GOLD_FOREX_ASSETS.filter(a => a.assetClass === "forex").map(buildGoldForexAsset),
+  index: GOLD_FOREX_ASSETS.filter(a => a.assetClass === "index").map(buildGoldForexAsset),
 };
 
 // Build aliases for all asset classes
@@ -99,12 +101,12 @@ const buildAliases = (): Record<string, string> => {
 const ASSET_ALIASES: Record<string, string> = buildAliases();
 
 export function normalizeAssetClass(assetClass: AssetClass): NormalizedAssetClass {
-  if (assetClass === "commodity" || assetClass === "forex") return assetClass;
+  if (assetClass === "commodity" || assetClass === "forex" || assetClass === "index") return assetClass;
   return "crypto";
 }
 
 export function getAllAssets(): Asset[] {
-  return [...ASSETS.crypto, ...ASSETS.commodity, ...ASSETS.forex];
+  return [...ASSETS.crypto, ...ASSETS.commodity, ...ASSETS.forex, ...ASSETS.index];
 }
 
 export function getAssetById(id: string): Asset | undefined {
@@ -153,6 +155,8 @@ export function getAssetsByClass(assetClass: AssetClass): Asset[] {
       return ASSETS.commodity;
     case "forex":
       return ASSETS.forex;
+    case "index":
+      return ASSETS.index;
     default:
       return ASSETS.crypto;
   }
@@ -162,18 +166,21 @@ export const ASSET_CLASS_LABELS: Record<NormalizedAssetClass, string> = {
   crypto: "Crypto",
   commodity: "Commodity",
   forex: "Forex",
+  index: "Indices",
 };
 
 export const ASSET_CLASS_ICONS: Record<NormalizedAssetClass, string> = {
   crypto: "₿",
   commodity: "🥇",
   forex: "💱",
+  index: "📊",
 };
 
 export const DEFAULT_ASSETS: Record<NormalizedAssetClass, string> = {
   crypto: "BTCUSD",
   commodity: "XAUUSD",
   forex: "EURUSD",
+  index: "SP500",
 };
 
 // Dashboard asset selector items
@@ -184,13 +191,18 @@ export const DASHBOARD_ASSETS = [
   { id: "SOLUSD", label: "SOL", assetClass: "crypto" as const },
   { id: "XRPUSD", label: "XRP", assetClass: "crypto" as const },
   { id: "BNBUSD", label: "BNB", assetClass: "crypto" as const },
-  // Gold & Silver
+  // Gold & Silver & Oil
   { id: "gold-xauusd", label: "GOLD", assetClass: "commodity" as const },
   { id: "silver-xagusd", label: "SILVER", assetClass: "commodity" as const },
+  { id: "oil-wti", label: "OIL (WTI)", assetClass: "commodity" as const },
   // Forex
   { id: "forex-eurusd", label: "EUR/USD", assetClass: "forex" as const },
   { id: "forex-gbpusd", label: "GBP/USD", assetClass: "forex" as const },
   { id: "forex-usdjpy", label: "USD/JPY", assetClass: "forex" as const },
+  // Indices
+  { id: "index-dax", label: "DAX", assetClass: "index" as const },
+  { id: "index-sp500", label: "S&P 500", assetClass: "index" as const },
+  { id: "index-nasdaq", label: "NASDAQ", assetClass: "index" as const },
 ];
 
 export default ASSETS;

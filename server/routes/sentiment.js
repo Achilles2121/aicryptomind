@@ -52,7 +52,7 @@ router.get("/", async (req, res) => {
             longPercent = (longShortRatio / (1 + longShortRatio)) * 100;
             shortPercent = 100 - longPercent;
           }
-        } catch {}
+        } catch { /* parse error - use defaults */ }
       }
       
       // Parse Top Trader Ratio
@@ -62,7 +62,7 @@ router.get("/", async (req, res) => {
           if (ttData?.[0]) {
             topTraderLongShortRatio = parseFloat(ttData[0].longShortRatio) || 1.0;
           }
-        } catch {}
+        } catch { /* parse error - use defaults */ }
       }
       
       // Parse Open Interest
@@ -70,7 +70,7 @@ router.get("/", async (req, res) => {
         try {
           const oiData = await oiRes.value.json();
           openInterest = parseFloat(oiData?.openInterest) || 0;
-        } catch {}
+        } catch { /* parse error - use defaults */ }
       }
       
       // Parse Fear & Greed
@@ -81,7 +81,7 @@ router.get("/", async (req, res) => {
             dailyFearGreed = parseInt(fgData.data[0].value) || 50;
             dailyFearGreedLabel = fgData.data[0].value_classification || "Neutral";
           }
-        } catch {}
+        } catch { /* parse error - use defaults */ }
       }
       
       // Calculate real-time sentiment (0-100)
