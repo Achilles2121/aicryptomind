@@ -462,7 +462,7 @@ export const usePriceStore = create<PriceStoreState>()(
       if (!entries.length) return;
 
       entries.forEach((entry) => {
-        if (!entry.isCrypto || !entry.binanceSymbol) {
+        if (!entry.isCrypto || !(entry.binanceSymbol ?? "")) {
           updateAssetState(set, entry.assetId, (prev) => ({
             ...prev,
             wsStatus: "unavailable",
@@ -479,7 +479,7 @@ export const usePriceStore = create<PriceStoreState>()(
       // Type-safe filter: only crypto assets with valid binanceSymbol
       const streamEntries = entries.filter(
         (entry): entry is PriceConnectArgs & { binanceSymbol: string; isCrypto: true } => {
-          const symbol = entry.binanceSymbol;
+          const symbol = (entry.binanceSymbol ?? "");
           return entry.isCrypto === true && 
                  typeof symbol === 'string' && 
                  symbol.length > 0 &&
@@ -489,7 +489,7 @@ export const usePriceStore = create<PriceStoreState>()(
       );
       if (!streamEntries.length) return;
 
-      const streams = streamEntries.map((entry) => `${entry.binanceSymbol.toLowerCase()}@trade`);
+      const streams = streamEntries.map((entry) => `${(entry.binanceSymbol ?? "").toLowerCase()}@trade`);
       const nextKey = streams.slice().sort((a, b) => a.localeCompare(b)).join("/");
 
       if (multiWsRef && multiStreamKey === nextKey && multiWsRef.readyState <= WebSocket.OPEN) return;
@@ -502,7 +502,7 @@ export const usePriceStore = create<PriceStoreState>()(
         return acc;
       }, {} as Record<string, PriceConnectArgs>);
       multiStreamToAsset = streamEntries.reduce((acc, entry) => {
-        const stream = `${entry.binanceSymbol.toLowerCase()}@trade`;
+        const stream = `${(entry.binanceSymbol ?? "").toLowerCase()}@trade`;
         acc[stream] = entry.assetId;
         return acc;
       }, {} as Record<string, string>);

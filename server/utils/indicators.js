@@ -174,6 +174,173 @@ export const buildIndicators = (candles = [], { type = "rsi", params = {} } = {}
         })),
       };
     }
+    case "all":
+    case "dashboard": {
+      // Calculate all indicators for dashboard display
+      const period = params.period || 14;
+      
+      // RSI
+      const gains = [];
+      const losses = [];
+      for (let i = 1; i < closes.length; i++) {
+        const delta = closes[i] - closes[i - 1];
+        gains.push(Math.max(0, delta));
+        losses.push(Math.max(0, -delta));
+      }
+      const avgGains = ema(gains, period);
+      const avgLosses = ema(losses, period);
+      const rsiValue = (() => {
+        const idx = closes.length - 1;
+        if (idx === 0) return null;
+        const g = avgGains[idx - 1] || 0;
+        const l = avgLosses[idx - 1] || 0.00001;
+        const rs = g / l;
+        return 100 - 100 / (1 + rs);
+      })();
+      
+      // MACD
+      const fastEma = ema(closes, 12);
+      const slowEma = ema(closes, 26);
+      const macdLine = fastEma.map((v, idx) => (v !== undefined && slowEma[idx] !== undefined ? v - slowEma[idx] : null));
+      const macdSignal = ema(macdLine.map((v) => (v === null ? 0 : v)), 9);
+      const lastMacd = macdLine[macdLine.length - 1];
+      const lastSignal = macdSignal[macdSignal.length - 1];
+      const histogram = lastMacd !== null && lastSignal !== undefined ? lastMacd - lastSignal : null;
+      
+      // ATR
+      const tr = candles.map((c, idx) => {
+        const prevClose = idx > 0 ? closes[idx - 1] : closes[idx];
+        const highLow = highs[idx] - lows[idx];
+        const highClose = Math.abs(highs[idx] - prevClose);
+        const lowClose = Math.abs(lows[idx] - prevClose);
+        return Math.max(highLow, highClose, lowClose);
+      });
+      const atrSeries = ema(tr, period);
+      const atrValue = atrSeries[atrSeries.length - 1];
+      
+      // Stochastic
+      const stochPeriod = 14;
+      const highSlice = highs.slice(-stochPeriod);
+      const lowSlice = lows.slice(-stochPeriod);
+      const highest = Math.max(...highSlice);
+      const lowest = Math.min(...lowSlice);
+      const currentClose = closes[closes.length - 1];
+      const stochK = highest === lowest ? 50 : ((currentClose - lowest) / (highest - lowest)) * 100;
+      
+      // Trend (EMA Cross)
+      const ema8 = ema(closes, 8);
+      const ema21 = ema(closes, 21);
+      const ema50 = ema(closes, 50);
+      const lastEma8 = ema8[ema8.length - 1];
+      const lastEma21 = ema21[ema21.length - 1];
+      const lastEma50 = ema50[ema50.length - 1] || lastEma21;
+      const trendBias = lastEma8 > lastEma21 && lastEma21 > lastEma50 ? "bullish" : 
+                        lastEma8 < lastEma21 && lastEma21 < lastEma50 ? "bearish" : "neutral";
+      
+      // Momentum (Rate of Change)
+      const rocPeriod = 10;
+      const rocValue = closes.length > rocPeriod 
+        ? ((currentClose - closes[closes.length - 1 - rocPeriod]) / closes[closes.length - 1 - rocPeriod]) * 100 
+        : 0;
+      
+      // Volatility Score
+      const returns = closes.slice(-20).map((v, idx, arr) => idx === 0 ? 0 : (v - arr[idx - 1]) / (arr[idx - 1] || 1));
+      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+      const variance = returns.reduce((acc, v) => acc + (v - mean) ** 2, 0) / returns.length;
+      const volatility = Math.sqrt(variance) * 100;
+      
+      // Support/Resistance levels from recent highs/lows
+      const recentHighs = highs.slice(-50);
+      const recentLows = lows.slice(-50);
+      const resistance = Math.max(...recentHighs);
+      const support = Math.min(...recentLows);
+      
+      // Fibonacci Levels
+      const range = resistance - support;
+      const fibLevels = {
+        "0%": support,
+        "23.6%": support + range * 0.236,
+        "38.2%": support + range * 0.382,
+        "50%": support + range * 0.5,
+        "61.8%": support + range * 0.618,
+        "78.6%": support + range * 0.786,
+        "100%": resistance,
+      };
+      
+      // Signal Score (8-Point System)
+      let score = 0;
+      const reasons = [];
+      
+      // 1. RSI (oversold = bullish, overbought = bearish)
+      if (rsiValue < 30) { score += 1; reasons.push("RSI oversold"); }
+      else if (rsiValue > 70) { score -= 1; reasons.push("RSI overbought"); }
+      
+      // 2. MACD Cross
+      if (lastMacd > lastSignal) { score += 1; reasons.push("MACD bullish"); }
+      else if (lastMacd < lastSignal) { score -= 1; reasons.push("MACD bearish"); }
+      
+      // 3. MACD Histogram increasing
+      if (histogram > 0) { score += 0.5; }
+      else if (histogram < 0) { score -= 0.5; }
+      
+      // 4. EMA Trend
+      if (trendBias === "bullish") { score += 1; reasons.push("EMA bullish"); }
+      else if (trendBias === "bearish") { score -= 1; reasons.push("EMA bearish"); }
+      
+      // 5. Price above/below EMA21
+      if (currentClose > lastEma21) { score += 0.5; }
+      else { score -= 0.5; }
+      
+      // 6. Stochastic
+      if (stochK < 20) { score += 0.5; reasons.push("Stoch oversold"); }
+      else if (stochK > 80) { score -= 0.5; reasons.push("Stoch overbought"); }
+      
+      // 7. Momentum
+      if (rocValue > 2) { score += 0.5; reasons.push("Strong momentum"); }
+      else if (rocValue < -2) { score -= 0.5; reasons.push("Weak momentum"); }
+      
+      // 8. Support/Resistance proximity
+      const distToSupport = (currentClose - support) / range;
+      const distToResistance = (resistance - currentClose) / range;
+      if (distToSupport < 0.1) { score += 0.5; reasons.push("Near support"); }
+      if (distToResistance < 0.1) { score -= 0.5; reasons.push("Near resistance"); }
+      
+      // Normalize score to -5 to +5
+      score = Math.max(-5, Math.min(5, score));
+      
+      // Generate signal
+      const signalDirection = score >= 2 ? "BUY" : score <= -2 ? "SELL" : "HOLD";
+      const signalStrength = Math.abs(score);
+      const confidence = Math.min(100, Math.round((signalStrength / 5) * 100));
+      
+      return {
+        type: "all",
+        currentPrice: currentClose,
+        rsi: rsiValue,
+        macd: lastMacd,
+        macdSignal: lastSignal,
+        histogram: histogram,
+        atr: atrValue,
+        stochK: stochK,
+        ema8: lastEma8,
+        ema21: lastEma21,
+        ema50: lastEma50,
+        trend: trendBias,
+        momentum: rocValue,
+        volatility: volatility,
+        support: support,
+        resistance: resistance,
+        fibLevels: fibLevels,
+        signal: {
+          direction: signalDirection,
+          score: score,
+          strength: signalStrength,
+          confidence: confidence,
+          reasons: reasons,
+        },
+        timestamp: Date.now(),
+      };
+    }
     case "rsi":
     default: {
       const period = params.period || 14;

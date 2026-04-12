@@ -6,6 +6,8 @@ import priceRouter from "./routes/price.js";
 import binanceRouter from "./routes/binance.js";
 import krakenRouter from "./routes/kraken.js";
 import ohlcRouter from "./routes/ohlc.js";
+import coinsRouter from "./routes/coins.js";
+import sentimentRouter from "./routes/sentiment.js";
 import etfNewsRouter from "./routes/etfNews.js";
 import etfFlowsRouter from "./routes/etfFlows.js";
 import etfHoldingsRouter from "./routes/etfHoldings.js";
@@ -13,6 +15,7 @@ import etfCorrelationsRouter from "./routes/etfCorrelations.js";
 import indicatorsRouter from "./routes/indicators.js";
 import derivativesRouter from "./routes/derivatives.js";
 import healthRouter from "./routes/health.js";
+import signalRouter from "./routes/signal.js";
 import { rateLimit } from "./utils/rateLimit.js";
 
 const app = express();
@@ -32,12 +35,15 @@ app.use("/api/price", priceRouter);
 app.use("/api/binance", binanceRouter);
 app.use("/api/kraken", krakenRouter);
 app.use("/api/ohlc", ohlcRouter);
+app.use("/api/coins", coinsRouter);
+app.use("/api/sentiment", sentimentRouter);
 app.use("/api/etf/news", etfNewsRouter);
 app.use("/api/etf/flows", etfFlowsRouter);
 app.use("/api/etf/holdings", etfHoldingsRouter);
 app.use("/api/etf/correlations", etfCorrelationsRouter);
 app.use("/api/indicators", indicatorsRouter);
 app.use("/api/derivatives", derivativesRouter);
+app.use("/api/signal", signalRouter);
 app.use("/api/health", healthRouter);
 
 app.use((err, _req, res, _next) => {

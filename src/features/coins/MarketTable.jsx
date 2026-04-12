@@ -812,9 +812,50 @@ export default function MarketTable({ onAssetSelect }) {
           const atrPct = computeAtrPct(payload.data);
           if (Number.isFinite(atrPct)) {
             const volScore = computeVolatilityScore(atrPct);
-            const edgeScore = computeEdgeScore({ technical: volScore, fundamental: 0.5, liquidity: 0.5 });
             setVolatilityMap((prev) => ({ ...prev, [asset.assetId]: { atrPct, volatilityScore: volScore } }));
-            setSignalScores((prev) => ({ ...prev, [asset.assetId]: Math.round(edgeScore * 100) }));
+          }
+          
+          // Fetch real AI signal score from backend 8-point algorithm
+          try {
+            const signalResponse = await fetch(`/api/signal?asset=${asset.assetId}`, { signal });
+            const signalPayload = await signalResponse.json();
+            if (signalPayload?.ok && signalPayload?.data) {
+              // Use confidence from 8-point algorithm (0-100 scale)
+              const confidence = signalPayload.data.confidence ?? 50;
+              // Combine with buy/sell score for final AI score
+              const buyScore = signalPayload.data.buyScore ?? 0;
+              const sellScore = signalPayload.data.sellScore ?? 0;
+              const signalDirection = signalPayload.data.signal;
+              
+              // Calculate composite score: higher = more bullish signal
+              let aiScore = 50; // neutral default
+              if (signalDirection === "BUY") {
+                aiScore = Math.min(95, 50 + confidence * 0.45);
+              } else if (signalDirection === "SELL") {
+                aiScore = Math.max(5, 50 - confidence * 0.45);
+              } else {
+                // HOLD - slight adjustment based on net score
+                const netScore = buyScore - sellScore;
+                aiScore = Math.max(30, Math.min(70, 50 + netScore * 0.1));
+              }
+              setSignalScores((prev) => ({ ...prev, [asset.assetId]: Math.round(aiScore) }));
+            } else {
+              // Fallback to volatility-based score if signal API fails
+              const atrPct = computeAtrPct(payload.data);
+              if (Number.isFinite(atrPct)) {
+                const volScore = computeVolatilityScore(atrPct);
+                const edgeScore = computeEdgeScore({ technical: volScore, fundamental: 0.5, liquidity: 0.5 });
+                setSignalScores((prev) => ({ ...prev, [asset.assetId]: Math.round(edgeScore * 100) }));
+              }
+            }
+          } catch (signalErr) {
+            // Silent fallback to volatility score
+            const atrPct = computeAtrPct(payload.data);
+            if (Number.isFinite(atrPct)) {
+              const volScore = computeVolatilityScore(atrPct);
+              const edgeScore = computeEdgeScore({ technical: volScore, fundamental: 0.5, liquidity: 0.5 });
+              setSignalScores((prev) => ({ ...prev, [asset.assetId]: Math.round(edgeScore * 100) }));
+            }
           }
         } catch (err) {
           if (err?.name === "AbortError") return;

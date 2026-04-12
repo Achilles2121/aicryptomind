@@ -41,11 +41,11 @@ export default defineConfig({
       allow: ['.'],
       strict: false,
     },
-    // Proxy für lokales Backend (server.js auf Port 5000)
-    // Starte zuerst: node server.js
+    // Proxy für lokales Backend (server/index.js auf Port 5176)
+    // Starte zuerst: node server/index.js
     proxy: {
       "/api": {
-        target: "http://localhost:5000",
+        target: "http://localhost:5176",
         changeOrigin: true,
         secure: false,
         configure: (proxy) => {
@@ -94,6 +94,19 @@ export default defineConfig({
         chunkFileNames: "assets/[hash].js",
         entryFileNames: "assets/[hash].js",
         assetFileNames: "assets/[hash].[ext]",
+        // Code-Splitting für bessere Performance
+        manualChunks: {
+          // React Core
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // Charts & Visualisierung
+          'vendor-charts': ['recharts'],
+          // Firebase Services
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          // State Management & Utils
+          'vendor-utils': ['zustand', 'axios'],
+          // Icons
+          'vendor-icons': ['lucide-react'],
+        },
       },
     },
   },

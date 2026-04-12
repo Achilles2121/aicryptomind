@@ -727,7 +727,9 @@ function App() {
     if (!routeAssetId) return;
     if (routeAssetId === selectedAsset) return;
     setSelectedAsset(routeAssetId);
-  }, [routeAssetId, selectedAsset]);
+    // Sync with global store so other components (IndicatorCards, etc.) update
+    setSelectedAssetId(routeAssetId);
+  }, [routeAssetId, selectedAsset, setSelectedAssetId]);
   const selectedAssetId = selectedAsset;
   const selectedMarket = useMemo(
     () => SUPPORTED_MARKETS[selectedAssetId] || SUPPORTED_MARKETS[DEFAULT_MARKET_ID],
@@ -758,9 +760,11 @@ function App() {
         : normalizedKey;
       const routeValue = baseSymbol || fallbackSymbol || normalized;
       setSelectedAsset((prev) => (prev === normalized ? prev : normalized));
+      // Sync with global store for cross-component updates
+      setSelectedAssetId(normalized);
       navigate(`/trading/${routeValue}`);
     },
-    [navigate]
+    [navigate, setSelectedAssetId]
   );
   const handleAssetChange = useCallback(
     (next) => {
@@ -1946,7 +1950,7 @@ function App() {
     loadOHLC(controller.signal);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeFrame]);
+  }, [timeFrame, selectedMarket.id]);
 
   useEffect(() => {
     if (!highlightAuthCard) return undefined;
