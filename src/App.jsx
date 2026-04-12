@@ -1,5 +1,5 @@
-// Copyright (c) 2025 Vision AI Mind. All rights reserved.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿// Copyright (c) 2025 Vision AI Mind. All rights reserved.
+import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import PropTypes from "prop-types";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -29,19 +29,17 @@ import { resolveFullTradingViewSymbol } from "./config/coinConfig";
 import FullScreenLoader from "./components/FullScreenLoader";
 import WelcomeModal from "./components/WelcomeModal";
 import Footer from "./components/Footer";
-import SocialSentimentCard from "./components/SocialSentimentCard";
 import { useEliteTrial } from "./hooks/useEliteTrial";
 import AuthModal from "./components/AuthModal";
-import { fetchEtfFlowSeriesLive } from "./services/etfFlowsLive";
 import DashboardLayout from "./features/dashboard/DashboardLayout";
-import SignalPanel from "./features/signals/SignalPanel";
-import ChartSection from "./features/charts/ChartSection";
-import RiskTerminal from "./features/risk/RiskTerminal";
-import ResearchCenter from "./features/research/ResearchCenter";
+const SignalPanel = lazy(() => import("./features/signals/SignalPanel"));
+const ChartSection = lazy(() => import("./features/charts/ChartSection"));
+const RiskTerminal = lazy(() => import("./features/risk/RiskTerminal"));
+// ResearchCenter removed for performance - ETF data not needed
 import { usePriceStore } from "./stores/usePriceStore";
-import { fetchEtfHoldingsLive } from "./services/etfHoldingsLive";
+// ETF services removed for performance
 import { cryptoDataService } from "./services/cryptoDataService";
-import { createApiCheckers } from "./config/apiCheckers";
+// apiCheckers import removed - API Playbook disabled for performance
 // TradingViewHeatmap is available for future use
 import { safeFetch, subscribeToSourceHealth, getSourceHealthSnapshot } from "./lib/safeFetch";
 import { loadChart, buildFallbackChart } from "./lib/chartLoader";
@@ -71,9 +69,7 @@ import { runBacktestV3 } from "./lib/backtestV3";
 const CACHE_TTL = 60 * 1000; // 60 seconds - faster updates for real-time feel
 const OHLC_CACHE_TTL = 60 * 1000; // 60 seconds for candle data
 const FNG_CACHE_TTL = 30 * 1000; // 30 seconds - Real-time sentiment updates
-const POLL_INTERVAL = 15 * 1000; // 15 seconds - faster polling
-const NEWS_REFRESH = 5 * 60 * 1000; // 5 minutes
-const FLOWS_REFRESH = 5 * 60 * 1000; // 5 minutes
+const POLL_INTERVAL = 30 * 1000; // 30 seconds - balanced polling
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const buildSupportedMarket = (coin) => {
@@ -240,7 +236,7 @@ const TRANSLATIONS = {
     tradesLookahead: "Trades (Lookahead 5)",
     winRate: "Win Rate",
     winsLosses: "Wins / Losses",
-    avgRR: "Ø RR",
+    avgRR: "Oe RR",
     status: "Status",
     loading: "Lade Daten...",
     livePrice: "Live Price",
@@ -350,7 +346,7 @@ const TRANSLATIONS = {
     backtestTrades: "Trades (Lookahead 5)",
     backtestWinRate: "Win Rate",
     backtestWinsLosses: "Wins / Losses",
-    backtestAvgRR: "Ø RR",
+    backtestAvgRR: "Oe RR",
     cardMarketRegime: "Market Regime Detector",
     cardSmartMoney: "Smart Money Flow",
     cardLiquidity: "Liquidity Heatmap",
@@ -791,22 +787,7 @@ function App() {
   const [lastError, setLastError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timeFrame, setTimeFrame] = useState("60");
-  const [etfNews, setEtfNews] = useState([]);
-  const [etfLoading, setEtfLoading] = useState(false);
-  const [etfError, setEtfError] = useState("");
-  const [etfFlows, setEtfFlows] = useState([]);
-  const [etfFlowsError, setEtfFlowsError] = useState("");
-  const [etfSelection, setEtfSelection] = useState(["IBIT", "FBTC", "ARKB"]);
-  const [etfFlowSeries, setEtfFlowSeries] = useState([]);
-  const [etfAumError, setEtfAumError] = useState("");
-  const [etfAumLoading, setEtfAumLoading] = useState(false);
-  const [etfLastUpdated, setEtfLastUpdated] = useState(null);
-  const [etfHoldings, setEtfHoldings] = useState([]);
-  const [etfHoldingsError, setEtfHoldingsError] = useState("");
-  const [etfHoldingsLoading, setEtfHoldingsLoading] = useState(false);
-  const [etfHoldingsLastUpdated, setEtfHoldingsLastUpdated] = useState("");
-  const [journalEntries, setJournalEntries] = useState([]);
-  const [journalForm, setJournalForm] = useState({ date: "", mood: "Neutral", note: "" });
+  // ETF state removed for performance (was 14 useState calls + 3 polling timers)
   const [lang, setLang] = useState("de");
   const [apiStatuses, setApiStatuses] = useState({});
   const [userEmail, setUserEmail] = useState("");
@@ -834,20 +815,6 @@ function App() {
     binance: { status: "ok", ts: Date.now() },
     glassnode: { status: "ok", ts: Date.now() },
     santiment: { status: "ok", ts: Date.now() },
-    etfNews: { status: "ok", ts: Date.now() },
-    etfFlows: { status: "ok", ts: Date.now() },
-    etfFlowsFmp: { status: "ok", ts: Date.now() },
-    etfFlowsSoso: { status: "ok", ts: Date.now() },
-    ETF_FLOWS_FMP: { status: "ok", ts: Date.now() },
-    ETF_FLOWS_SOSO: { status: "ok", ts: Date.now() },
-    ETF_FLOWS_COINSTATS: { status: "ok", ts: Date.now() },
-    ETF_CORR_PRIMARY: { status: "ok", ts: Date.now() },
-    ETF_CORR_FALLBACK: { status: "ok", ts: Date.now() },
-    ETF_HOLDINGS_FMP: { status: "ok", ts: Date.now() },
-    ETF_HOLDINGS_SOSO: { status: "ok", ts: Date.now() },
-    ETF_HOLDINGS_COINSTATS: { status: "ok", ts: Date.now() },
-    ETFFLOWS: { status: "ok", ts: Date.now() },
-    ETFNEWS: { status: "ok", ts: Date.now() },
     MARKET_HTF_PRIMARY: { status: "ok", ts: Date.now() },
     MARKET_HTF_FALLBACK: { status: "ok", ts: Date.now() },
     DERIVATIVES_PRIMARY: { status: "ok", ts: Date.now() },
@@ -999,34 +966,12 @@ function App() {
   const updateApiHealth = useCallback((source, status, message = "") => {
     setApiHealth((prev) => {
       const now = Date.now();
-      const next = { ...prev, [source]: { status, ts: now, message }, lastUpdated: now };
-      const reconcileEtfAggregator = () => {
-        const primary = next.ETF_FLOWS_FMP?.status;
-        const fallbacks = [next.ETF_FLOWS_SOSO?.status, next.ETF_FLOWS_COINSTATS?.status].filter(Boolean);
-        if (primary === "ok") {
-          next.ETFFLOWS = { status: "ok", ts: now };
-        } else if (primary === "error" && fallbacks.length && fallbacks.every((s) => s === "error")) {
-          next.ETFFLOWS = { status: "error", ts: now };
-        } else if (primary) {
-          next.ETFFLOWS = { status: "degraded", ts: now };
-        }
-        if (next.etfNews?.status) {
-          const nStatus = next.etfNews.status;
-          next.ETFNEWS = {
-            status: nStatus === "error" ? "error" : nStatus === "ok" ? "ok" : "degraded",
-            ts: now,
-          };
-        }
-      };
-      reconcileEtfAggregator();
-      return next;
+      return { ...prev, [source]: { status, ts: now, message }, lastUpdated: now };
     });
   }, []);
 
   const cacheRef = useRef(new Map());
   const pollTimer = useRef(null);
-  const newsTimer = useRef(null);
-  const flowsTimer = useRef(null);
 
   const displayPrice = livePrice ?? priceState.value;
   const connectPrice = usePriceStore((state) => state.connect);
@@ -1258,12 +1203,12 @@ function App() {
       if (data?.classification === "EXTREME") {
         addToast({
           type: "warn",
-          message: `🚨 EXTREME VOLATILITÄT: ${safeFixed(Number(data.volatilityScore) || 0, 2)}/100 - Trading pausieren!`,
+          message: ` EXTREME VOLATILITAET: ${safeFixed(Number(data.volatilityScore) || 0, 2)}/100 - Trading pausieren!`,
         });
       } else if (data?.classification === "HIGH" && data?.volatilityScore > 75) {
         addToast({
           type: "info",
-          message: `⚠️ Hohe Volatilität: ${safeFixed(Number(data.volatilityScore) || 0, 2)}/100 - Vorsicht!`,
+          message: `Hohe Volatilitaet: ${safeFixed(Number(data.volatilityScore) || 0, 2)}/100 - Vorsicht!`,
         });
       }
     } catch (err) {
@@ -1406,196 +1351,15 @@ function App() {
     setIsRefreshing(false);
   }, [loadPrice, loadFearGreed, loadOHLC, loadHTF, loadDerivatives, loadVolatility]);
 
-  const fetchEtfNewsProxy = useCallback(async (signal) => {
-    const response = await safeFetch(`/api/etf/news?limit=8`, {
-      serviceName: "ETF_PROXY_NEWS",
-      timeoutMs: 10000,
-      retries: 0,
-      signal,
-      onHealthUpdate: updateApiHealth,
-      onLog: logEvent,
-      uiLevel: "status",
-    });
-    relayProxyHealth(response?.health);
-    if (response?.ok === false) {
-      updateApiHealth("ETFNEWS", response?.status === "disabled" ? "disabled" : "degraded", response?.message || response?.hint);
-      return [];
-    }
-    const list = Array.isArray(response?.data) ? response.data : [];
-    if (!list.length) {
-      updateApiHealth("ETFNEWS", "degraded", "ETF News empty");
-      return [];
-    }
-    return list.slice(0, 8);
-  }, [logEvent, relayProxyHealth, updateApiHealth]);
-
-  const loadEtfNews = useCallback(async (signal) => {
-    setEtfLoading(true);
-    try {
-      const items = await fetchWithCache("news:etf:proxy", fetchEtfNewsProxy, CACHE_TTL, signal);
-      if (signal?.aborted) return;
-      setEtfNews(Array.isArray(items) ? items : []);
-      setEtfError("");
-      updateApiHealth("ETFNEWS", items.length ? "ok" : "degraded");
-    } catch (err) {
-      if (isAbortError(err)) return;
-      console.error("ETF news failed", err);
-      setEtfError(t("fetchFailETF"));
-      logEvent("etfNews", "warn", t("fetchFailETF"));
-      updateApiHealth("ETFNEWS", "error", err?.message);
-    } finally {
-      if (!signal?.aborted) {
-        setEtfLoading(false);
-      }
-    }
-  }, [t, updateApiHealth, logEvent, fetchWithCache, fetchEtfNewsProxy, isAbortError]);
-
-  const fetchEtfFlows = useCallback(async (symbols = etfSelection, signal) => {
-    const params = new URLSearchParams();
-    if (symbols?.length) params.set("symbols", symbols.join(","));
-    const query = params.toString();
-    const url = query ? `/api/etf/flows?${query}` : "/api/etf/flows";
-    const response = await safeFetch(url, {
-      serviceName: "ETF_PROXY_FLOWS_CARD",
-      timeoutMs: 10000,
-      retries: 0,
-      signal,
-      onHealthUpdate: updateApiHealth,
-      onLog: logEvent,
-      onToast: addToast,
-    });
-    relayProxyHealth(response?.health);
-    if (response?.error) throw new Error(response.error);
-    const series = Array.isArray(response?.data) ? response.data : [];
-    if (!series.length) throw new Error("ETF flows empty");
-    const simplified = series
-      .map((s) => {
-        const latest = Array.isArray(s.points) ? [...s.points].filter((p) => p?.date).pop() : null;
-        return {
-          name: s.symbol,
-          date: latest?.date || s.lastUpdated || null,
-          inflow: Number(latest?.netFlowUsd ?? s.sum7dUsd ?? 0),
-        };
-      })
-      .filter((row) => row.name);
-    if (!simplified.length) throw new Error("ETF flows empty");
-    return simplified.slice(0, 6);
-  }, [addToast, etfSelection, logEvent, relayProxyHealth, updateApiHealth]);
-
-  const loadEtfFlows = useCallback(async (signal) => {
-    const symbols = Array.isArray(etfSelection) && etfSelection.length ? [...etfSelection] : undefined;
-    const cacheKey = `flows:etf:${symbols?.join(",") || "default"}`;
-    try {
-      const rows = await fetchWithCache(cacheKey, (fetchSignal) => fetchEtfFlows(symbols, fetchSignal), CACHE_TTL, signal);
-      if (signal?.aborted) return;
-      setEtfFlows(rows);
-      setEtfFlowsError("");
-      updateApiHealth("ETFFLOWS", rows.length ? "ok" : "degraded");
-    } catch (err) {
-      if (isAbortError(err)) return;
-      console.error("ETF flows failed", err);
-      setEtfFlows([]);
-      setEtfFlowsError(t("fetchFailETFFlows"));
-      logEvent("etfFlows", "warn", t("fetchFailETFFlows"));
-      updateApiHealth("ETFFLOWS", "error", err?.message);
-    }
-  }, [etfSelection, t, updateApiHealth, logEvent, fetchWithCache, fetchEtfFlows, isAbortError]);
-
-  const loadEtfFlowData = useCallback(async (symbols = etfSelection, signal) => {
-    if (!symbols?.length) {
-      setEtfFlowSeries([]);
-      return;
-    }
-    setEtfAumLoading(true);
-    try {
-      const data = await fetchEtfFlowSeriesLive(symbols, updateApiHealth, undefined, signal);
-      if (signal?.aborted) return;
-      setEtfFlowSeries(data);
-      setEtfLastUpdated(new Date().toISOString());
-      setEtfAumError("");
-      updateApiHealth("ETF_FLOWS_FMP", data.length ? "ok" : "degraded");
-    } catch (err) {
-      if (isAbortError(err)) return;
-      console.error("ETF flows failed", err);
-      setEtfFlowSeries([]);
-      setEtfAumError("Daten derzeit nicht verfuegbar");
-      updateApiHealth("etfFlows", "error", err.message);
-    } finally {
-      if (!signal?.aborted) {
-        setEtfAumLoading(false);
-      }
-    }
-  }, [etfSelection, updateApiHealth, isAbortError]);
-
-  const loadEtfHoldingsData = useCallback(async (symbols = etfSelection, signal) => {
-    if (!symbols?.length) {
-      setEtfHoldings([]);
-      return;
-    }
-    setEtfHoldingsLoading(true);
-    try {
-      const data = await fetchEtfHoldingsLive(symbols, updateApiHealth, undefined, signal);
-      if (signal?.aborted) return;
-      setEtfHoldings(data);
-      setEtfHoldingsError("");
-      setEtfHoldingsLastUpdated(new Date().toISOString());
-      updateApiHealth("ETF_HOLDINGS_FMP", data.length ? "ok" : "degraded");
-    } catch (err) {
-      if (isAbortError(err)) return;
-      console.error("ETF holdings failed", err);
-      setEtfHoldings([]);
-      setEtfHoldingsError("Daten derzeit nicht verfuegbar");
-      updateApiHealth("ETF_HOLDINGS_FMP", "error", err.message);
-    } finally {
-      if (!signal?.aborted) {
-        setEtfHoldingsLoading(false);
-      }
-    }
-  }, [etfSelection, updateApiHealth, isAbortError]);
-
-  const apiCheckers = useMemo(() => createApiCheckers(), []);
-
-  const loadApiPlaybook = useCallback(async (signal) => {
-    if (signal?.aborted) return;
-    setApiStatuses((prev) =>
-      API_SOURCES.reduce((acc, cur) => {
-        acc[cur.name] = prev[cur.name] || { state: "idle", note: "" };
-        return acc;
-      }, {})
-    );
-    const results = await Promise.all(
-      apiCheckers.map(async (c) => {
-        try {
-          const value = await fetchWithCache(`apicheck:${c.key}`, c.run, CACHE_TTL, signal);
-          return { name: c.name, state: "ok", note: value?.detail || t("reachable"), data: value?.data || "" };
-        } catch (err) {
-          if (isAbortError(err)) return null;
-          const msg = err?.message || "Fehler";
-          const auth = /key|token|401|403/i.test(msg);
-          return {
-            name: c.name,
-            state: auth ? "auth" : "fail",
-            note: auth ? t("apiKeyNeeded") : msg || t("unavailable"),
-            data: "",
-          };
-        }
-      })
-    );
-    if (signal?.aborted) return;
-    const mapped = results.filter(Boolean).reduce((acc, r) => {
-      acc[r.name] = { state: r.state, note: r.note, data: r.data || "" };
-      return acc;
-    }, {});
-    setApiStatuses((prev) => ({ ...prev, ...mapped }));
-  }, [apiCheckers, t, fetchWithCache, isAbortError]);
+  // ETF callbacks and API playbook removed for performance
+  const loadApiPlaybook = useCallback(() => {}, []);
 
   useEffect(() => {
     const controller = new AbortController();
     refreshAll(controller.signal);
-    // Polling fuer Preis und Fear & Greed Index alle 30 Sekunden
     pollTimer.current = setInterval(() => {
       loadPrice(controller.signal);
-      loadFearGreed(controller.signal); // Fear & Greed auch im Polling-Intervall aktualisieren
+      loadFearGreed(controller.signal);
     }, POLL_INTERVAL);
     return () => {
       controller.abort();
@@ -1603,63 +1367,6 @@ function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarket.id]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadEtfNews(controller.signal);
-    newsTimer.current = setInterval(() => loadEtfNews(controller.signal), NEWS_REFRESH);
-    return () => {
-      controller.abort();
-      clearInterval(newsTimer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadEtfFlows(controller.signal);
-    if (flowsTimer.current) clearInterval(flowsTimer.current);
-    flowsTimer.current = setInterval(() => loadEtfFlows(controller.signal), FLOWS_REFRESH);
-    return () => {
-      controller.abort();
-      if (flowsTimer.current) {
-        clearInterval(flowsTimer.current);
-        flowsTimer.current = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etfSelection]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const ETF_REFRESH = 240000;
-    loadEtfFlowData(etfSelection, controller.signal);
-    const timer = setInterval(() => loadEtfFlowData(etfSelection, controller.signal), ETF_REFRESH);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etfSelection]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const HOLDING_REFRESH = 300000;
-    loadEtfHoldingsData(etfSelection, controller.signal);
-    const timer = setInterval(() => loadEtfHoldingsData(etfSelection, controller.signal), HOLDING_REFRESH);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etfSelection]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadApiPlaybook(controller.signal);
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const STRIPE_LINKS = {
     pro_month: "https://billing.stripe.com/p/test_pro_month",
@@ -1785,9 +1492,9 @@ function App() {
       } else if (errorMsg.includes("wrong-password") || errorMsg.includes("invalid-credential")) {
         errorMsg = lang === "de" ? "Falsches Passwort" : "Wrong password";
       } else if (errorMsg.includes("invalid-email")) {
-        errorMsg = lang === "de" ? "Ungültige E-Mail-Adresse" : "Invalid email address";
+        errorMsg = lang === "de" ? "Ungueltige E-Mail-Adresse" : "Invalid email address";
       } else if (errorMsg.includes("too-many-requests")) {
-        errorMsg = lang === "de" ? "Zu viele Versuche. Bitte später erneut versuchen." : "Too many attempts. Please try again later.";
+        errorMsg = lang === "de" ? "Zu viele Versuche. Bitte spaeter erneut versuchen." : "Too many attempts. Please try again later.";
       }
       setAuthError(errorMsg);
     }
@@ -1808,7 +1515,7 @@ function App() {
     // Basic email format check
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      setAuthError(lang === "de" ? "Ungültiges E-Mail-Format" : "Invalid email format");
+      setAuthError(lang === "de" ? "Ungueltiges E-Mail-Format" : "Invalid email format");
       return;
     }
 
@@ -1826,8 +1533,8 @@ function App() {
       await fbSignup(email, password);
       const signupMsg =
         lang === "de"
-          ? "✅ Signup erfolgreich! Du bist jetzt eingeloggt."
-          : "✅ Signup complete! You are now logged in.";
+          ? "âœ… Signup erfolgreich! Du bist jetzt eingeloggt."
+          : "âœ… Signup complete! You are now logged in.";
       setSaveTierMessage(signupMsg);
       setTimeout(() => setSaveTierMessage(""), 3000);
     } catch (err) {
@@ -1838,7 +1545,7 @@ function App() {
       } else if (errorMsg.includes("weak-password")) {
         errorMsg = lang === "de" ? "Passwort zu schwach" : "Password too weak";
       } else if (errorMsg.includes("invalid-email")) {
-        errorMsg = lang === "de" ? "Ungültige E-Mail-Adresse" : "Invalid email address";
+        errorMsg = lang === "de" ? "Ungueltige E-Mail-Adresse" : "Invalid email address";
       }
       setAuthError(errorMsg);
     }
@@ -1871,7 +1578,7 @@ function App() {
     if (localTrialUsed) {
       addToast(
         lang === "de"
-          ? "Der Trial wurde bereits auf diesem Gerät verwendet. Upgrade auf Elite für vollen Zugang."
+          ? "Der Trial wurde bereits auf diesem Geraet verwendet. Upgrade auf Elite fuer vollen Zugang."
           : "Trial was already used on this device. Upgrade to Elite for full access.",
         "warn",
         { allowInfoWarn: true }
@@ -1899,7 +1606,7 @@ function App() {
       setLocalTrialUsed(true);
       addToast(
         lang === "de"
-          ? "Du hast den Trial bereits verwendet. Upgrade auf Elite für vollen Zugang."
+          ? "Du hast den Trial bereits verwendet. Upgrade auf Elite fuer vollen Zugang."
           : "You already used your trial. Upgrade to Elite for full access.",
         "warn",
         { allowInfoWarn: true }
@@ -1916,8 +1623,8 @@ function App() {
         await refreshUserTier();
         addToast(
           lang === "de"
-            ? "🎉 Elite-Trial gestartet! 7 Tage voller Zugang."
-            : "🎉 Elite trial started! 7 days of full access.",
+            ? " Elite-Trial gestartet! 7 Tage voller Zugang."
+            : " Elite trial started! 7 days of full access.",
           "info",
           { allowInfoWarn: true }
         );
@@ -1982,22 +1689,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [highlightAuthCard]);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("journalEntries");
-      if (raw) setJournalEntries(JSON.parse(raw));
-    } catch (err) {
-      console.error("Journal load failed", err);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("journalEntries", JSON.stringify(journalEntries.slice(0, 50)));
-    } catch (err) {
-      console.error("Journal save failed", err);
-    }
-  }, [journalEntries]);
+  // Journal/diary effects removed
 
   useEffect(() => {
     const binanceSymbol = resolveProviderSymbol("binance");
@@ -2450,20 +2142,12 @@ function App() {
 
   // backtestStats handled via state setter to avoid duplicate declarations
 
-  const addJournalEntry = () => {
-    const date = journalForm.date || new Date().toISOString().slice(0, 10);
-    if (!journalForm.note.trim()) return;
-    const entry = { date, mood: journalForm.mood, note: journalForm.note.trim(), ts: Date.now() };
-    setJournalEntries((prev) => [entry, ...prev].slice(0, 50));
-    setJournalForm((p) => ({ ...p, note: "" }));
-  };
-
   if (tierLoading) {
     return <FullScreenLoader message="Session wird geladen..." />;
   }
   const showTrialBanner = isTrialActive && authUser;
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y">
+    <div className="min-h-screen bg-slate-950 text-slate-200">
       {/* Welcome Modal for new users */}
       <WelcomeModal />
 
@@ -2485,7 +2169,7 @@ function App() {
 
       {showTrialBanner ? (
         <div className="bg-gradient-to-r from-amber-500/20 via-amber-600/10 to-amber-500/20 border-b border-amber-500/40 text-amber-100 text-sm px-4 py-2 text-center">
-          <span className="font-semibold">🎉 Elite Trial aktiv!</span> {trialRemainingDays} Tage verbleiben (bis {trialEnd || "-"})
+          <span className="font-semibold"> Elite Trial aktiv!</span> {trialRemainingDays} Tage verbleiben (bis {trialEnd || "-"})
         </div>
       ) : null}
       {toasts.length > 0 ? (
@@ -2505,12 +2189,13 @@ function App() {
               </span>
               <p className="text-sm leading-snug">{t.message}</p>
               <button onClick={() => removeToast(t.id)} className="ml-auto text-xs text-slate-200/80 hover:text-white">
-                ×
+                Ã—
               </button>
             </div>
           ))}
         </div>
       ) : null}
+      <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh] text-slate-400">Loading...</div>}>
       <DashboardLayout
         desktop={
           <div className="flex flex-col gap-4">
@@ -2624,7 +2309,7 @@ function App() {
                           onClick={openAuthModal}
                           className="rounded bg-gradient-to-r from-amber-500 to-amber-600 px-3 py-1.5 text-[11px] font-semibold text-amber-950 hover:from-amber-400 hover:to-amber-500 transition-colors"
                         >
-                          {lang === "de" ? "🔐 Anmelden" : "🔐 Sign In"}
+                          {lang === "de" ? "ðŸ” Anmelden" : "ðŸ” Sign In"}
                         </button>
                         {!isTrialBlocked && (
                           <button
@@ -2632,7 +2317,7 @@ function App() {
                             onClick={handleStartTrial}
                             className="rounded bg-gradient-to-r from-cyan-500 to-cyan-600 px-3 py-1.5 text-[11px] font-semibold text-cyan-950 hover:from-cyan-400 hover:to-cyan-500 transition-colors"
                           >
-                            {lang === "de" ? "🎁 7 Tage gratis" : "🎁 7 Days Free"}
+                            {lang === "de" ? " 7 Tage gratis" : " 7 Days Free"}
                           </button>
                         )}
                       </>
@@ -2866,7 +2551,7 @@ function App() {
                 {/* === NEUE PRO-CARDS === */}
                 <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
                   <section
-                    className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
+                    className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
                     aria-label="Market Regime Detector"
                     itemScope
                     itemType="https://schema.org/FinancialProduct"
@@ -2896,7 +2581,7 @@ function App() {
                   </section>
 
                   <section
-                    className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
+                    className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
                     aria-label="Smart Money Flow"
                     itemScope
                     itemType="https://schema.org/FinancialProduct"
@@ -2937,7 +2622,7 @@ function App() {
                   </section>
 
                   <section
-                    className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
+                    className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[260px] flex flex-col justify-between"
                     aria-label="Liquidity Heatmap"
                     itemScope
                     itemType="https://schema.org/FinancialProduct"
@@ -2994,7 +2679,7 @@ function App() {
                       lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                     >
                       <section
-                        className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between gap-4 overflow-hidden"
+                        className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col justify-between gap-4 overflow-hidden"
                         aria-label="On-Chain Metrics"
                         itemScope
                         itemType="https://schema.org/Dataset"
@@ -3062,40 +2747,8 @@ function App() {
                       }
                       lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                     >
-                      {/* New Social Sentiment Card with real-time data */}
-                      <SocialSentimentCard
-                        onSentimentChange={(newSentiment) => {
-                          // Update sentiment metrics for signal calculation
-                          if (newSentiment?.combinedScore !== undefined) {
-                            setSentimentMetrics(prev => ({
-                              ...prev,
-                              score: newSentiment.combinedScore,
-                              label: newSentiment.combinedLabel,
-                              longShortRatio: newSentiment.longShortRatio,
-                              topTraderRatio: newSentiment.topTraderLongShortRatio,
-                              updatedAt: Date.now(),
-                            }));
-                          }
-                        }}
-                        minTier="pro"
-                      />
-                    </Paywall>
-
-                    <Paywall
-                      minTier="pro"
-                      userTier={effectiveTier}
-                      isTrialActive={trialActive}
-                      trialEndText={
-                        trialActive
-                          ? `7-Tage-Test aktiv. Ende: ${trialEnd || ""}`
-                          : trialExpired
-                            ? "Test abgelaufen. Bitte upgraden."
-                            : t("proRequired")
-                      }
-                      lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
-                    >
                       <section
-                        className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
+                        className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
                         aria-label="Correlation Heatmap"
                         itemScope
                         itemType="https://schema.org/Dataset"
@@ -3150,7 +2803,7 @@ function App() {
                       lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                     >
                       <section
-                        className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
+                        className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 min-h-[280px] flex flex-col gap-3 overflow-hidden"
                         aria-label="Funding Rates"
                         itemScope
                         itemType="https://schema.org/Dataset"
@@ -3248,123 +2901,6 @@ function App() {
                 />
                 <RiskTerminal selectedAssetId={selectedAsset} balance={DEFAULT_BALANCE} />
               </div>
-            </div>
-            <div className="mt-6">
-              <Card title={t("dataIntegrityTitle")} icon={Shield}>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <div className="rounded-xl bg-slate-800/50 p-3">
-                    <p className="text-sm font-semibold text-slate-100">{t("diFallback")}</p>
-                    <p className="text-xs text-slate-400">{t("dataIntegrity1")}</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-800/50 p-3">
-                    <p className="text-sm font-semibold text-slate-100">{t("diResilience")}</p>
-                    <p className="text-xs text-slate-400">{t("dataIntegrity2")}</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-800/50 p-3">
-                    <p className="text-sm font-semibold text-slate-100">{t("diIndicators")}</p>
-                    <p className="text-xs text-slate-400">{t("dataIntegrity3")}</p>
-                  </div>
-                </div>
-              </Card>
-            </div>
-            <div className="mt-4">
-              <Card title={t("diary")} icon={TrendingUp} actions={<span className="text-xs text-slate-400">Memory &amp; Notes</span>}>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <div className="space-y-2 text-sm text-slate-200">
-                    <label className="flex flex-col gap-1 text-xs text-slate-400">
-                      Datum
-                      <input
-                        type="date"
-                        value={journalForm.date}
-                        onChange={(e) => setJournalForm((p) => ({ ...p, date: e.target.value }))}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-xs text-slate-400">
-                      Stimmung
-                      <select
-                        value={journalForm.mood}
-                        onChange={(e) => setJournalForm((p) => ({ ...p, mood: e.target.value }))}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-                      >
-                        <option>Fearful</option>
-                        <option>Neutral</option>
-                        <option>Confident</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="md:col-span-2 space-y-2 text-sm text-slate-200">
-                    <label className="flex flex-col gap-1 text-xs text-slate-400">
-                      Notiz
-                      <textarea
-                        value={journalForm.note}
-                        onChange={(e) => setJournalForm((p) => ({ ...p, note: e.target.value }))}
-                        rows={3}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-                        placeholder="Setup, Emotion, Plan..."
-                      />
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={addJournalEntry}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-emerald-950 hover:bg-emerald-400"
-                      >
-                        Speichern
-                      </button>
-                      <span className="text-xs text-slate-400">Autosave (local) - max 50 Eintraege</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {journalEntries.length > 0 ? (
-                    journalEntries.slice(0, 6).map((e) => (
-                      <div key={e.ts} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-semibold">{e.date}</span>
-                          <span
-                            className={`rounded-full px-2 py-1 text-[10px] font-semibold ${e.mood === "Confident"
-                              ? "bg-emerald-500/10 text-emerald-200"
-                              : e.mood === "Fearful"
-                                ? "bg-red-500/10 text-red-200"
-                                : "bg-slate-800 text-slate-200"
-                              }`}
-                          >
-                            {e.mood}
-                          </span>
-                        </div>
-                        <p className="text-slate-300">{e.note}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-400">Noch keine Eintraege.</p>
-                  )}
-                </div>
-              </Card>
-            </div>
-            <div className="mt-4">
-              <ResearchCenter
-                t={t}
-                etfSelection={etfSelection}
-                setEtfSelection={setEtfSelection}
-                etfFlowSeries={etfFlowSeries}
-                etfAumLoading={etfAumLoading}
-                etfAumError={etfAumError}
-                etfLastUpdated={etfLastUpdated}
-                etfHoldings={etfHoldings}
-                etfHoldingsLoading={etfHoldingsLoading}
-                etfHoldingsError={etfHoldingsError}
-                etfHoldingsLastUpdated={etfHoldingsLastUpdated}
-                etfFlows={etfFlows}
-                etfFlowsError={etfFlowsError}
-                etfNews={etfNews}
-                etfLoading={etfLoading}
-                etfError={etfError}
-                updateApiHealth={updateApiHealth}
-                Card={Card}
-                LazyRender={LazyRender}
-                Skeleton={Skeleton}
-                formatUSD={formatUSD}
-              />
             </div>
           </div>
         }
@@ -3498,7 +3034,7 @@ function App() {
                         onClick={openAuthModal}
                         className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-3 text-sm font-semibold text-amber-950 hover:from-amber-400 hover:to-amber-500 transition-colors"
                       >
-                        {lang === "de" ? "🔐 Anmelden / Registrieren" : "🔐 Sign In / Sign Up"}
+                        {lang === "de" ? "ðŸ” Anmelden / Registrieren" : "ðŸ” Sign In / Sign Up"}
                       </button>
                       {!isTrialBlocked && (
                         <button
@@ -3506,7 +3042,7 @@ function App() {
                           onClick={handleStartTrial}
                           className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-600 px-4 py-3 text-sm font-semibold text-cyan-950 hover:from-cyan-400 hover:to-cyan-500 transition-colors"
                         >
-                          {lang === "de" ? "🎁 7 Tage Elite gratis testen" : "🎁 Try 7 Days Elite Free"}
+                          {lang === "de" ? " 7 Tage Elite gratis testen" : " Try 7 Days Elite Free"}
                         </button>
                       )}
                     </div>
@@ -3515,7 +3051,7 @@ function App() {
                   {saveTierMessage ? <span className="text-[11px] text-emerald-300">{saveTierMessage}</span> : null}
                   {trialExpired && trialStart ? (
                     <span className="text-[11px] text-amber-300">
-                      {lang === "de" ? "Trial abgelaufen. Upgrade für vollen Zugang." : "Trial expired. Upgrade for full access."}
+                      {lang === "de" ? "Trial abgelaufen. Upgrade fuer vollen Zugang." : "Trial expired. Upgrade for full access."}
                     </span>
                   ) : null}
                 </div>
@@ -3766,7 +3302,7 @@ function App() {
                     lockText={trialExpired ? "Test abgelaufen. Bitte upgraden." : t("proRequired")}
                   >
                     <section
-                      className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
+                      className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
                       aria-label="On-Chain Metrics"
                       itemScope
                       itemType="https://schema.org/Dataset"
@@ -3816,32 +3352,8 @@ function App() {
                     </section>
                   </Paywall>
 
-                  <ResearchCenter
-                    t={t}
-                    etfSelection={etfSelection}
-                    setEtfSelection={setEtfSelection}
-                    etfFlowSeries={etfFlowSeries}
-                    etfAumLoading={etfAumLoading}
-                    etfAumError={etfAumError}
-                    etfLastUpdated={etfLastUpdated}
-                    etfHoldings={etfHoldings}
-                    etfHoldingsLoading={etfHoldingsLoading}
-                    etfHoldingsError={etfHoldingsError}
-                    etfHoldingsLastUpdated={etfHoldingsLastUpdated}
-                    etfFlows={etfFlows}
-                    etfFlowsError={etfFlowsError}
-                    etfNews={etfNews}
-                    etfLoading={etfLoading}
-                    etfError={etfError}
-                    updateApiHealth={updateApiHealth}
-                    Card={Card}
-                    LazyRender={LazyRender}
-                    Skeleton={Skeleton}
-                    formatUSD={formatUSD}
-                  />
-
                   <section
-                    className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
+                    className="bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl p-6 flex flex-col gap-4"
                     aria-label="Sentiment Analysis"
                     itemScope
                     itemType="https://schema.org/Dataset"
@@ -3924,6 +3436,7 @@ function App() {
           </>
         }
       />
+      </Suspense>
       <div className="mt-8 text-center text-xs text-slate-500">{t("madeBy")}</div>
       {showTutorial ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur">

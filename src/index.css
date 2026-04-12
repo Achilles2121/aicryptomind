@@ -139,45 +139,21 @@ body {
    COMPONENT STYLES
    ============================================ */
 
-/* Card with Animated Background */
+/* Card with Animated Background - simplified for GPU performance */
 .card-bg-animate {
   position: relative;
   overflow: hidden;
 }
 
-.card-bg-animate::before {
-  content: "";
-  position: absolute;
-  inset: -20px;
-  z-index: 0;
-  background: linear-gradient(
-    135deg,
-    rgba(34, 211, 238, 0.12),
-    rgba(15, 23, 42, 0.05),
-    rgba(16, 185, 129, 0.12)
-  );
-  background-size: 300% 300%;
-  filter: blur(40px);
-  border-radius: 24px;
-  animation: gradient-move 15s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.card-bg-animate > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* Glass Card Effect */
+/* Glass Card Effect - no backdrop-blur for scroll performance */
 .glass-card {
-  background: rgba(30, 41, 59, 0.6);
-  backdrop-filter: blur(12px);
+  background: rgba(30, 41, 59, 0.85);
   border: 1px solid rgba(71, 85, 105, 0.3);
   border-radius: var(--border-radius);
 }
 
 .glass-card:hover {
-  background: rgba(30, 41, 59, 0.8);
+  background: rgba(30, 41, 59, 0.95);
   border-color: rgba(100, 116, 139, 0.4);
 }
 
@@ -286,6 +262,19 @@ button, a, [role="button"], .touch-target {
 .scroll-smooth {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+}
+
+/* GPU-optimized scroll container */
+html, body {
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+/* CSS containment for cards - prevents layout thrashing */
+.trading-card,
+.glass-card,
+section[aria-label] {
+  contain: layout style;
 }
 
 /* ============================================
